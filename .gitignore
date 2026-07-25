@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# database (SQLite の実データ。スキーマは prisma/migrations で管理する)
+*.db
+*.db-journal
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -39,3 +43,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
