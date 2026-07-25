@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 参加プレイヤーのモデル
+model Player {
+  id         Int     @id @default(autoincrement())
+  entryNo    Int     @unique
+  paperRank  Int
+  school     String
+  grade      String
+  name       String
+
+  // 2nd Round
+  secondRoundGroupNumber Int?
+  secondRoundPoint Int @default(0) // アドバンテージを含む通算ポイント（正解数ではない）
+  secondRoundWrongCount Int @default(0)
+  secondRoundDoubleChance Boolean @default(false)
+  secondRoundRank Int @default(0) // 勝抜→正の数、失格→-1、どちらでもない→0
+
+  // 3rd Round
+  thirdRoundCourse String?
+}
+
+// 大会の進行ステータスモデル
+model Match {
+  id           Int      @id @default(autoincrement())
+  currentRound Int      @default(1) // 現在のラウンド
+  currentSet   Int      @default(1) // 現在のセット
+  status       String   @default("waiting") // 進行状態 (例: "waiting", "playing", "finished")
+  updatedAt    DateTime @updatedAt // 最終更新日時
+}
+
+// 2nd Round の履歴（スナップショット）保存モデル
+model SecondRoundHistory {
+  id                     Int      @id @default(autoincrement())
+  createdAt              DateTime @default(now())
+  secondRoundGroupNumber Int      // どの組（1〜4）の履歴かを識別する
+  snapshot               String   // その組の12名分のJSONスナップショットデータ
+}
