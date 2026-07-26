@@ -78,10 +78,16 @@ async function main() {
   }
 
   // 1. 既存データをリセット
-  //    Player より先に履歴を消す（2nd Round の Undo 用スナップショット）
+  //    Player より先に履歴を消す（Undo 用スナップショット）
   await prisma.secondRoundHistory.deleteMany();
+  await prisma.thirdRoundHistory.deleteMany();
   await prisma.player.deleteMany();
-  await prisma.match.deleteMany();
+
+  // ThirdRoundCourse は消さない。
+  // 4行はマイグレーションで投入したマスタデータであり、
+  // Player.thirdRoundCourseName の参照先でもあるため。
+  // 抽選結果（playOrder）だけ初期化する。
+  await prisma.thirdRoundCourse.updateMany({ data: { playOrder: null } });
 
   // 2. 選手を登録
   //    組分けとアドバンテージは /admin の CSV アップロード（app/api/firstRound）と同じ規則で決める
@@ -108,10 +114,17 @@ async function main() {
     console.log(`  第${group}組 (${members.length}名): ${summary}`);
   }
 
-  // 3. 大会の初期状態
-  await prisma.match.create({
-    data: { currentRound: 1, currentSet: 1, status: 'waiting' },
-  });
+  // 3. コースの投入状況を確認する
+  //    マイグレーションで4行が入っているはずなので、欠けていれば警告する
+  const courses = await prisma.thirdRoundCourse.findMany({ orderBy: { id: 'asc' } });
+  console.log(`  3rd Round コース: ${courses.map(c => c.name).join(' / ') || '(なし)'}`);
+
+  if (courses.length !== 4) {
+    console.warn(
+      `  警告: ThirdRoundCourse が ${courses.length} 行しかありません。` +
+      ' マイグレーションの INSERT が適用されているか確認してください。'
+    );
+  }
 
   console.log('Seeding finished.');
 }

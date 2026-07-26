@@ -143,11 +143,11 @@ export default function AdminThirdRound(props: Props) {
                                             <div className="w-full pt-1.5 border-t border-zinc-100 dark:border-zinc-700/50 flex flex-col items-center gap-1">
                                                 <span className="text-[8px] font-mono text-zinc-400">P:{p.paperRank}位</span>
                                                 <span className={`px-1 py-0.5 rounded text-[8px] font-bold w-full text-center ${
-                                                    p.thirdRoundCourse 
+                                                    p.thirdRoundCourseName
                                                         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                                                         : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
                                                 }`}>
-                                                    {p.thirdRoundCourse || "未選択"}
+                                                    {p.thirdRoundCourseName || "未選択"}
                                                 </span>
                                             </div>
                                         </div>

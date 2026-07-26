@@ -30,16 +30,28 @@ model Player {
   secondRoundRank Int @default(0) // 勝抜→正の数、失格→-1、どちらでもない→0
 
   // 3rd Round
-  thirdRoundCourse String?
+  // 所属コース。ThirdRoundCourse.name への外部キー。
+  // 名前を参照しているため、コース名の表示に include は不要（文字列がそのまま入る）。
+  thirdRoundCourseName String?
+  thirdRoundCourse     ThirdRoundCourse? @relation(fields: [thirdRoundCourseName], references: [name])
+
+  thirdRoundCorrectCount Int @default(0) // 正解数（Freeze 10 / Swedish 10 / 10 by 10 で使用）
+  thirdRoundWrongCount   Int @default(0) // 誤答回数（4コース共通）
+  thirdRoundUpDownPoint  Int @default(0) // 10 up-down: 現在ポイント（誤答で0に戻る）
+  thirdRoundSwedishCross Int @default(0) // Swedish 10: ×の数（10以上で失格）
+  thirdRoundFreezeRest   Int @default(0) // Freeze 10: 残り休み問数
+  thirdRoundRank         Int @default(0) // 勝抜→正の数、失格→-1、どちらでもない→0
+
+  // 10 by 10 の総合ポイントは thirdRoundCorrectCount * (10 - thirdRoundWrongCount) で
+  // 導出できるため、列として保持しない。
 }
 
-// 大会の進行ステータスモデル
-model Match {
-  id           Int      @id @default(autoincrement())
-  currentRound Int      @default(1) // 現在のラウンド
-  currentSet   Int      @default(1) // 現在のセット
-  status       String   @default("waiting") // 進行状態 (例: "waiting", "playing", "finished")
-  updatedAt    DateTime @updatedAt // 最終更新日時
+// 3rd Round のコース（4行固定。マイグレーションで投入する）
+model ThirdRoundCourse {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  playOrder Int?     // 抽選で決まる実施順 1〜4。抽選前は null
+  players   Player[] // Prisma の文法上必須。DBの列にはならない
 }
 
 // 2nd Round の履歴（スナップショット）保存モデル
@@ -48,4 +60,12 @@ model SecondRoundHistory {
   createdAt              DateTime @default(now())
   secondRoundGroupNumber Int      // どの組（1〜4）の履歴かを識別する
   snapshot               String   // その組の12名分のJSONスナップショットデータ
+}
+
+// 3rd Round の履歴（スナップショット）保存モデル
+model ThirdRoundHistory {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  course    String   // どのコースの履歴かを識別する
+  snapshot  String   // そのコースの5名分のJSONスナップショットデータ
 }

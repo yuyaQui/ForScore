@@ -89,11 +89,11 @@ export default function MainThirdRound(props: Props) {
                                                     Paper: {p.paperRank}位
                                                 </span>
                                                 <span className={`px-2 py-0.5 rounded text-[9px] font-black truncate w-full text-center ${
-                                                    p.thirdRoundCourse 
+                                                    p.thirdRoundCourseName
                                                         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                                                         : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
                                                 }`}>
-                                                    {p.thirdRoundCourse || "未選択"}
+                                                    {p.thirdRoundCourseName || "未選択"}
                                                 </span>
                                             </div>
                                         </div>
