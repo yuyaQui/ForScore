@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Socket } from "socket.io-client";
-const { DEFAULT_COUNTDOWN } = require("../../../constants.js");
+// CommonJS の constants.js を名前付き import で読む（AdminFirstRound.tsx と同じ）
+import { DEFAULT_COUNTDOWN } from "../../../constants.js";
 
 type Props = {
     socket: Socket | null;

@@ -1,15 +1,16 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
+import type { Player, SecondRoundState } from "@/lib/types";
 
 type Props = {
-    players: any[],
+    players: Player[],
     socket: Socket | null,
-    setPlayers: (players: any[]) => void
+    setPlayers: (players: Player[]) => void
 }
 
 export default function MainSecondRound(props: Props) {
     const { players, socket, setPlayers } = props
-    const [secondRoundState, setSecondRoundState] = useState({ group: 1, view: 'turnOver' });
+    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>({ group: 1, view: 'turnOver' });
 
     useEffect(() => {
         fetch('/api/secondRound/loadPlayers')
@@ -20,11 +21,13 @@ export default function MainSecondRound(props: Props) {
                 }
             });
         if (socket) {
-            socket.on("update_second_round_state", (state: any) => {
+            socket.on("update_second_round_state", (state: SecondRoundState) => {
                 setSecondRoundState(state);
             });
         }
-    }, [socket])
+        // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
+        // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。
+    }, [socket, setPlayers])
 
     const groupPlayers = players
         .filter(p => {

@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { Socket } from "socket.io-client";
-const { DEFAULT_COUNTDOWN } = require("../../../constants.js");
+// constants.js は CommonJS（module.exports）だが、名前付き import で読める。
+// バンドラが module.exports のオブジェクトを静的に解析し、tsconfig の allowJs によって
+// tsc も型（number）を推論できる。server/ 側は CommonJS のまま require し続ける。
+import { DEFAULT_COUNTDOWN } from "../../../constants.js";
 
 interface Props {
     socket: Socket | null,

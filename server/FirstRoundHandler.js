@@ -1,4 +1,3 @@
-const { count } = require("node:console");
 const { DEFAULT_COUNTDOWN } = require("../constants.js");
 
 let countdown = DEFAULT_COUNTDOWN;

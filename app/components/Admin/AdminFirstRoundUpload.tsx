@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 export default function AdminFirstRoundUpload() {
-    const [csvData, setCsvData] = useState<any[][]>([]);
+    // CSV を行×セルに分解したもの。row.split(',') の結果なのでセルは常に文字列
+    const [csvData, setCsvData] = useState<string[][]>([]);
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

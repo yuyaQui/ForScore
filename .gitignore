@@ -45,3 +45,6 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# 作業ログ（セッションごとの個人メモ。恒久的なルールは AGENTS.md に書く）
+/docs/work-log.md

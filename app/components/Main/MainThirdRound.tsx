@@ -1,10 +1,11 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
+import type { Player } from "@/lib/types";
 
 type Props = {
-    players: any[],
+    players: Player[],
     socket: Socket | null,
-    setPlayers: (players: any[]) => void
+    setPlayers: (players: Player[]) => void
 }
 
 type Course = {
@@ -57,7 +58,9 @@ export default function MainThirdRound(props: Props) {
                 socket.off("update_third_round_courses", handleCoursesUpdate);
             };
         }
-    }, [socket]);
+        // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
+        // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。
+    }, [socket, setPlayers]);
 
     // ---- 表示に使う値を導出する（Admin と同じ規則）----
 

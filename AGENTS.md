@@ -35,8 +35,9 @@ npx prisma db seed   # test_players.csv から48名を投入
 ## 次にやること
 
 ```
-工程0   lint をゼロにする  ← ここから
-工程7-1 15分タイマー（サーバ側、開始/停止/リセット、Main 表示）
+工程0   lint をゼロにする  … 完了（30件 → 0件）
+工程0-2 socket の所有構造を直す（set-state-in-effect の保留分）
+工程7-1 15分タイマー（サーバ側、開始/停止/リセット、Main 表示）  ← ここから
 工程7-2 スコア更新の土台（正誤ボタン、Undo、コース共通部分）
 工程7-3 10 up-down
 工程7-4 10 by 10
@@ -49,24 +50,44 @@ npx prisma db seed   # test_players.csv から48名を投入
 
 各コースのルールと判定基準は `docs/3rd-round-design.md` の3章にある。
 
-### 工程0: lint をゼロにする
+### 工程0: lint をゼロにする（完了）
 
-`npm run lint` は**まだ一度も通っていない**（30件）。このままでは「lint が通るか」を変更の妥当性の目安に使えないため、先に一度ゼロにする。
+`npm run lint` が一度も通っていなかった（30件）ため、「lint が通るか」を変更の妥当性の目安に使えるようゼロにした。以下は次に触る人が壊さないための記録。
 
-クイズ実施フェーズの前にやる理由は、**共有の `Player` 型を先に用意したいから**。これから4コース分の選手状態を操作するコードを書くので、`any[]` のまま書いてから型を入れるより、型がある状態で書いた方が誤りを型検査で捕まえられる。
+**eslint の対象範囲**
 
-内容は4つ。
+`eslint.config.mjs` の配列末尾に override を置き、`server.js` / `server/**/*.js` / `constants.js` に対して `@typescript-eslint/no-require-imports` **だけ**を無効化した。これらは意図的に CommonJS で書いている（`node server.js` で直接起動するため）が、`eslint-config-next/typescript` が `files` を絞らずにルールを入れているため `.js` まで対象になっていた。
 
-1. **`Player` 型を定義する**（`no-explicit-any` 13件）
-   コンポーネントが `players: any[]` で受けている。Prisma の生成型を使うか、`lib/` に共有型を置く
-2. **eslint の対象範囲を直す**（`no-require-imports` のうち `server/` 分 11件）
-   `server.js` と `server/*.js` は意図的に CommonJS で書いている。`eslint.config.mjs` に override を足して、これらに TS 向けルールを当てない。**コードを直すのではなく設定を直す**
-3. **`constants.js` の読み込み方を直す**（残り2件）
-   `AdminFirstRound.tsx` と `MainFirstRound.tsx` が TSX の中で `require()` している。`import` に置き換える
-4. **`setSocket` を effect 内で呼んでいる件**（`react-hooks/set-state-in-effect` 2件）
-   `app/admin/page.tsx` と `app/main/page.tsx`。Socket.IO + React の定番パターンだが React 19 世代のルールが禁止している。`useState` を `useRef` に変える改修になり、`socket` は各コンポーネントへ props で渡り依存配列にも入っているため**影響範囲が広い**。工程0の最後に分けて扱い、大きすぎる場合は `eslint-disable` で保留してよい
+`globalIgnores` で `server/` を除外**しない**こと。他のルールは効かせ続けたい（実際に未使用の `require("node:console")` を検出した実績がある）。flat config は「後に書いた設定が勝つ」ので、override は `nextTs` より後ろに置く必要がある。ファイルごとの実効設定は `npx eslint --print-config <file>` で確認できる。
 
-`exhaustive-deps` の警告2件（`setPlayers` が依存配列にない）も一緒に片付ける。
+**共有型の置き場は `lib/types.ts`**
+
+Prisma の `Player` / `ThirdRoundCourse` はここから再エクスポートしている。**`app/` 配下から `@prisma/client` を直接 import しないこと。** `import` に `type` を書き忘れると DB クライアント本体をブラウザ側へ読み込むことになるため、参照を1箇所に閉じている。
+
+`Player` は現在すべての列が `Int` / `String` / `Boolean` なので、API のレスポンス（JSON）を経由しても型がずれない。**`DateTime` 列を足すと `Date` が `string` になってずれる**ので、そのときは `lib/types.ts` 側で API 用の型を再定義する。`SecondRoundHistory` / `ThirdRoundHistory` は既に `createdAt` を持つため、Undo 履歴を画面に出すときはこれに該当する。
+
+**`constants.js` の読み込み**
+
+TSX 側は `import { DEFAULT_COUNTDOWN } from "../../../constants.js"` で読む。CommonJS のファイルだが、`module.exports` のオブジェクトを静的解析できるため名前付き import が通り、tsconfig の `allowJs` により tsc も型を推論する。`server/` 側は `require` のまま。
+
+**積み残し**
+
+- `res.json()` が `any` を返すため、`setPlayers(data.allPlayers)` の行は型検査されていない。API のレスポンス型を定義すれば塞げる
+- `Course` / `ThirdRoundState` / `AssignedPlayer` が Admin と Main で重複定義されている。`lib/types.ts` へ寄せられる（`Course` は Prisma の `ThirdRoundCourse` で置き換え可能）
+
+### 工程0-2: socket の所有構造を直す
+
+`app/admin/page.tsx` と `app/main/page.tsx` で `react-hooks/set-state-in-effect` を `eslint-disable` で保留している。**このコメントを消すだけで済ませないこと。**
+
+現状は `socket` を `useState` で持ち、effect の中で `setSocket()` している。子コンポーネントへ props で渡すためこの形が必要で、`useRef` にすると値の更新で再描画が起きず子に socket が永久に届かない。
+
+ただし「初回レンダー（socket = null）→ effect → setState → 再レンダー（socket = Socket）」という連鎖が起き、子の依存配列が `[socket]` であるため **`MainSecondRound` / `MainThirdRound` / `AdminThirdRound` の初期 fetch がマウント時に2回走っている**（GET なので壊れはしない）。
+
+対応案は `lib/socket.ts` にモジュールレベルのシングルトンを置き、`useMemo(getSocket, [])` で取得する形。`socket` が初回レンダー時点で存在するので `setSocket` が消え、props の型が `Socket | null` → `Socket` になって各コンポーネントの `if (socket)` ガードも不要になる。
+
+- 波及するのは `socket` を props で受けている7コンポーネント + ページ2つ = 9ファイル
+- 共有インスタンスになるため、アンマウント時の `disconnect()` を「listener だけ外す」へ設計し直す必要がある
+- `socket.off("イベント名")` をハンドラ指定なしで呼んでいる箇所があり、そのイベントの listener を全部消してしまう。あわせて整理する
 
 ---
 

@@ -6,17 +6,28 @@ import MainText from "../components/Main/MainText";
 import MainFirstRound from "../components/Main/MainFirstRound";
 import MainSecondRound from "../components/Main/MainSecondRound";
 import MainThirdRound from "../components/Main/MainThirdRound";
+// import type は型だけを読み込む書き方で、ビルド時に削除される
+import type { Player } from "@/lib/types";
 
 export default function MainPage() {
   // 複数の画面で使う情報の設定
   const [socket, setSocket] = useState<Socket | null>(null);
   const [currentMode, setCurrentMode] = useState("waiting");
   const [displayText, setDisplayText] = useState("まだ変更されていません");
-  const [players, setPlayers] = useState<any[]>([]); // プレイヤー一覧状態
+  const [players, setPlayers] = useState<Player[]>([]); // プレイヤー一覧状態
 
   useEffect(() => {
     // サーバーと同じホスト・ポートに接続
     const newSocket = io();
+    // socket を state に入れているのは、子コンポーネントへ props で渡すため。
+    // useRef にすると値の更新で再描画が起きず、子に socket が永久に届かない。
+    //
+    // このルールが指摘しているのは「初回レンダー → effect → setState → 再レンダー」
+    // という連鎖レンダー。実害として MainSecondRound / MainThirdRound の初期 fetch が
+    // マウント時に2回走っているが、GET なので壊れはしない。
+    //
+    // 抜本対応（socket をモジュールレベルの1個にする）は工程0-2 で扱う。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSocket(newSocket);
 
     // モード切り替え
@@ -30,7 +41,7 @@ export default function MainPage() {
     });
 
     // サーバーからのプレイヤーデータを受け取る
-    newSocket.on("update_players", (allPlayers: any[]) => {
+    newSocket.on("update_players", (allPlayers: Player[]) => {
       setPlayers(allPlayers);
     });
 

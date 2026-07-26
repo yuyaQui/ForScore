@@ -1,5 +1,6 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
+import type { Player } from "@/lib/types";
 
 type Props = {
     socket: Socket | null;
@@ -37,7 +38,7 @@ export default function AdminThirdRound(props: Props) {
         quizOrder: 1
     });
     const [courses, setCourses] = useState<Course[]>([]);
-    const [winners, setWinners] = useState<any[]>([]);
+    const [winners, setWinners] = useState<Player[]>([]);
     // プレートを掲げていた人。Admin のローカル状態で、確定時にサーバへ送る
     const [raisedIds, setRaisedIds] = useState<number[]>([]);
     // 直前に確定した結果の内訳（掲げた／強制出場）
@@ -61,7 +62,7 @@ export default function AdminThirdRound(props: Props) {
         if (socket) {
             const handleStateUpdate = (state: ThirdRoundState) => setThirdRoundState(state);
 
-            const handlePlayersUpdate = (allPlayers: any[]) => {
+            const handlePlayersUpdate = (allPlayers: Player[]) => {
                 setWinners(
                     allPlayers
                         .filter(p => p.secondRoundRank >= 1)

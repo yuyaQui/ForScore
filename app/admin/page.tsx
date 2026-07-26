@@ -15,6 +15,15 @@ export default function AdminPage() {
   // サーバー接続時の処理（ここだけ socket が使えない）
   useEffect(() => {
     const socketConnection = io();
+    // socket を state に入れているのは、子コンポーネントへ props で渡すため。
+    // useRef にすると値の更新で再描画が起きず、子に socket が永久に届かない。
+    //
+    // このルールが指摘しているのは「初回レンダー → effect → setState → 再レンダー」
+    // という連鎖レンダー。実害として子の初期 fetch がマウント時に2回走っているが、
+    // GET なので壊れはしない。
+    //
+    // 抜本対応（socket をモジュールレベルの1個にする）は工程0-2 で扱う。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSocket(socketConnection);
 
     socketConnection.on("mode_update", (newMode: string) => {

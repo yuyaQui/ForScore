@@ -1,5 +1,6 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
+import type { Player, SecondRoundState } from "@/lib/types";
 
 type Props = {
     socket: Socket | null;
@@ -7,8 +8,8 @@ type Props = {
 
 export default function AdminSecondRound(props: Props) {
     const { socket } = props;
-    const [players, setPlayers] = useState<any[]>([]);
-    const [secondRoundState, setSecondRoundState] = useState({ group: 1, view: 'turnOver' });
+    const [players, setPlayers] = useState<Player[]>([]);
+    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>({ group: 1, view: 'turnOver' });
 
     useEffect(() => {
         // プレイヤーデータを持ってくる
@@ -18,11 +19,11 @@ export default function AdminSecondRound(props: Props) {
 
         if (socket) {
             // プレイヤーデータ更新命令が来た時の処理
-            socket.on("update_players", (allPlayers: any[]) => {
+            socket.on("update_players", (allPlayers: Player[]) => {
                 setPlayers(allPlayers);
             });
             // ラウンド状態更新命令が来た時の処理
-            socket.on("update_second_round_state", (state: any) => {
+            socket.on("update_second_round_state", (state: SecondRoundState) => {
                 setSecondRoundState(state);
             });
             return () => {
