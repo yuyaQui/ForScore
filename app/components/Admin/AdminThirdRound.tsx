@@ -76,12 +76,13 @@ export default function AdminThirdRound(props: Props) {
             // 抽選結果はここで受け取る。
             // fetch の戻り値を直接 setState しないのは、更新経路を1本に保つため。
             // Socket 経由に統一すると Admin と Main が同じデータを同じタイミングで受け取る。
-            const handleCoursesUpdate = (payload: { courses: Course[], allPlayers?: any[] }) => {
-                setCourses(payload.courses);
+            //
+            // このイベントが運ぶのはコース情報だけ。選手データは update_players で受け取る。
+            // 経路を種別ごとに1本に保たないと、片方の画面だけが更新される事故が起きる。
+            const handleCoursesUpdate = (nextCourses: Course[]) => {
+                setCourses(nextCourses);
                 setRaisedIds([]);       // 新しいコースに移るのでチェックを外す
                 setLastAssigned([]);    // 前のコースの内訳表示も消す
-                // リセット時は所属コースもクリアされるので、選手データも更新する
-                if (payload.allPlayers) handlePlayersUpdate(payload.allPlayers);
             };
 
             socket.on("update_third_round_state", handleStateUpdate);
@@ -137,7 +138,9 @@ export default function AdminThirdRound(props: Props) {
             const data = await res.json();
 
             if (data.success && socket) {
-                socket.emit('broadcast_third_round_courses', data);
+                // 必要なデータだけを送る。レスポンス全体を送ると、そのイベントが
+                // 何を運ぶのかが曖昧になり、受信側ごとに読む項目がずれる原因になる。
+                socket.emit('broadcast_third_round_courses', data.courses);
                 // 新しいコースのエントリータイムが始まるので、締切状態を解除する
                 changeState({ step: 'entry' });
             } else {
@@ -166,7 +169,10 @@ export default function AdminThirdRound(props: Props) {
             const data = await res.json();
 
             if (data.success && socket) {
-                socket.emit('broadcast_third_round_courses', data);
+                // データ種別ごとに経路を分ける。
+                // リセットは実施順と所属コースの両方を消すので、両方を配信する必要がある。
+                socket.emit('broadcast_third_round_courses', data.courses);   // コース情報
+                socket.emit('broadcast_scores', data.allPlayers);             // 選手情報
                 changeState({ step: 'entry' });
             } else {
                 setErrorMessage(data.error || 'リセットに失敗しました');

@@ -47,7 +47,7 @@ export default function MainThirdRound(props: Props) {
 
         if (socket) {
             const handleStateUpdate = (state: ThirdRoundState) => setThirdRoundState(state);
-            const handleCoursesUpdate = (payload: { courses: Course[] }) => setCourses(payload.courses);
+            const handleCoursesUpdate = (courses: Course[]) => setCourses(courses);
 
             socket.on("update_third_round_state", handleStateUpdate);
             socket.on("update_third_round_courses", handleCoursesUpdate);
