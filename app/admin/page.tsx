@@ -2,10 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { io, Socket } from "socket.io-client";
-import AdminScore from "../components/Admin/AdminSecondRound"
 import AdminText from "../components/Admin/AdminText";
-import A_1stRound from "../components/Admin/AdminFirstRound";
-import A_CSVUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminFirstRound from "../components/Admin/AdminFirstRound";
 import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
