@@ -3,9 +3,7 @@ let secondRoundState = {
     group: 1,
     view: "turnOver"
 };
-let thirdRoundState = {
-    stage: "courseSelect"
-};
+// 3rd Round の進行状態は server/ThirdRoundHandler.js が持つ
 
 module.exports = function ModeHandler(io, socket) {
     socket.on('change_mode', (newMode) => {
@@ -20,13 +18,6 @@ module.exports = function ModeHandler(io, socket) {
         io.emit('update_second_round_state', secondRoundState);
     });
 
-    socket.on('change_3rd_round_state', (newState) => {
-        console.log('3rd Round State changed to:', newState);
-        thirdRoundState = { ...thirdRoundState, ...newState };
-        io.emit('update_third_round_state', thirdRoundState);
-    });
-
     socket.emit('mode_update', currentMode);
     socket.emit('update_second_round_state', secondRoundState);
-    socket.emit('update_third_round_state', thirdRoundState);
 }
