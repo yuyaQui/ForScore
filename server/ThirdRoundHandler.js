@@ -11,11 +11,19 @@ const { THIRD_ROUND_TIME_LIMIT } = require("../constants.js");
 //   phase     … 大きな区切り
 //                 "courseSelect" … 20名の所属コースを決める
 //                 "quiz"         … 4コースを順に実施する
+//                 "playoff"      … 判定基準で決着しなかった選手の早押しプレーオフ
+//                                  quizOrder はそのまま使う（どのコースの分か）
 //   step      … エントリーの進み具合（phase === "courseSelect" のときのみ意味を持つ）
 //                 "entry"  … エントリータイム中（BGMで計測）。まだ締め切っていない
 //                 "closed" … 締切済み。Admin のチェック欄が開く
 //   quizOrder … クイズ実施フェーズで何番目のコースか 1〜4
 //               （phase === "quiz" のときのみ意味を持つ）
+//   finishedOrder … コース終了処理（15分経過時の順位確定）を走らせたコースの
+//                   quizOrder。未実行なら null。
+//                   「終了処理を走らせたか」は観測できる結果から復元できない。
+//                   終了後は rank === 0 の選手が互いに同値になるが、コース開始
+//                   直後も全員が同値なので区別がつかない。だから状態として持つ。
+//                   quizOrder と比較する形なので、コースごとに持つ必要はない。
 //
 // "抽選中" という step は持たない。抽選した瞬間に新しいコースが配信されるので、
 // Main はそれを受けてルーレットを回し、止まったらそのままエントリー表示に移ればよい。
@@ -27,10 +35,13 @@ const { THIRD_ROUND_TIME_LIMIT } = require("../constants.js");
 //   - 出場者が確定済みか      → そのコースの割当が5名いるかで導出できる
 //   - 現在のコース名          → playOrder が最大の行（コース選択中）
 //   - エントリータイマー      → 専用BGMで計測するため作らない
+//   - プレーオフの対象者      → そのコースで thirdRoundRank === 0 の選手。
+//                              コース終了処理で決着した人には順位が入るため導出できる
 let thirdRoundState = {
     phase: "courseSelect",
     step: "entry",
-    quizOrder: 1
+    quizOrder: 1,
+    finishedOrder: null
 };
 
 // 15分タイマー（コースごとに1本ずつ、計4本ぶんの残り秒数を持つ）
@@ -103,7 +114,8 @@ module.exports = function ThirdRoundHandler(io, socket) {
     });
 
     // 15分タイマーの操作。
-    // action で start / stop / reset を区別する（イベントを3つに分けない）。
+    // action で start / stop / reset / edit を区別する（イベントを分けない）。
+    // edit のみ payload.seconds を使う。
     //
     // どのコースへの操作かは引数で受け取らず、サーバが thirdRoundState.quizOrder から
     // 判断する。クライアントに order を送らせると、Admin の状態が古いときに別のコースの
@@ -131,6 +143,20 @@ module.exports = function ThirdRoundHandler(io, socket) {
         } else if (action === 'reset') {
             if (runningOrder === order) stopTimer();    // 別コースが走っていれば止めない
             remainings[order] = THIRD_ROUND_TIME_LIMIT;
+        } else if (action === 'edit') {
+            // 残り秒数の手動編集。疑義の申し立てで時間を戻す場合や、タイマーの
+            // 開始を忘れたまま進行してしまった場合の復旧手段。
+            //
+            // 編集したら時計は止める。動いている最中に書き換えると、次の tick と
+            // どちらが勝つか分かりにくくなるため。再開はスタッフの明示操作。
+            const seconds = Number(payload.seconds);
+            if (!Number.isFinite(seconds)) return;
+
+            stopTimer();
+            remainings[order] = Math.min(
+                Math.max(Math.floor(seconds), 0),
+                THIRD_ROUND_TIME_LIMIT
+            );
         } else {
             return;                                     // 未知の action では何もしない
         }

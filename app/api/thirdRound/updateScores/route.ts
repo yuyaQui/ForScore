@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { applyThirdRoundScore, type ThirdRoundAction } from '@/lib/thirdRoundScoring';
+import {
+    applyThirdRoundScore,
+    finalizeCourseByStandings,
+    type ThirdRoundAction
+} from '@/lib/thirdRoundScoring';
 import { THIRD_ROUND_COURSE_NAMES, type ThirdRoundCourseName } from '@/lib/thirdRoundCourses';
 
 /** 全選手の最新状態を返す（Socket 配信でそのまま使う） */
@@ -8,7 +12,17 @@ async function loadAllPlayers() {
     return prisma.player.findMany({ orderBy: { paperRank: 'asc' } });
 }
 
-const VALID_ACTIONS: ThirdRoundAction[] = ['correct', 'wrong', 'through'];
+/**
+ * このルートが受け付ける操作。
+ *
+ * finish は採点ではなく「コースを締めて判定基準で順位を確定する」操作だが、
+ * スナップショット・履歴保存・変化検出・配信の流れが正誤とまったく同じなので
+ * 同じルートで扱う。別ルートにするとその一式を複製することになり、**コース終了を
+ * Undo できなくなる**。採点用の ThirdRoundAction 型（正誤3種）は広げない。
+ */
+type UpdateScoresAction = ThirdRoundAction | 'finish';
+
+const VALID_ACTIONS: UpdateScoresAction[] = ['correct', 'wrong', 'through', 'finish'];
 
 /**
  * POST: 3rd Round のスコアを更新する
@@ -51,8 +65,9 @@ export async function POST(request: Request) {
             orderBy: { paperRank: 'asc' }
         });
 
-        // 正解・誤答は対象選手が要る。スルーは選手に紐づかないので playerId を見ない。
-        if (action !== 'through') {
+        // 正解・誤答は対象選手が要る。
+        // スルーとコース終了は選手に紐づかないので playerId を見ない。
+        if (action !== 'through' && action !== 'finish') {
             if (!coursePlayers.some(p => p.id === playerId)) {
                 // Admin の表示が古い状態で押されたときに、別コースの選手を採点して
                 // しまう事故を防ぐ。所属の確認をコース一覧の中で行う。
@@ -69,12 +84,15 @@ export async function POST(request: Request) {
         // 履歴が更新後の状態になるバグが出た。順序を規律として先に固定しておく。
         const snapshot = JSON.stringify(coursePlayers);
 
-        const updated = applyThirdRoundScore({
-            course: courseName as ThirdRoundCourseName,
-            players: coursePlayers,
-            playerId: action === 'through' ? null : playerId,
-            action
-        });
+        // コース終了は採点ではなく順位の確定なので、別の関数へ振り分ける
+        const updated = action === 'finish'
+            ? finalizeCourseByStandings(courseName as ThirdRoundCourseName, coursePlayers)
+            : applyThirdRoundScore({
+                course: courseName as ThirdRoundCourseName,
+                players: coursePlayers,
+                playerId: action === 'through' ? null : playerId,
+                action
+            });
 
         // 変化した選手だけを書き戻す。
         // 毎回全員を UPDATE すると、2nd Round で連答権を消してしまったのと同じ種類の

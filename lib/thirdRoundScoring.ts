@@ -242,12 +242,17 @@ export function getCourseFinishState(players: Player[]): CourseFinishState {
 }
 
 /**
- * コース内の順位づけに使う比較（判定基準の第1条件）。
+ * コース内の順位づけに使う比較（判定基準。プレーオフの手前まで）。
  *
- * 戻り値が負なら a が上位。コースごとに「多い順」で見る値が違う。
- * 未実装のコースは 0 を返すので、呼び出し側の同点処理（席順）に落ちる。
+ * 戻り値が負なら a が上位。**0 を返す＝判定基準では決着しない（完全同値）** で、
+ * 呼び出し側がその先をどう扱うかを決める。
+ *
+ *   終了条件2（3名失格） … 席順で決着させる
+ *   終了条件3（15分経過） … プレーオフへ送る
+ *
+ * 同じ「同値」でも扱いが違うので、この関数自体は席順を見ない。
  */
-function compareByCourseCriteria(course: ThirdRoundCourseName, a: Player, b: Player): number {
+export function compareByCourseCriteria(course: ThirdRoundCourseName, a: Player, b: Player): number {
     if (course === THIRD_ROUND_COURSES.UP_DOWN) {
         // 判定基準①はポイント多い順。累計正解数ではない（設計メモ 3.2）
         return b.thirdRoundUpDownPoint - a.thirdRoundUpDownPoint;
@@ -318,6 +323,106 @@ function finalizeRemainingWinners(course: ThirdRoundCourseName, players: Player[
         const rank = newRanks.get(p.id);
         return rank === undefined ? p : { ...p, thirdRoundRank: rank };
     });
+}
+
+/**
+ * コースを締めて、判定基準で順位を確定する（設計メモ 4.1 の条件3・4.3）。
+ *
+ * 15分経過などでスタッフが「コース終了」を押したときに呼ぶ。タイマーが0になっても
+ * 自動では発火しない（決定事項5）。最後に読まれていた問題の判定を入力できなくなるため。
+ *
+ * ```
+ * actives = rank === 0 の選手、残り枠 n = 2 − 勝ち抜け済み数
+ *
+ * actives.length <= n  → 全員通過（枠が余っている）
+ * n位と n+1位が完全同値 → 同値グループを rank = 0 のまま残す
+ *                          上位は勝ち抜け、下位は敗退
+ * それ以外            → 上位 n 名を勝ち抜け、残りを敗退
+ * ```
+ *
+ * **同着の判定は compareByCourseCriteria が 0 を返すかだけで行い、席順を使わない。**
+ * ここが終了条件2 との違いで、あちらは席順で決着させ、こちらはプレーオフへ送る。
+ * 混ざらないよう関数を分けている。
+ *
+ * 残った rank === 0 の選手がそのままプレーオフ対象になる。対象者リストを別に持つ
+ * 必要がないので、状態を増やさずに済む。
+ *
+ * 敗退（通過できなかった）と失格は同じ −1 にする。2nd Round と同じ規約で、
+ * 区別が要るのは表示だけなので isEliminatedByCourseRule で導出する。
+ */
+export function finalizeCourseByStandings(
+    course: ThirdRoundCourseName,
+    players: Player[]
+): Player[] {
+    const state = getCourseFinishState(players);
+    const remainingSeats = WINNERS_PER_COURSE - state.winnersCount;
+
+    const actives = players
+        .filter(p => p.thirdRoundRank === 0)
+        .sort((a, b) => compareByCourseCriteria(course, a, b));
+
+    if (actives.length === 0) return players;
+
+    // 枠が余っている（または過不足なし）なら、残った全員が通過する。
+    // このとき順位は判定基準 → 同点なら席順で決める（終了条件2 と同じ扱い）。
+    if (actives.length <= remainingSeats) {
+        return finalizeRemainingWinners(course, players);
+    }
+
+    // 境界（n位と n+1位）が判定基準で完全同値なら、決着させずプレーオフへ送る
+    const isTieAtBoundary =
+        compareByCourseCriteria(course, actives[remainingSeats - 1], actives[remainingSeats]) === 0;
+
+    const newRanks = new Map<number, number>();
+
+    if (isTieAtBoundary) {
+        // 境界と同値な選手をすべて集める。3名以上が並ぶこともある
+        const boundary = actives[remainingSeats - 1];
+        const tied = actives.filter(p => compareByCourseCriteria(course, p, boundary) === 0);
+        const tiedIds = new Set(tied.map(p => p.id));
+
+        // 同値グループより上位は確定通過、下位は敗退。グループ自身は rank = 0 のまま
+        let nextRank = state.winnersCount + 1;
+        for (const p of actives) {
+            if (tiedIds.has(p.id)) continue;
+
+            if (nextRank <= WINNERS_PER_COURSE && compareByCourseCriteria(course, p, boundary) < 0) {
+                newRanks.set(p.id, nextRank);
+                nextRank += 1;
+            } else {
+                newRanks.set(p.id, -1);
+            }
+        }
+    } else {
+        actives.forEach((p, index) => {
+            newRanks.set(p.id, index < remainingSeats ? state.winnersCount + index + 1 : -1);
+        });
+    }
+
+    return players.map(p => {
+        const rank = newRanks.get(p.id);
+        return rank === undefined ? p : { ...p, thirdRoundRank: rank };
+    });
+}
+
+/**
+ * その選手がコースの失格条件を満たしているか（表示の出し分け用）。
+ *
+ * 敗退（15分経過で通過できなかった）と失格は DB 上どちらも rank = −1 で、
+ * 区別が要るのは画面だけ。コースの失格条件から導出できるので列を増やさない。
+ */
+export function isEliminatedByCourseRule(course: ThirdRoundCourseName, player: Player): boolean {
+    if (course === THIRD_ROUND_COURSES.UP_DOWN) {
+        return player.thirdRoundWrongCount >= UP_DOWN_LOSE_WRONG_COUNT;
+    }
+    if (course === THIRD_ROUND_COURSES.TEN_BY_TEN) {
+        return player.thirdRoundWrongCount >= TEN_BY_TEN_LOSE_WRONG_COUNT;
+    }
+    if (course === THIRD_ROUND_COURSES.SWEDISH) {
+        return player.thirdRoundSwedishCross >= SWEDISH_LOSE_CROSS;
+    }
+    // Freeze 10 に失格は存在しない（設計メモ 3.3）
+    return false;
 }
 
 /**

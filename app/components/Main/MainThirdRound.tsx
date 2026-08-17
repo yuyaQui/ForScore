@@ -1,12 +1,17 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
-import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
+import {
+    COURSE_TIME_LIMIT_SECONDS,
+    THIRD_ROUND_COURSES,
+    type ThirdRoundCourseName
+} from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
 import {
     getCourseFinishState,
     getTenByTenTotal,
-    getTenByTenWrongPoint
+    getTenByTenWrongPoint,
+    isEliminatedByCourseRule
 } from "@/lib/thirdRoundScoring";
 
 type Props = {
@@ -22,9 +27,11 @@ type Course = {
 }
 
 type ThirdRoundState = {
-    phase: "courseSelect" | "quiz";
+    // playoff は判定基準で決着しなかった選手の早押しプレーオフ（Admin と同じ定義）
+    phase: "courseSelect" | "quiz" | "playoff";
     step: "entry" | "closed";
     quizOrder: number;
+    finishedOrder: number | null;
 }
 
 export default function MainThirdRound(props: Props) {
@@ -33,7 +40,8 @@ export default function MainThirdRound(props: Props) {
     const [thirdRoundState, setThirdRoundState] = useState<ThirdRoundState>({
         phase: "courseSelect",
         step: "entry",
-        quizOrder: 1
+        quizOrder: 1,
+        finishedOrder: null
     });
     const [courses, setCourses] = useState<Course[]>([]);
     // 15分タイマー。時計はサーバが持っており、Main は受け取った値を映すだけ。
@@ -132,6 +140,11 @@ export default function MainThirdRound(props: Props) {
     // 終了条件（Admin と同じ関数で判定する）
     const finishState = getCourseFinishState(quizPlayers);
 
+    // プレーオフの対象者（Admin と同じ導出）。
+    // コース終了処理で決着した人には順位が入るので、rank === 0 で残った選手が対象。
+    const playoffPlayers = quizPlayers.filter(p => p.thirdRoundRank === 0);
+    const playoffSeats = 2 - finishState.winnersCount;
+
     // ---- 現在の状況を表す見出し ----
     let statusLabel: string;
     if (!currentCourse) {
@@ -144,7 +157,53 @@ export default function MainThirdRound(props: Props) {
         statusLabel = "エントリータイム中";
     }
 
-    // ===== クイズ実施フェーズ（中身は後のステップで実装）=====
+    // ===== プレーオフ =====
+    // 設計メモ 7章のとおり対象者のみを表示する。
+    // 通過確定者と敗退者はここには出さない。
+    if (thirdRoundState.phase === 'playoff') {
+        return (
+            <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
+                <div className="text-center animate-fade-in w-full">
+                    <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-lg shadow-purple-500/30">
+                        {quizCourse ? quizCourse.name : "3rd Round"}
+                    </span>
+                    <h1 className="mt-4 text-5xl font-black tracking-tight text-zinc-950 dark:text-white">
+                        早押しプレーオフ
+                    </h1>
+                    <p className="mt-3 text-lg font-bold text-zinc-500 dark:text-zinc-400">
+                        1問正解で勝ち抜け・1問誤答で敗退　／　残り {playoffSeats} 枠
+                    </p>
+
+                    <div className="mt-12 flex justify-center gap-6 flex-wrap">
+                        {playoffPlayers.map(p => (
+                            <div
+                                key={p.id}
+                                className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border-2 border-purple-400 dark:border-purple-600 rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-3 min-w-[220px]"
+                            >
+                                <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
+                                    No.{p.entryNo}
+                                </span>
+                                <h3 className="text-3xl font-black text-zinc-900 dark:text-white text-center leading-tight">
+                                    {p.name}
+                                </h3>
+                                <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate max-w-full">
+                                    {p.school || "未登録"}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {playoffPlayers.length === 0 && (
+                        <p className="mt-12 text-zinc-500 dark:text-zinc-400">
+                            プレーオフの対象者がいません。
+                        </p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ===== クイズ実施フェーズ =====
     if (thirdRoundState.phase === 'quiz') {
         return (
             <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
@@ -256,7 +315,12 @@ export default function MainThirdRound(props: Props) {
                                     )}
                                     {isEliminated && (
                                         <div className="text-sm font-black text-zinc-400 tracking-widest">
-                                            ❌ OUT
+                                            {/* 失格と敗退は DB 上どちらも −1。
+                                                コースの失格条件から導出して出し分ける */}
+                                            {quizCourse && isEliminatedByCourseRule(
+                                                quizCourse.name as ThirdRoundCourseName, p)
+                                                ? "❌ OUT"
+                                                : "－ 敗退"}
                                         </div>
                                     )}
                                 </div>

@@ -1,12 +1,17 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
-import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
+import {
+    COURSE_TIME_LIMIT_SECONDS,
+    THIRD_ROUND_COURSES,
+    type ThirdRoundCourseName
+} from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
 import {
     getCourseFinishState,
     getTenByTenTotal,
-    getTenByTenWrongPoint
+    getTenByTenWrongPoint,
+    isEliminatedByCourseRule
 } from "@/lib/thirdRoundScoring";
 
 type Props = {
@@ -20,9 +25,14 @@ type Course = {
 }
 
 type ThirdRoundState = {
-    phase: "courseSelect" | "quiz";
+    // playoff は判定基準で決着しなかった選手の早押しプレーオフ。
+    // quizOrder はそのまま使うので、どのコースの分かが分かる。
+    phase: "courseSelect" | "quiz" | "playoff";
     step: "entry" | "closed";
     quizOrder: number;
+    // コース終了処理を走らせたコースの quizOrder。未実行なら null。
+    // 「終了処理を走らせたか」はデータから導出できないため状態として持つ。
+    finishedOrder: number | null;
 }
 
 // 確定結果の内訳。掲げた／強制出場の区別を表示するためだけに使う。
@@ -42,7 +52,8 @@ export default function AdminThirdRound(props: Props) {
     const [thirdRoundState, setThirdRoundState] = useState<ThirdRoundState>({
         phase: "courseSelect",
         step: "entry",
-        quizOrder: 1
+        quizOrder: 1,
+        finishedOrder: null
     });
     const [courses, setCourses] = useState<Course[]>([]);
     const [winners, setWinners] = useState<Player[]>([]);
@@ -58,6 +69,10 @@ export default function AdminThirdRound(props: Props) {
         remainings: {},
         runningOrder: null
     });
+    // タイマーの手動編集。入力中の値は Admin のローカル状態で持つ
+    const [isEditingTimer, setIsEditingTimer] = useState(false);
+    const [editMinutes, setEditMinutes] = useState(0);
+    const [editSeconds, setEditSeconds] = useState(0);
 
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
@@ -130,12 +145,33 @@ export default function AdminThirdRound(props: Props) {
         if (window.confirm('タイマーを15分に戻しますか？')) changeTimer('reset');
     };
 
+    // 残り秒数の手動編集。疑義の申し立てで時間を戻す場合や、開始を忘れたまま
+    // 進行してしまった場合の復旧手段。サーバ側で編集時に時計は止まる。
+    const handleTimerEditStart = () => {
+        setEditMinutes(Math.floor(remaining / 60));
+        setEditSeconds(remaining % 60);
+        setIsEditingTimer(true);
+    };
+
+    const handleTimerEditSave = () => {
+        if (socket) {
+            socket.emit('change_third_round_timer', {
+                action: 'edit',
+                seconds: editMinutes * 60 + editSeconds
+            });
+        }
+        setIsEditingTimer(false);
+    };
+
     // スコア更新。
     // fetch の結果を直接 setState せず、Socket で配って update_players 経由で
     // 自分の画面も更新する。自分だけ別経路で更新すると Main と表示がずれる。
     // playerId はスルーのとき null。スルーは「問題が1問終わった」というイベントで
     // 選手に紐づかないため、対象コースは常に courseName で伝える。
-    const handleScore = async (playerId: number | null, action: 'correct' | 'wrong' | 'through') => {
+    const handleScore = async (
+        playerId: number | null,
+        action: 'correct' | 'wrong' | 'through' | 'finish'
+    ) => {
         if (!quizCourse) return;
 
         setIsBusy(true);
@@ -186,6 +222,9 @@ export default function AdminThirdRound(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
+                // 戻したのがコース終了だった可能性があるので、安全側に倒して解除する。
+                // それ以外の操作を戻した場合でも、押し直せば同じ結果になる（終了処理は冪等）。
+                changeState({ finishedOrder: null });
             } else {
                 setErrorMessage(data.error || 'Undo に失敗しました');
             }
@@ -248,6 +287,28 @@ export default function AdminThirdRound(props: Props) {
 
     // 終了条件を満たしたか。データは変えず、提示するだけ（決定事項5）
     const finishState = getCourseFinishState(quizPlayers);
+
+    // コース終了の操作。タイマーが0でも自動では発火させない（決定事項5）。
+    // 最後に読まれていた問題の判定を入力できなくなるため。
+    const handleFinishCourse = async () => {
+        if (!window.confirm('このコースを終了し、判定基準で順位を確定しますか？')) return;
+        await handleScore(null, 'finish');
+        // 「終了処理を走らせた」という事実はデータから復元できないので状態に残す
+        changeState({ finishedOrder: thirdRoundState.quizOrder });
+    };
+
+    // プレーオフの対象者。コース終了処理で決着した人には順位が入っているので、
+    // rank === 0 で残った選手がそのまま対象になる。リストは保存しない。
+    const playoffPlayers = quizPlayers.filter(p => p.thirdRoundRank === 0);
+    const playoffSeats = 2 - finishState.winnersCount;
+
+    // 終了処理を走らせたうえで、判定基準で決着しなかった選手が残っている状態。
+    //
+    // 「終了処理を走らせたか」を敗退者の有無で代用してはいけない。コース途中でも
+    // 失格者は出るため、たとえば「失格2名・勝ち抜け0名・解答席3名」で成立してしまう。
+    const needsPlayoff =
+        thirdRoundState.finishedOrder === thirdRoundState.quizOrder
+        && playoffPlayers.length > 0;
 
     const isClosed = thirdRoundState.step === 'closed';
 
@@ -711,6 +772,55 @@ export default function AdminThirdRound(props: Props) {
                                 リセット
                             </button>
                         </div>
+
+                        {/* 残り時間の手動編集。疑義の申し立てで時間を戻す場合や、
+                            開始を忘れたまま進行してしまった場合の復旧手段。
+                            編集するとサーバ側で時計が止まる。再開は明示操作。 */}
+                        {isEditingTimer ? (
+                            <div className="w-full flex flex-col gap-3 p-3 rounded-lg border border-zinc-300 dark:border-zinc-600">
+                                <div className="flex items-center justify-center gap-2 font-mono">
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={15}
+                                        value={editMinutes}
+                                        onChange={e => setEditMinutes(Math.max(0, Number(e.target.value) || 0))}
+                                        className="w-20 px-2 py-2 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-right"
+                                    />
+                                    <span className="font-bold">分</span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={59}
+                                        value={editSeconds}
+                                        onChange={e => setEditSeconds(Math.max(0, Number(e.target.value) || 0))}
+                                        className="w-20 px-2 py-2 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-right"
+                                    />
+                                    <span className="font-bold">秒</span>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={handleTimerEditSave}
+                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition-colors"
+                                    >
+                                        この時間にする
+                                    </button>
+                                    <button
+                                        onClick={() => setIsEditingTimer(false)}
+                                        className="flex-1 bg-zinc-400 hover:bg-zinc-500 text-white font-bold py-2 rounded-lg transition-colors"
+                                    >
+                                        キャンセル
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={handleTimerEditStart}
+                                className="w-full bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold py-2 rounded-lg transition-colors text-sm"
+                            >
+                                残り時間を手動で変更
+                            </button>
+                        )}
                     </div>
 
                     {/* 終了条件の提示。システムはコースを勝手に締めない（決定事項5）。
@@ -737,7 +847,7 @@ export default function AdminThirdRound(props: Props) {
                         <div className="flex items-center justify-between mb-3">
                             <h4 className="font-bold text-zinc-700 dark:text-zinc-300">出場者</h4>
                             <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                                勝ち抜け {finishState.winnersCount} / 失格 {finishState.eliminatedCount} / 解答席 {finishState.activeCount}
+                                勝ち抜け {finishState.winnersCount} / 敗退 {finishState.eliminatedCount} / 解答席 {finishState.activeCount}
                             </span>
                         </div>
 
@@ -823,7 +933,13 @@ export default function AdminThirdRound(props: Props) {
                                                 ? "text-amber-600 dark:text-amber-400"
                                                 : "text-zinc-500"
                                                 }`}>
-                                                {isWinner ? `👑 勝ち抜け（${p.thirdRoundRank}位）` : "❌ 失格"}
+                                                {isWinner
+                                                    ? `👑 勝ち抜け（${p.thirdRoundRank}位）`
+                                                    // 失格と敗退は DB 上どちらも −1。コースの失格条件から導出して出し分ける
+                                                    : quizCourse && isEliminatedByCourseRule(
+                                                        quizCourse.name as ThirdRoundCourseName, p)
+                                                        ? "❌ 失格"
+                                                        : "－ 敗退"}
                                             </div>
                                         ) : (
                                             <div className="flex gap-2 w-full">
@@ -854,6 +970,39 @@ export default function AdminThirdRound(props: Props) {
                             </div>
                         )}
 
+                        {/* コース終了は終了条件3（15分経過）専用の操作。
+                            条件1（2名勝ち抜け）と条件2（3名失格）は自動で決着済みなので要らない。
+                            そのため 0秒に到達したときだけ出す。
+                            0秒でも自動では発火させない（決定事項5）。最後に読まれていた
+                            問題の判定を入力できなくなるため。 */}
+                        {quizPlayers.length > 0 && finishState.activeCount > 0 && remaining === 0 && (
+                            <button
+                                onClick={handleFinishCourse}
+                                disabled={isBusy}
+                                className="mt-4 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                            >
+                                コース終了（判定基準で順位を確定する）
+                            </button>
+                        )}
+
+                        {/* 判定基準で決着しなかった選手が残っている状態。
+                            対象者リストは持たず、rank === 0 のまま残った人がそのまま対象になる。
+                            移行は明示操作にする。会場では司会の進行が入るため、
+                            システムが勝手に画面を切り替えるとタイミングが合わない。 */}
+                        {needsPlayoff && (
+                            <div className="mt-3 p-4 rounded-xl border-2 border-purple-400 dark:border-purple-600 bg-purple-50 dark:bg-purple-950/20">
+                                <p className="font-black text-purple-700 dark:text-purple-300">
+                                    判定基準で決着しませんでした（{playoffPlayers.length}名が同値、残り{playoffSeats}枠）
+                                </p>
+                                <button
+                                    onClick={() => changeState({ phase: 'playoff' })}
+                                    className="mt-3 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition-colors"
+                                >
+                                    プレーオフへ
+                                </button>
+                            </div>
+                        )}
+
                         {quizPlayers.length > 0 && (
                             <div className="mt-4 flex gap-3">
                                 {/* スルーを記録するのは Freeze 10 だけ（決定事項2）。
@@ -879,8 +1028,50 @@ export default function AdminThirdRound(props: Props) {
                         )}
                     </div>
 
+                </div>
+            )}
+
+            {/* ===== プレーオフ ===== */}
+            {thirdRoundState.phase === 'playoff' && (
+                <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800 w-full flex flex-col items-center gap-6">
+                    <div className="text-center">
+                        <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">
+                            早押しプレーオフ
+                            {quizCourse && `：${quizCourse.name}`}
+                        </h3>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                            1問正解で勝ち抜け・1問誤答で敗退。残り {playoffSeats} 枠
+                        </p>
+                    </div>
+
+                    {playoffPlayers.length > 0 ? (
+                        <div className="w-full grid grid-cols-5 gap-3">
+                            {playoffPlayers.map(p => (
+                                <div
+                                    key={p.id}
+                                    className="p-4 border border-purple-300 dark:border-purple-700 bg-white dark:bg-zinc-800 rounded-xl flex flex-col gap-2"
+                                >
+                                    <div className="flex justify-between text-xs font-mono text-zinc-500">
+                                        <span>No.{p.entryNo}</span>
+                                        <span>2R{p.secondRoundRank}位</span>
+                                    </div>
+                                    <div className="text-center font-black text-lg truncate" title={p.name}>
+                                        {p.name}
+                                    </div>
+                                    <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                                        {p.school || "未登録"}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="py-10 text-center text-zinc-500 dark:text-zinc-400 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl w-full">
+                            プレーオフの対象者がいません。上の切り替えでコースへ戻ってください。
+                        </div>
+                    )}
+
                     <p className="text-zinc-500 dark:text-zinc-400 text-sm">
-                        コース別のルールと勝ち抜け・失格の判定は工程7-3 以降で実装します。
+                        正誤ボタンは工程8-3 で実装します。戻るときは上のコース切り替えを使ってください。
                     </p>
                 </div>
             )}
