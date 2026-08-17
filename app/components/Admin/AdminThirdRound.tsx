@@ -125,6 +125,62 @@ export default function AdminThirdRound(props: Props) {
         if (window.confirm('タイマーを15分に戻しますか？')) changeTimer('reset');
     };
 
+    // スコア更新。
+    // fetch の結果を直接 setState せず、Socket で配って update_players 経由で
+    // 自分の画面も更新する。自分だけ別経路で更新すると Main と表示がずれる。
+    const handleScore = async (playerId: number, action: 'correct' | 'wrong' | 'through') => {
+        setIsBusy(true);
+        setErrorMessage("");
+        try {
+            const res = await fetch('/api/thirdRound/updateScores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playerId, action })
+            });
+            const data = await res.json();
+
+            if (data.success && socket) {
+                // 選手データ専用の経路で配る。コース情報のイベントに同乗させない。
+                socket.emit('broadcast_scores', data.allPlayers);
+            } else {
+                setErrorMessage(data.error || 'スコアの更新に失敗しました');
+            }
+        } catch (error) {
+            console.error('Score update failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    // スコア更新を1手戻す。履歴はコース単位なので、いま実施中のコース名を送る。
+    // タイマーと出場者の割当は戻らない（別系統）。
+    const handleScoreUndo = async () => {
+        if (!quizCourse) return;
+
+        setIsBusy(true);
+        setErrorMessage("");
+        try {
+            const res = await fetch('/api/thirdRound/undo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ courseName: quizCourse.name })
+            });
+            const data = await res.json();
+
+            if (data.success && socket) {
+                socket.emit('broadcast_scores', data.allPlayers);
+            } else {
+                setErrorMessage(data.error || 'Undo に失敗しました');
+            }
+        } catch (error) {
+            console.error('Undo failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
     // ---- ここから、表示に使う値を状態から導出する ----
 
     // 抽選済みのコースを実施順に並べる
@@ -662,6 +718,23 @@ export default function AdminThirdRound(props: Props) {
                                             ❌ {p.thirdRoundWrongCount}
                                         </span>
                                     </div>
+
+                                    <div className="flex gap-2 w-full">
+                                        <button
+                                            onClick={() => handleScore(p.id, 'correct')}
+                                            disabled={isBusy}
+                                            className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                        >
+                                            正解
+                                        </button>
+                                        <button
+                                            onClick={() => handleScore(p.id, 'wrong')}
+                                            disabled={isBusy}
+                                            className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                        >
+                                            誤答
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -671,10 +744,20 @@ export default function AdminThirdRound(props: Props) {
                                 このコースの出場者がまだ確定していません。
                             </div>
                         )}
+
+                        {quizPlayers.length > 0 && (
+                            <button
+                                onClick={handleScoreUndo}
+                                disabled={isBusy}
+                                className="mt-4 w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                            >
+                                Undo（このコースのスコアを1手戻す）
+                            </button>
+                        )}
                     </div>
 
                     <p className="text-zinc-500 dark:text-zinc-400 text-sm">
-                        正誤ボタン・Undo・コース終了は次のステップで実装します。
+                        コース別のルールと勝ち抜け・失格の判定は工程7-3 以降で実装します。
                     </p>
                 </div>
             )}
