@@ -22,25 +22,17 @@ const VALID_ACTIONS: ThirdRoundAction[] = ['correct', 'wrong', 'through'];
  */
 export async function POST(request: Request) {
     try {
-        const { playerId, action } = await request.json();
+        const { playerId, action, courseName } = await request.json();
 
         if (!VALID_ACTIONS.includes(action)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });
         }
 
-        const player = await prisma.player.findUnique({ where: { id: playerId } });
-
-        if (!player) {
-            return NextResponse.json({ error: '選手が見つかりません' }, { status: 400 });
-        }
-
-        const courseName = player.thirdRoundCourseName;
-
+        // どのコースへの操作かは常にクライアントから受け取る。
+        // スルーは「問題が1問終わった」というイベントで対象選手がいないため、
+        // playerId から所属コースを引く方法が使えない（設計メモ 3.3）。
         if (!courseName) {
-            return NextResponse.json(
-                { error: 'この選手はまだコースに割り当てられていません' },
-                { status: 400 }
-            );
+            return NextResponse.json({ error: 'コース名が指定されていません' }, { status: 400 });
         }
 
         // コース名は DB の外部キーで保証されているが、採点関数の分岐がこの4つを
@@ -59,6 +51,18 @@ export async function POST(request: Request) {
             orderBy: { paperRank: 'asc' }
         });
 
+        // 正解・誤答は対象選手が要る。スルーは選手に紐づかないので playerId を見ない。
+        if (action !== 'through') {
+            if (!coursePlayers.some(p => p.id === playerId)) {
+                // Admin の表示が古い状態で押されたときに、別コースの選手を採点して
+                // しまう事故を防ぐ。所属の確認をコース一覧の中で行う。
+                return NextResponse.json(
+                    { error: 'この選手は指定されたコースの出場者ではありません' },
+                    { status: 400 }
+                );
+            }
+        }
+
         // Undo 用のスナップショット（更新「前」の状態）を、読んだ直後に固める。
         // 現在の applyThirdRoundScore は引数を書き換えないので実際には後で作っても
         // 同じだが、2nd Round では「取得した配列を書き換える処理」が後から入った結果
@@ -68,7 +72,7 @@ export async function POST(request: Request) {
         const updated = applyThirdRoundScore({
             course: courseName as ThirdRoundCourseName,
             players: coursePlayers,
-            playerId,
+            playerId: action === 'through' ? null : playerId,
             action
         });
 

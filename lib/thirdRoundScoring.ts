@@ -57,6 +57,9 @@ const UP_DOWN_WIN_POINT = 10;
 /** 10 up-down: 失格となる通算誤答回数 */
 const UP_DOWN_LOSE_WRONG_COUNT = 2;
 
+/** Freeze 10: 勝ち抜けに必要な正解数 */
+const FREEZE_WIN_CORRECT_COUNT = 10;
+
 /** Swedish 10: 勝ち抜けに必要な正解数 */
 const SWEDISH_WIN_CORRECT_COUNT = 10;
 /** Swedish 10: 失格となる × の合計 */
@@ -119,12 +122,37 @@ function nextWinnerRank(players: Player[]): number {
  * 採点を適用した5名を返す。引数の players は書き換えない。
  */
 export function applyThirdRoundScore(input: ScoringInput): Player[] {
+    // 0段目: Freeze 10 のみ。1問が終わったので休み中の全員の残り問数を1減らす。
+    //
+    // **採点より先に実行することがこのコースの肝。**（設計メモ 3.3）
+    // 誤答したその問題自体は休みに数えない。「1度目の誤答で1問休み」は次の1問を
+    // 休む意味なので、誤答処理でセットした直後に同じ問題で減算すると1問ずれる。
+    // 段を分けることで、あとから順序を間違えようがない形にしている。
+    const rested = decrementFreezeRest(input.course, input.players);
+
     // 1段目: 対象の選手だけを採点する
-    const scored = scoreTargetPlayer(input);
+    const scored = scoreTargetPlayer({ ...input, players: rested });
 
     // 2段目: 終了条件2 が成立していたら、解答席に残っている全員を勝ち抜けにする。
     // この処理は対象者以外の順位も変えるため、全員を見る別の段が要る。
     return finalizeRemainingWinners(input.course, scored);
+}
+
+/**
+ * 1問終わったぶん、休み中の選手の残り問数を1減らす（Freeze 10 のみ）。
+ *
+ * 正解・誤答・スルーのいずれでも1問は終わっているので、action は問わない。
+ * スルーを記録するのが Freeze 10 だけなのはこのためで、他の3コースでは
+ * スルーが何にも影響しない（設計メモ 3.3）。
+ */
+function decrementFreezeRest(course: ThirdRoundCourseName, players: Player[]): Player[] {
+    if (course !== THIRD_ROUND_COURSES.FREEZE) return players;
+
+    return players.map(p =>
+        p.thirdRoundFreezeRest > 0
+            ? { ...p, thirdRoundFreezeRest: p.thirdRoundFreezeRest - 1 }
+            : p
+    );
 }
 
 function scoreTargetPlayer({ course, players, playerId, action }: ScoringInput): Player[] {
@@ -155,9 +183,9 @@ function scoreTargetPlayer({ course, players, playerId, action }: ScoringInput):
             next = applyTenByTen(next, action, players);
         } else if (course === THIRD_ROUND_COURSES.SWEDISH) {
             next = applySwedish(next, action, players);
+        } else if (course === THIRD_ROUND_COURSES.FREEZE) {
+            next = applyFreeze(next, action, players);
         }
-
-        // Freeze 10 は工程7-6 で実装する
 
         return next;
     });
@@ -238,7 +266,14 @@ function compareByCourseCriteria(course: ThirdRoundCourseName, a: Player, b: Pla
         return a.thirdRoundSwedishCross - b.thirdRoundSwedishCross;
     }
 
-    // Freeze 10 は工程7-6 で足す
+    if (course === THIRD_ROUND_COURSES.FREEZE) {
+        // 判定基準は2段。①正解数多い順 ②誤答数少ない順（設計メモ 3.1）
+        if (a.thirdRoundCorrectCount !== b.thirdRoundCorrectCount) {
+            return b.thirdRoundCorrectCount - a.thirdRoundCorrectCount;
+        }
+        return a.thirdRoundWrongCount - b.thirdRoundWrongCount;
+    }
+
     return 0;
 }
 
@@ -378,6 +413,36 @@ function applySwedish(player: Player, action: ThirdRoundAction, others: Player[]
     }
 
     // スルーは Swedish 10 では何も起こさない
+
+    return next;
+}
+
+/**
+ * Freeze 10（設計メモ 3.3）
+ *
+ *   正解 … 10問正解で勝ち抜け
+ *   誤答 … その時点の通算誤答回数を「残り休み問数」にセットする
+ *          （1度目の誤答で1問休み、2度目で2問休み …）
+ *   失格 … **存在しない**
+ *
+ * 休みの減算は 0段目（decrementFreezeRest）で済んでいる。ここでセットした値は
+ * この問題では減らないので、「誤答したその問題自体は休みに数えない」が守られる。
+ *
+ * 通算誤答回数は共通処理で加算済みなので、その値をそのまま残り問数にする。
+ * 残り問数は出題の進行に依存するため、誤答回数からは導出できない（設計メモ 6.3）。
+ */
+function applyFreeze(player: Player, action: ThirdRoundAction, others: Player[]): Player {
+    const next = { ...player };
+
+    if (action === 'correct') {
+        if (next.thirdRoundCorrectCount >= FREEZE_WIN_CORRECT_COUNT) {
+            next.thirdRoundRank = nextWinnerRank(others);
+        }
+    } else if (action === 'wrong') {
+        next.thirdRoundFreezeRest = next.thirdRoundWrongCount;
+    }
+
+    // スルーは0段目の減算だけで、対象選手そのものには何も起こさない
 
     return next;
 }

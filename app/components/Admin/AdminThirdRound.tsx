@@ -133,14 +133,18 @@ export default function AdminThirdRound(props: Props) {
     // スコア更新。
     // fetch の結果を直接 setState せず、Socket で配って update_players 経由で
     // 自分の画面も更新する。自分だけ別経路で更新すると Main と表示がずれる。
-    const handleScore = async (playerId: number, action: 'correct' | 'wrong' | 'through') => {
+    // playerId はスルーのとき null。スルーは「問題が1問終わった」というイベントで
+    // 選手に紐づかないため、対象コースは常に courseName で伝える。
+    const handleScore = async (playerId: number | null, action: 'correct' | 'wrong' | 'through') => {
+        if (!quizCourse) return;
+
         setIsBusy(true);
         setErrorMessage("");
         try {
             const res = await fetch('/api/thirdRound/updateScores', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ playerId, action })
+                body: JSON.stringify({ playerId, action, courseName: quizCourse.name })
             });
             const data = await res.json();
 
@@ -238,6 +242,9 @@ export default function AdminThirdRound(props: Props) {
     const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
     const isTenByTen = quizCourse?.name === THIRD_ROUND_COURSES.TEN_BY_TEN;
     const isSwedish = quizCourse?.name === THIRD_ROUND_COURSES.SWEDISH;
+    // スルーを記録するのは Freeze 10 だけ。他の3コースでは何にも影響しないため
+    // ボタン自体を出さない（決定事項2）
+    const isFreeze = quizCourse?.name === THIRD_ROUND_COURSES.FREEZE;
 
     // 終了条件を満たしたか。データは変えず、提示するだけ（決定事項5）
     const finishState = getCourseFinishState(quizPlayers);
@@ -740,6 +747,8 @@ export default function AdminThirdRound(props: Props) {
                                 const isWinner = p.thirdRoundRank > 0;
                                 const isEliminated = p.thirdRoundRank < 0;
                                 const isSettled = p.thirdRoundRank !== 0;
+                                // Freeze 10 の休み中は解答権が無い（設計メモ 3.3）
+                                const isResting = isFreeze && p.thirdRoundFreezeRest > 0;
 
                                 return (
                                     <div
@@ -802,6 +811,13 @@ export default function AdminThirdRound(props: Props) {
                                             </div>
                                         )}
 
+                                        {/* Freeze 10 のみ。残り問数が1以上の選手は解答権を持たない */}
+                                        {isFreeze && p.thirdRoundFreezeRest > 0 && (
+                                            <div className="text-center font-black text-sky-600 dark:text-sky-400 text-sm">
+                                                ❄️ 休み {p.thirdRoundFreezeRest} 問
+                                            </div>
+                                        )}
+
                                         {isSettled ? (
                                             <div className={`text-center font-black py-2 text-sm ${isWinner
                                                 ? "text-amber-600 dark:text-amber-400"
@@ -813,14 +829,14 @@ export default function AdminThirdRound(props: Props) {
                                             <div className="flex gap-2 w-full">
                                                 <button
                                                     onClick={() => handleScore(p.id, 'correct')}
-                                                    disabled={isBusy}
+                                                    disabled={isBusy || isResting}
                                                     className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
                                                 >
                                                     正解
                                                 </button>
                                                 <button
                                                     onClick={() => handleScore(p.id, 'wrong')}
-                                                    disabled={isBusy}
+                                                    disabled={isBusy || isResting}
                                                     className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
                                                 >
                                                     誤答
@@ -839,13 +855,27 @@ export default function AdminThirdRound(props: Props) {
                         )}
 
                         {quizPlayers.length > 0 && (
-                            <button
-                                onClick={handleScoreUndo}
-                                disabled={isBusy}
-                                className="mt-4 w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
-                            >
-                                Undo（このコースのスコアを1手戻す）
-                            </button>
+                            <div className="mt-4 flex gap-3">
+                                {/* スルーを記録するのは Freeze 10 だけ（決定事項2）。
+                                    選手に紐づかない「問題が1問終わった」というイベントで、
+                                    休み中の選手の残り問数を減らす契機になる。 */}
+                                {isFreeze && (
+                                    <button
+                                        onClick={() => handleScore(null, 'through')}
+                                        disabled={isBusy}
+                                        className="flex-1 bg-sky-500 hover:bg-sky-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                                    >
+                                        スルー（1問終了）
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleScoreUndo}
+                                    disabled={isBusy}
+                                    className="flex-1 bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                                >
+                                    Undo（このコースのスコアを1手戻す）
+                                </button>
+                            </div>
                         )}
                     </div>
 

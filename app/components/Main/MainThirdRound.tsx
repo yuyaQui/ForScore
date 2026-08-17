@@ -127,6 +127,7 @@ export default function MainThirdRound(props: Props) {
     const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
     const isTenByTen = quizCourse?.name === THIRD_ROUND_COURSES.TEN_BY_TEN;
     const isSwedish = quizCourse?.name === THIRD_ROUND_COURSES.SWEDISH;
+    const isFreeze = quizCourse?.name === THIRD_ROUND_COURSES.FREEZE;
 
     // 終了条件（Admin と同じ関数で判定する）
     const finishState = getCourseFinishState(quizPlayers);
@@ -238,6 +239,13 @@ export default function MainThirdRound(props: Props) {
                                                     誤答回数は失格判定にも判定基準にも使わない。 */}
                                                 ×{isSwedish ? p.thirdRoundSwedishCross : p.thirdRoundWrongCount}
                                             </span>
+                                        </div>
+                                    )}
+
+                                    {/* Freeze 10 の休み中。解答権が無いことが会場から見て分かるようにする */}
+                                    {isFreeze && p.thirdRoundFreezeRest > 0 && !isWinner && (
+                                        <div className="text-base font-black text-sky-600 dark:text-sky-400 tracking-wider">
+                                            ❄️ 休み {p.thirdRoundFreezeRest} 問
                                         </div>
                                     )}
 
