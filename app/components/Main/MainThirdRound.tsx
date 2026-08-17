@@ -1,6 +1,8 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
-import type { Player } from "@/lib/types";
+import type { Player, ThirdRoundTimer } from "@/lib/types";
+import { COURSE_TIME_LIMIT_SECONDS } from "@/lib/thirdRoundCourses";
+import { formatTime } from "@/lib/formatTime";
 
 type Props = {
     players: Player[],
@@ -29,6 +31,12 @@ export default function MainThirdRound(props: Props) {
         quizOrder: 1
     });
     const [courses, setCourses] = useState<Course[]>([]);
+    // 15分タイマー。時計はサーバが持っており、Main は受け取った値を映すだけ。
+    // 接続直後にサーバから現在値が届くので、初期値は表示が一瞬崩れないための仮置き。
+    const [timer, setTimer] = useState<ThirdRoundTimer>({
+        remainings: {},
+        runningOrder: null
+    });
 
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
@@ -49,13 +57,16 @@ export default function MainThirdRound(props: Props) {
         if (socket) {
             const handleStateUpdate = (state: ThirdRoundState) => setThirdRoundState(state);
             const handleCoursesUpdate = (courses: Course[]) => setCourses(courses);
+            const handleTimerUpdate = (next: ThirdRoundTimer) => setTimer(next);
 
             socket.on("update_third_round_state", handleStateUpdate);
             socket.on("update_third_round_courses", handleCoursesUpdate);
+            socket.on("update_third_round_timer", handleTimerUpdate);
 
             return () => {
                 socket.off("update_third_round_state", handleStateUpdate);
                 socket.off("update_third_round_courses", handleCoursesUpdate);
+                socket.off("update_third_round_timer", handleTimerUpdate);
             };
         }
         // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
@@ -96,6 +107,16 @@ export default function MainThirdRound(props: Props) {
     // クイズ実施フェーズで対象になっているコース
     const quizCourse = drawnCourses.find(c => c.playOrder === thirdRoundState.quizOrder);
 
+    // 表示中のコースの残り秒数。キーが無ければ「まだ動かしていない」＝制限時間のまま。
+    // Main は稼働中かどうかを表示しないので runningOrder は使わない。
+    const remaining = timer.remainings[thirdRoundState.quizOrder] ?? COURSE_TIME_LIMIT_SECONDS;
+
+    // クイズ実施中のコースの出場者5名（Admin と同じ導出）。
+    // winners が優先順位順に並んでいるので、絞り込んでも順序は保たれる。
+    const quizPlayers = quizCourse
+        ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
+        : [];
+
     // ---- 現在の状況を表す見出し ----
     let statusLabel: string;
     if (!currentCourse) {
@@ -120,15 +141,60 @@ export default function MainThirdRound(props: Props) {
                         {quizCourse ? quizCourse.name : "コース未確定"}
                     </h1>
 
+                    {/* 15分タイマー。
+                        0秒到達はコースの終了ではないので、表示を消したり止めたりしない。
+                        色だけ変えて「時間切れ」を伝える（設計メモ 4.2）。 */}
                     <div className="mt-12 p-12 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-3xl shadow-2xl max-w-2xl mx-auto flex flex-col items-center justify-center min-h-[250px]">
-                        <span className="text-4xl mb-4">⚡</span>
-                        <p className="text-lg font-bold text-zinc-700 dark:text-zinc-300">
-                            {quizCourse ? quizCourse.name : "コース"} のスコアボードを表示しています。
-                        </p>
-                        <p className="text-sm text-zinc-400 dark:text-zinc-500 mt-2 text-center max-w-md">
-                            出場者のスコア・勝ち抜け・失格の進行状況をここに表示する予定です。
-                        </p>
+                        <div
+                            className={`font-mono font-black text-8xl tabular-nums leading-none ${remaining === 0
+                                ? "text-red-600 dark:text-red-500"
+                                : remaining <= 60
+                                    ? "text-amber-600 dark:text-amber-500 animate-pulse"
+                                    : "text-zinc-900 dark:text-white"
+                                }`}
+                        >
+                            {formatTime(remaining)}
+                        </div>
+                        {remaining === 0 && (
+                            <p className="mt-6 text-2xl font-black tracking-widest text-red-600 dark:text-red-500">
+                                TIME UP
+                            </p>
+                        )}
                     </div>
+
+                    {/* 出場者5名のスコアボード。並びは優先順位順（winners の並びを引き継ぐ） */}
+                    <div className="mt-10 w-full grid grid-cols-5 gap-4">
+                        {quizPlayers.map(p => (
+                            <div
+                                key={p.id}
+                                className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-2xl p-5 shadow-lg flex flex-col items-center gap-3 min-h-[220px] justify-between"
+                            >
+                                <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
+                                    No.{p.entryNo}
+                                </span>
+                                <h3 className="text-2xl font-black text-zinc-900 dark:text-white text-center leading-tight">
+                                    {p.name}
+                                </h3>
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-full">
+                                    {p.school || "未登録"}
+                                </span>
+                                <div className="flex gap-4 font-mono font-black text-2xl">
+                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                        {p.thirdRoundCorrectCount}
+                                    </span>
+                                    <span className="text-red-600 dark:text-red-400">
+                                        {p.thirdRoundWrongCount}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {quizPlayers.length === 0 && (
+                        <p className="mt-10 text-zinc-500 dark:text-zinc-400">
+                            このコースの出場者がまだ確定していません。
+                        </p>
+                    )}
                 </div>
             </div>
         );

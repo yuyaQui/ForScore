@@ -4,6 +4,8 @@
 // サーバを再起動すると進行状態は初期値に戻るが、Admin から選び直せばよい。
 // 2nd Round と同じ割り切り。
 
+const { THIRD_ROUND_TIME_LIMIT } = require("../constants.js");
+
 // 進行状態
 //
 //   phase     … 大きな区切り
@@ -31,13 +33,66 @@ let thirdRoundState = {
     quizOrder: 1
 };
 
+// 15分タイマー（コースごとに1本ずつ、計4本ぶんの残り秒数を持つ）
+//
+// キーは quizOrder(1〜4)。コース名をキーにしない理由は、server/ が DB に触らない
+// ためコース名を知らないから。quizOrder は thirdRoundState として手元にある。
+//
+// 未登録のコースは「まだ一度も動かしていない＝15分のまま」とみなす。
+// こうすると初期化ループも「コース数 = 4」という定数もここに要らない。
+const remainings = {};
+
+// いま走っているのはどのコースか。停止中は null。
+// 「コース N が稼働中か」は runningOrder === N で導出できるので別に持たない。
+// timerInterval は clearInterval のためのハンドルで、状態ではない。
+// コースは1つずつ実施するルールなので、インターバルは常に1本しか持たない。
+// コースごとにインターバルを持つと「別のコースに移ったのに前の時計が回りっぱなし」
+// という事故が起こりうる。
+let runningOrder = null;
+let timerInterval = null;
+
+// 0秒に到達しても専用のイベントは出さない。設計メモ 4.2 のとおり 0秒到達は
+// コースの終了ではなく、その後も正解・誤答・スルーの操作を受け付け続ける。
+// 画面が知りたいのは remaining === 0 という事実だけで、これは配信済みの値から分かる。
+
+/** そのコースの残り秒数。一度も動かしていなければ制限時間そのまま */
+function remainingOf(order) {
+    return remainings[order] ?? THIRD_ROUND_TIME_LIMIT;
+}
+
+/** 配信するタイマー状態。running は保持せず、クライアント側で runningOrder から導出する */
+function timerPayload() {
+    return { remainings, runningOrder };
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    runningOrder = null;
+}
+
 module.exports = function ThirdRoundHandler(io, socket) {
     // 進行状態の切り替え。
     // 部分更新できるよう、受け取った内容を既存の状態にマージする。
     socket.on('change_3rd_round_state', (newState) => {
+        const previous = thirdRoundState;
         thirdRoundState = { ...thirdRoundState, ...newState };
         console.log('3rd Round State:', thirdRoundState);
         io.emit('update_third_round_state', thirdRoundState);
+
+        // 実施中のコースが変わった（またはクイズ実施フェーズから抜けた）ときは、
+        // 走っている時計を止める。画面に出ていないコースの残り時間が減り続ける事故を防ぐ。
+        // 再開はスタッフが明示的に「開始」を押す。
+        const courseChanged =
+            previous.quizOrder !== thirdRoundState.quizOrder ||
+            previous.phase !== thirdRoundState.phase;
+
+        if (courseChanged && runningOrder !== null) {
+            stopTimer();
+            io.emit('update_third_round_timer', timerPayload());
+        }
     });
 
     // 抽選結果の中継。
@@ -47,6 +102,43 @@ module.exports = function ThirdRoundHandler(io, socket) {
         io.emit('update_third_round_courses', payload);
     });
 
+    // 15分タイマーの操作。
+    // action で start / stop / reset を区別する（イベントを3つに分けない）。
+    //
+    // どのコースへの操作かは引数で受け取らず、サーバが thirdRoundState.quizOrder から
+    // 判断する。クライアントに order を送らせると、Admin の状態が古いときに別のコースの
+    // 時計を触ってしまう余地が残るため。
+    socket.on('change_third_round_timer', (payload) => {
+        const action = payload && payload.action;
+        const order = thirdRoundState.quizOrder;
+
+        if (action === 'start') {
+            if (runningOrder === order) return;         // 二重起動を防ぐ
+            if (remainingOf(order) <= 0) return;        // 0秒からは動かさない
+
+            stopTimer();                                // 別のコースが走っていたら止める
+            runningOrder = order;
+            timerInterval = setInterval(() => {
+                remainings[order] = remainingOf(order) - 1;
+                if (remainings[order] <= 0) {
+                    remainings[order] = 0;
+                    stopTimer();        // 0秒で時計だけ止める。コースは終了させない
+                }
+                io.emit('update_third_round_timer', timerPayload());
+            }, 1000);
+        } else if (action === 'stop') {
+            stopTimer();
+        } else if (action === 'reset') {
+            if (runningOrder === order) stopTimer();    // 別コースが走っていれば止めない
+            remainings[order] = THIRD_ROUND_TIME_LIMIT;
+        } else {
+            return;                                     // 未知の action では何もしない
+        }
+
+        io.emit('update_third_round_timer', timerPayload());
+    });
+
     // 接続直後、この1人にだけ現在の状態を渡す（io.emit ではなく socket.emit）
     socket.emit('update_third_round_state', thirdRoundState);
+    socket.emit('update_third_round_timer', timerPayload());
 };

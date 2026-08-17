@@ -36,8 +36,14 @@ export const ELIMINATED_TO_FINISH = 3;
 /** エントリータイム（秒） */
 export const ENTRY_TIME_SECONDS = 10;
 
-/** 各コースの出題時間（秒） */
-export const COURSE_TIME_LIMIT_SECONDS = 15 * 60;
+/**
+ * 各コースの出題時間（秒）
+ *
+ * 定義元は constants.js。server/ が CommonJS でこの TS ファイルを読めないため、
+ * サーバとクライアントの両方が必要な値は constants.js を唯一の定義元にしている。
+ * ここでは app/ 側から使いやすい名前に付け替えて再エクスポートするだけ。
+ */
+export { THIRD_ROUND_TIME_LIMIT as COURSE_TIME_LIMIT_SECONDS } from '../constants.js';
 
 /**
  * 準決勝の座席割り当て

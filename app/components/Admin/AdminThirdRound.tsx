@@ -1,6 +1,8 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
-import type { Player } from "@/lib/types";
+import type { Player, ThirdRoundTimer } from "@/lib/types";
+import { COURSE_TIME_LIMIT_SECONDS } from "@/lib/thirdRoundCourses";
+import { formatTime } from "@/lib/formatTime";
 
 type Props = {
     socket: Socket | null;
@@ -45,6 +47,12 @@ export default function AdminThirdRound(props: Props) {
     const [lastAssigned, setLastAssigned] = useState<AssignedPlayer[]>([]);
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
+    // 15分タイマー。サーバが唯一の時計で、ここは受け取った値を表示するだけ。
+    // 接続直後にサーバから現在値が届くので、初期値は表示が一瞬崩れないための仮置き。
+    const [timer, setTimer] = useState<ThirdRoundTimer>({
+        remainings: {},
+        runningOrder: null
+    });
 
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
@@ -86,20 +94,35 @@ export default function AdminThirdRound(props: Props) {
                 setLastAssigned([]);    // 前のコースの内訳表示も消す
             };
 
+            const handleTimerUpdate = (next: ThirdRoundTimer) => setTimer(next);
+
             socket.on("update_third_round_state", handleStateUpdate);
             socket.on("update_third_round_courses", handleCoursesUpdate);
             socket.on("update_players", handlePlayersUpdate);
+            socket.on("update_third_round_timer", handleTimerUpdate);
 
             return () => {
                 socket.off("update_third_round_state", handleStateUpdate);
                 socket.off("update_third_round_courses", handleCoursesUpdate);
                 socket.off("update_players", handlePlayersUpdate);
+                socket.off("update_third_round_timer", handleTimerUpdate);
             };
         }
     }, [socket]);
 
     const changeState = (updates: Partial<ThirdRoundState>) => {
         if (socket) socket.emit('change_3rd_round_state', updates);
+    };
+
+    // タイマー操作。サーバが時計を持っているので、ここは要求を送るだけ。
+    // 自分の画面も配信（update_third_round_timer）経由で更新される。
+    const changeTimer = (action: 'start' | 'stop' | 'reset') => {
+        if (socket) socket.emit('change_third_round_timer', { action });
+    };
+
+    const handleTimerReset = () => {
+        // 進行中に誤って押すと15分が巻き戻るため確認する
+        if (window.confirm('タイマーを15分に戻しますか？')) changeTimer('reset');
     };
 
     // ---- ここから、表示に使う値を状態から導出する ----
@@ -117,6 +140,14 @@ export default function AdminThirdRound(props: Props) {
         ? drawnCourses[drawnCourses.length - 1]
         : null;
 
+    // クイズ実施フェーズで対象になっているコース（Main 側と同じ導出）
+    const quizCourse = drawnCourses.find(c => c.playOrder === thirdRoundState.quizOrder);
+
+    // 表示中のコースのタイマー。配信された状態から導出する。
+    // キーが無いコースは「まだ一度も動かしていない」＝制限時間のまま。
+    const remaining = timer.remainings[thirdRoundState.quizOrder] ?? COURSE_TIME_LIMIT_SECONDS;
+    const isTimerRunning = timer.runningOrder === thirdRoundState.quizOrder;
+
     // そのコースに割り当て済みの選手。
     // 「確定済みかどうか」を状態として持たず、ここから判定する。
     const assignedToCurrent = currentCourse
@@ -126,6 +157,13 @@ export default function AdminThirdRound(props: Props) {
 
     // まだどのコースにも割り当てられていない選手（エントリー対象）
     const unassignedWinners = winners.filter(p => !p.thirdRoundCourseName);
+
+    // クイズ実施中のコースの出場者5名。
+    // winners は優先順位（2R勝ち抜け順 → 1R順位）で並んでいるので、絞り込んでも順序は保たれる。
+    // 「誰が出場するか」は Player.thirdRoundCourseName が持っているため、ここでは導出するだけ。
+    const quizPlayers = quizCourse
+        ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
+        : [];
 
     const isClosed = thirdRoundState.step === 'closed';
 
@@ -538,19 +576,106 @@ export default function AdminThirdRound(props: Props) {
                 </div>
             )}
 
-            {/* ===== クイズ実施フェーズ（後のステップで実装）===== */}
+            {/* ===== クイズ実施フェーズ ===== */}
             {thirdRoundState.phase === 'quiz' && (
-                <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800 min-h-[200px] flex items-center justify-center w-full">
-                    <div className="text-center">
-                        <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200 mb-2">
-                            {thirdRoundState.quizOrder} コース目
-                            {drawnCourses.find(c => c.playOrder === thirdRoundState.quizOrder)
-                                && `: ${drawnCourses.find(c => c.playOrder === thirdRoundState.quizOrder)!.name}`}
-                        </h3>
-                        <p className="text-zinc-500 dark:text-zinc-400 text-sm">
-                            クイズのスコア操作UIは後のステップで実装します。
-                        </p>
+                <div className="p-6 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800 w-full flex flex-col items-center gap-6">
+                    <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">
+                        {thirdRoundState.quizOrder} コース目
+                        {quizCourse && `: ${quizCourse.name}`}
+                    </h3>
+
+                    {/* 15分タイマー */}
+                    <div className="flex flex-col items-center gap-4 w-full max-w-md">
+                        <div
+                            className={`font-mono font-black text-6xl tabular-nums ${remaining === 0
+                                ? "text-red-600 dark:text-red-500"
+                                : remaining <= 60
+                                    ? "text-amber-600 dark:text-amber-500"
+                                    : "text-zinc-900 dark:text-zinc-100"
+                                }`}
+                        >
+                            {formatTime(remaining)}
+                        </div>
+
+                        <span className="text-xs font-bold tracking-wider text-zinc-500 dark:text-zinc-400">
+                            {remaining === 0
+                                // 0秒でも操作は受け付け続ける（設計メモ 4.2）。
+                                // コースの終了はスタッフの明示操作で行う。
+                                ? "時間切れ（最後の問題の判定は入力できます）"
+                                : isTimerRunning ? "計測中" : "停止中"}
+                        </span>
+
+                        <div className="flex gap-3 w-full">
+                            <button
+                                onClick={() => changeTimer('start')}
+                                disabled={isTimerRunning || remaining === 0}
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                            >
+                                開始
+                            </button>
+                            <button
+                                onClick={() => changeTimer('stop')}
+                                disabled={!isTimerRunning}
+                                className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                            >
+                                停止
+                            </button>
+                            <button
+                                onClick={handleTimerReset}
+                                className="flex-1 bg-zinc-500 hover:bg-zinc-600 text-white font-bold py-3 rounded-lg transition-colors"
+                            >
+                                リセット
+                            </button>
+                        </div>
                     </div>
+
+                    {/* 出場者5名。優先順位順に並ぶ（winners の並びをそのまま引き継ぐ） */}
+                    <div className="w-full">
+                        <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-bold text-zinc-700 dark:text-zinc-300">出場者</h4>
+                            <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                計 {quizPlayers.length} 名
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-5 gap-3">
+                            {quizPlayers.map(p => (
+                                <div
+                                    key={p.id}
+                                    className="p-4 border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 rounded-xl flex flex-col gap-2"
+                                >
+                                    <div className="flex justify-between text-xs font-mono text-zinc-500">
+                                        <span>No.{p.entryNo}</span>
+                                        <span>2R{p.secondRoundRank}位</span>
+                                    </div>
+                                    <div className="text-center font-black text-lg truncate" title={p.name}>
+                                        {p.name}
+                                    </div>
+                                    <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                                        {p.school || "未登録"}
+                                    </div>
+                                    <div className="flex justify-center gap-4 font-mono font-bold text-sm">
+                                        <span className="text-emerald-600 dark:text-emerald-400">
+                                            ⭕️ {p.thirdRoundCorrectCount}
+                                        </span>
+                                        <span className="text-red-600 dark:text-red-400">
+                                            ❌ {p.thirdRoundWrongCount}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {quizPlayers.length === 0 && (
+                            <div className="py-10 text-center text-zinc-500 dark:text-zinc-400 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl">
+                                このコースの出場者がまだ確定していません。
+                            </div>
+                        )}
+                    </div>
+
+                    <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+                        正誤ボタン・Undo・コース終了は次のステップで実装します。
+                    </p>
                 </div>
             )}
         </div>
