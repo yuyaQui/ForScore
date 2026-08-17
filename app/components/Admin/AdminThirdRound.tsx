@@ -3,7 +3,11 @@ import { useState, useEffect } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
 import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
-import { getCourseFinishState } from "@/lib/thirdRoundScoring";
+import {
+    getCourseFinishState,
+    getTenByTenTotal,
+    getTenByTenWrongPoint
+} from "@/lib/thirdRoundScoring";
 
 type Props = {
     socket: Socket | null;
@@ -229,8 +233,11 @@ export default function AdminThirdRound(props: Props) {
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
 
-    // 表示する数字はコースによって変わる。10 up-down はポイントを見る
+    // 表示する数字はコースによって変わる。
+    // 10 up-down はポイント、10 by 10 は「正解pt × 誤答pt = 総合pt」
     const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
+    const isTenByTen = quizCourse?.name === THIRD_ROUND_COURSES.TEN_BY_TEN;
+    const isSwedish = quizCourse?.name === THIRD_ROUND_COURSES.SWEDISH;
 
     // 終了条件を満たしたか。データは変えず、提示するだけ（決定事項5）
     const finishState = getCourseFinishState(quizPlayers);
@@ -757,20 +764,43 @@ export default function AdminThirdRound(props: Props) {
                                             ポイントは誤答で0に戻るため、正解数を出すと
                                             「⭕️7」なのに勝ち抜けまで残り3問ではない、という
                                             進行卓が誤読しやすい表示になる。 */}
-                                        <div className="flex justify-center gap-4 font-mono font-bold text-sm">
-                                            {isUpDown ? (
-                                                <span className="text-blue-600 dark:text-blue-400">
-                                                    {p.thirdRoundUpDownPoint} pt
-                                                </span>
-                                            ) : (
+                                        {isTenByTen ? (
+                                            // ルールの式をそのまま出す。誤答は回数ではなく
+                                            // 誤答ポイント（10 から始まり誤答ごとに1減る）。
+                                            // スタッフがその場で暗算して検算できる。
+                                            <div className="flex justify-center items-baseline gap-1 font-mono font-bold text-sm">
                                                 <span className="text-emerald-600 dark:text-emerald-400">
-                                                    ⭕️ {p.thirdRoundCorrectCount}
+                                                    {p.thirdRoundCorrectCount}
                                                 </span>
-                                            )}
-                                            <span className="text-red-600 dark:text-red-400">
-                                                ❌ {p.thirdRoundWrongCount}
-                                            </span>
-                                        </div>
+                                                <span className="text-zinc-400">×</span>
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    {getTenByTenWrongPoint(p)}
+                                                </span>
+                                                <span className="text-zinc-400">=</span>
+                                                <span className="text-blue-600 dark:text-blue-400 text-base">
+                                                    {getTenByTenTotal(p)}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-center gap-4 font-mono font-bold text-sm">
+                                                {isUpDown ? (
+                                                    <span className="text-blue-600 dark:text-blue-400">
+                                                        {p.thirdRoundUpDownPoint} pt
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                                        ⭕️ {p.thirdRoundCorrectCount}
+                                                    </span>
+                                                )}
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    {/* Swedish 10 で意味を持つのは×の合計。
+                                                        誤答回数は失格判定にも判定基準にも使わない。 */}
+                                                    {isSwedish
+                                                        ? `× ${p.thirdRoundSwedishCross}`
+                                                        : `❌ ${p.thirdRoundWrongCount}`}
+                                                </span>
+                                            </div>
+                                        )}
 
                                         {isSettled ? (
                                             <div className={`text-center font-black py-2 text-sm ${isWinner

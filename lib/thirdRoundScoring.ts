@@ -57,6 +57,54 @@ const UP_DOWN_WIN_POINT = 10;
 /** 10 up-down: 失格となる通算誤答回数 */
 const UP_DOWN_LOSE_WRONG_COUNT = 2;
 
+/** Swedish 10: 勝ち抜けに必要な正解数 */
+const SWEDISH_WIN_CORRECT_COUNT = 10;
+/** Swedish 10: 失格となる × の合計 */
+const SWEDISH_LOSE_CROSS = 10;
+
+/**
+ * Swedish 10 で、いま誤答したときに付く × の数（設計メモ 3.4）。
+ *
+ *   誤答時の正解数 0     → 1×
+ *                  1〜2  → 2×
+ *                  3〜5  → 3×
+ *                  6〜9  → 4×
+ *
+ * 正解が進むほどペナルティが重くなる。正解数10は勝ち抜け済みなので表に無い。
+ */
+export function getSwedishCrossToAdd(correctCount: number): number {
+    if (correctCount <= 0) return 1;
+    if (correctCount <= 2) return 2;
+    if (correctCount <= 5) return 3;
+    return 4;
+}
+
+/** 10 by 10: 誤答ポイントの初期値。誤答のたびに1減る */
+export const TEN_BY_TEN_WRONG_POINT_START = 10;
+/** 10 by 10: 勝ち抜けとなる総合ポイント */
+const TEN_BY_TEN_WIN_TOTAL = 100;
+/** 10 by 10: 失格となる通算誤答回数 */
+const TEN_BY_TEN_LOSE_WRONG_COUNT = 6;
+
+/**
+ * 10 by 10 の誤答ポイント（= 10 − 誤答数）。
+ * 「誤答ポイント: 10 から始まり、誤答のたびに1減る」というルールの表現で、
+ * 誤答数から常に導出できるため列としては持たない。
+ */
+export function getTenByTenWrongPoint(player: Player): number {
+    return TEN_BY_TEN_WRONG_POINT_START - player.thirdRoundWrongCount;
+}
+
+/**
+ * 10 by 10 の総合ポイント（= 正解数 × 誤答ポイント）。
+ *
+ * 設計メモ 6.3 の「導出できるものは列にしない」に従い、列として保持しない。
+ * 二重管理になるとどこかで必ずずれる。
+ */
+export function getTenByTenTotal(player: Player): number {
+    return player.thirdRoundCorrectCount * getTenByTenWrongPoint(player);
+}
+
 /**
  * そのコースで次に勝ち抜ける人が受け取る順位。
  *
@@ -103,9 +151,13 @@ function scoreTargetPlayer({ course, players, playerId, action }: ScoringInput):
         // ---- ここからコース別 ----
         if (course === THIRD_ROUND_COURSES.UP_DOWN) {
             next = applyUpDown(next, action, players);
+        } else if (course === THIRD_ROUND_COURSES.TEN_BY_TEN) {
+            next = applyTenByTen(next, action, players);
+        } else if (course === THIRD_ROUND_COURSES.SWEDISH) {
+            next = applySwedish(next, action, players);
         }
 
-        // Freeze 10 / Swedish 10 / 10 by 10 は工程7-4〜7-6 で実装する
+        // Freeze 10 は工程7-6 で実装する
 
         return next;
     });
@@ -173,7 +225,20 @@ function compareByCourseCriteria(course: ThirdRoundCourseName, a: Player, b: Pla
         return b.thirdRoundUpDownPoint - a.thirdRoundUpDownPoint;
     }
 
-    // Freeze 10 / Swedish 10 / 10 by 10 は工程7-4〜7-6 で足す
+    if (course === THIRD_ROUND_COURSES.TEN_BY_TEN) {
+        // 判定基準①は総合pt多い順（設計メモ 3.1）
+        return getTenByTenTotal(b) - getTenByTenTotal(a);
+    }
+
+    if (course === THIRD_ROUND_COURSES.SWEDISH) {
+        // 判定基準は2段。①正解数多い順 ②×少ない順（設計メモ 3.1）
+        if (a.thirdRoundCorrectCount !== b.thirdRoundCorrectCount) {
+            return b.thirdRoundCorrectCount - a.thirdRoundCorrectCount;
+        }
+        return a.thirdRoundSwedishCross - b.thirdRoundSwedishCross;
+    }
+
+    // Freeze 10 は工程7-6 で足す
     return 0;
 }
 
@@ -248,6 +313,71 @@ function applyUpDown(player: Player, action: ThirdRoundAction, others: Player[])
     }
 
     // スルーは 10 up-down では何も起こさない
+
+    return next;
+}
+
+/**
+ * 10 by 10（設計メモ 3.5）
+ *
+ *   正解 … 正解ポイント +1。総合pt（正解pt × 誤答pt）が100以上で勝ち抜け
+ *   誤答 … 誤答ポイント −1。通算6回で失格
+ *
+ * このコースは**専用の列を1つも使わない**。正解数と誤答数は共通処理がすでに
+ * 動かしており、誤答ポイントも総合ポイントもそこから導出できるため。
+ *
+ *   誤答pt = 10 − 誤答数
+ *   総合pt = 正解数 × 誤答pt
+ *
+ * 勝ち抜け判定を正解のときだけ見るのは、誤答では総合ptが下がる一方だから。
+ * 誤答で新たに100に到達することはない。
+ */
+function applyTenByTen(player: Player, action: ThirdRoundAction, others: Player[]): Player {
+    const next = { ...player };
+
+    if (action === 'correct') {
+        if (getTenByTenTotal(next) >= TEN_BY_TEN_WIN_TOTAL) {
+            next.thirdRoundRank = nextWinnerRank(others);
+        }
+    } else if (action === 'wrong') {
+        if (next.thirdRoundWrongCount >= TEN_BY_TEN_LOSE_WRONG_COUNT) {
+            next.thirdRoundRank = -1;
+        }
+    }
+
+    // スルーは 10 by 10 では何も起こさない
+
+    return next;
+}
+
+/**
+ * Swedish 10（設計メモ 3.4）
+ *
+ *   正解 … 10問正解で勝ち抜け
+ *   誤答 … その時点の正解数に応じて × が付く。合計10以上で失格
+ *
+ * × は「誤答した時点の正解数」に依存するため、現在の正解数と誤答数からは復元できない。
+ * 誤答2回・正解数5の人は、5正解のあとに2回誤答したなら 3+3=6×、0正解時と3正解時に
+ * 誤答したなら 1+3=4× になる。履歴が無いと決まらないので列として持つ（設計メモ 6.3）。
+ *
+ * 「その時点の正解数」は共通処理を通ったあとの値をそのまま使う。誤答は正解数を
+ * 増やさないため、共通処理の前後でこの値は変わらない（順序に依存しない）。
+ */
+function applySwedish(player: Player, action: ThirdRoundAction, others: Player[]): Player {
+    const next = { ...player };
+
+    if (action === 'correct') {
+        if (next.thirdRoundCorrectCount >= SWEDISH_WIN_CORRECT_COUNT) {
+            next.thirdRoundRank = nextWinnerRank(others);
+        }
+    } else if (action === 'wrong') {
+        next.thirdRoundSwedishCross += getSwedishCrossToAdd(next.thirdRoundCorrectCount);
+        if (next.thirdRoundSwedishCross >= SWEDISH_LOSE_CROSS) {
+            next.thirdRoundRank = -1;
+        }
+    }
+
+    // スルーは Swedish 10 では何も起こさない
 
     return next;
 }

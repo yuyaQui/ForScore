@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
 import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
-import { getCourseFinishState } from "@/lib/thirdRoundScoring";
+import {
+    getCourseFinishState,
+    getTenByTenTotal,
+    getTenByTenWrongPoint
+} from "@/lib/thirdRoundScoring";
 
 type Props = {
     players: Player[],
@@ -118,8 +122,11 @@ export default function MainThirdRound(props: Props) {
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
 
-    // 表示する数字はコースによって変わる（Admin と同じ規則）。10 up-down はポイント
+    // 表示する数字はコースによって変わる（Admin と同じ規則）。
+    // 10 up-down はポイント、10 by 10 は「正解pt × 誤答pt = 総合pt」
     const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
+    const isTenByTen = quizCourse?.name === THIRD_ROUND_COURSES.TEN_BY_TEN;
+    const isSwedish = quizCourse?.name === THIRD_ROUND_COURSES.SWEDISH;
 
     // 終了条件（Admin と同じ関数で判定する）
     const finishState = getCourseFinishState(quizPlayers);
@@ -196,23 +203,43 @@ export default function MainThirdRound(props: Props) {
                                         {p.school || "未登録"}
                                     </span>
 
-                                    {/* 10 up-down で意味を持つのはポイント。
-                                        誤答で0に戻るため、正解数を出すと誤読を招く */}
-                                    <div className="flex items-end gap-4 font-mono font-black">
-                                        {isUpDown ? (
-                                            <span className="text-blue-600 dark:text-blue-400 text-4xl">
-                                                {p.thirdRoundUpDownPoint}
-                                                <span className="text-base ml-1">pt</span>
+                                    {/* コースによって意味のある数字が違う。
+                                        10 up-down はポイント（誤答で0に戻るため正解数は誤読を招く）。
+                                        10 by 10 は式そのもの（誤答は回数ではなく誤答ポイント）。 */}
+                                    {isTenByTen ? (
+                                        <div className="flex flex-col items-center font-mono font-black">
+                                            <div className="flex items-baseline gap-1 text-xl">
+                                                <span className="text-emerald-600 dark:text-emerald-400">
+                                                    {p.thirdRoundCorrectCount}
+                                                </span>
+                                                <span className="text-zinc-400">×</span>
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    {getTenByTenWrongPoint(p)}
+                                                </span>
+                                            </div>
+                                            <span className="text-blue-600 dark:text-blue-400 text-4xl leading-tight">
+                                                {getTenByTenTotal(p)}
                                             </span>
-                                        ) : (
-                                            <span className="text-emerald-600 dark:text-emerald-400 text-4xl">
-                                                {p.thirdRoundCorrectCount}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-end gap-4 font-mono font-black">
+                                            {isUpDown ? (
+                                                <span className="text-blue-600 dark:text-blue-400 text-4xl">
+                                                    {p.thirdRoundUpDownPoint}
+                                                    <span className="text-base ml-1">pt</span>
+                                                </span>
+                                            ) : (
+                                                <span className="text-emerald-600 dark:text-emerald-400 text-4xl">
+                                                    {p.thirdRoundCorrectCount}
+                                                </span>
+                                            )}
+                                            <span className="text-red-600 dark:text-red-400 text-2xl">
+                                                {/* Swedish 10 で意味を持つのは×の合計。
+                                                    誤答回数は失格判定にも判定基準にも使わない。 */}
+                                                ×{isSwedish ? p.thirdRoundSwedishCross : p.thirdRoundWrongCount}
                                             </span>
-                                        )}
-                                        <span className="text-red-600 dark:text-red-400 text-2xl">
-                                            ×{p.thirdRoundWrongCount}
-                                        </span>
-                                    </div>
+                                        </div>
+                                    )}
 
                                     {isWinner && (
                                         <div className="text-sm font-black text-amber-600 dark:text-amber-400 tracking-wider animate-pulse">
