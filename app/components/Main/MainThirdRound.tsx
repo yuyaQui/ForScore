@@ -1,8 +1,9 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
-import { COURSE_TIME_LIMIT_SECONDS } from "@/lib/thirdRoundCourses";
+import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
+import { getCourseFinishState } from "@/lib/thirdRoundScoring";
 
 type Props = {
     players: Player[],
@@ -117,6 +118,12 @@ export default function MainThirdRound(props: Props) {
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
 
+    // 表示する数字はコースによって変わる（Admin と同じ規則）。10 up-down はポイント
+    const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
+
+    // 終了条件（Admin と同じ関数で判定する）
+    const finishState = getCourseFinishState(quizPlayers);
+
     // ---- 現在の状況を表す見出し ----
     let statusLabel: string;
     if (!currentCourse) {
@@ -164,31 +171,69 @@ export default function MainThirdRound(props: Props) {
 
                     {/* 出場者5名のスコアボード。並びは優先順位順（winners の並びを引き継ぐ） */}
                     <div className="mt-10 w-full grid grid-cols-5 gap-4">
-                        {quizPlayers.map(p => (
-                            <div
-                                key={p.id}
-                                className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-2xl p-5 shadow-lg flex flex-col items-center gap-3 min-h-[220px] justify-between"
-                            >
-                                <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
-                                    No.{p.entryNo}
-                                </span>
-                                <h3 className="text-2xl font-black text-zinc-900 dark:text-white text-center leading-tight">
-                                    {p.name}
-                                </h3>
-                                <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-full">
-                                    {p.school || "未登録"}
-                                </span>
-                                <div className="flex gap-4 font-mono font-black text-2xl">
-                                    <span className="text-emerald-600 dark:text-emerald-400">
-                                        {p.thirdRoundCorrectCount}
+                        {quizPlayers.map(p => {
+                            // 勝ち抜け → 正の数、失格 → −1、未決着 → 0
+                            const isWinner = p.thirdRoundRank > 0;
+                            const isEliminated = p.thirdRoundRank < 0;
+
+                            return (
+                                <div
+                                    key={p.id}
+                                    className={`backdrop-blur-md border rounded-2xl p-5 shadow-lg flex flex-col items-center gap-3 min-h-[260px] justify-between transition-all duration-500 ${isWinner
+                                        ? "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 ring-4 ring-amber-500/20"
+                                        : isEliminated
+                                            ? "bg-zinc-100/70 dark:bg-zinc-900/40 border-zinc-300 dark:border-zinc-800 opacity-40 grayscale"
+                                            : "bg-white/80 dark:bg-zinc-800/80 border-zinc-200/50 dark:border-zinc-700/50"
+                                        }`}
+                                >
+                                    <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
+                                        No.{p.entryNo}
                                     </span>
-                                    <span className="text-red-600 dark:text-red-400">
-                                        {p.thirdRoundWrongCount}
+                                    <h3 className="text-2xl font-black text-zinc-900 dark:text-white text-center leading-tight">
+                                        {p.name}
+                                    </h3>
+                                    <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-full">
+                                        {p.school || "未登録"}
                                     </span>
+
+                                    {/* 10 up-down で意味を持つのはポイント。
+                                        誤答で0に戻るため、正解数を出すと誤読を招く */}
+                                    <div className="flex items-end gap-4 font-mono font-black">
+                                        {isUpDown ? (
+                                            <span className="text-blue-600 dark:text-blue-400 text-4xl">
+                                                {p.thirdRoundUpDownPoint}
+                                                <span className="text-base ml-1">pt</span>
+                                            </span>
+                                        ) : (
+                                            <span className="text-emerald-600 dark:text-emerald-400 text-4xl">
+                                                {p.thirdRoundCorrectCount}
+                                            </span>
+                                        )}
+                                        <span className="text-red-600 dark:text-red-400 text-2xl">
+                                            ×{p.thirdRoundWrongCount}
+                                        </span>
+                                    </div>
+
+                                    {isWinner && (
+                                        <div className="text-sm font-black text-amber-600 dark:text-amber-400 tracking-wider animate-pulse">
+                                            👑 WIN（{p.thirdRoundRank}位）
+                                        </div>
+                                    )}
+                                    {isEliminated && (
+                                        <div className="text-sm font-black text-zinc-400 tracking-widest">
+                                            ❌ OUT
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
+
+                    {finishState.finished && (
+                        <p className="mt-8 text-3xl font-black tracking-widest text-amber-600 dark:text-amber-400">
+                            COURSE FINISHED
+                        </p>
+                    )}
 
                     {quizPlayers.length === 0 && (
                         <p className="mt-10 text-zinc-500 dark:text-zinc-400">

@@ -1,8 +1,9 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
-import { COURSE_TIME_LIMIT_SECONDS } from "@/lib/thirdRoundCourses";
+import { COURSE_TIME_LIMIT_SECONDS, THIRD_ROUND_COURSES } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
+import { getCourseFinishState } from "@/lib/thirdRoundScoring";
 
 type Props = {
     socket: Socket | null;
@@ -142,6 +143,13 @@ export default function AdminThirdRound(props: Props) {
             if (data.success && socket) {
                 // 選手データ専用の経路で配る。コース情報のイベントに同乗させない。
                 socket.emit('broadcast_scores', data.allPlayers);
+
+                // 勝ち抜けまたは失格が出たら時計を止める（設計メモ 4.2）。
+                // 判定は API 側にある。server/ は DB を見ないので勝ち抜けを知らず、
+                // Admin が中継役になる。止まっていても stop は無害。
+                if (data.shouldStopTimer) {
+                    socket.emit('change_third_round_timer', { action: 'stop' });
+                }
             } else {
                 setErrorMessage(data.error || 'スコアの更新に失敗しました');
             }
@@ -220,6 +228,12 @@ export default function AdminThirdRound(props: Props) {
     const quizPlayers = quizCourse
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
+
+    // 表示する数字はコースによって変わる。10 up-down はポイントを見る
+    const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
+
+    // 終了条件を満たしたか。データは変えず、提示するだけ（決定事項5）
+    const finishState = getCourseFinishState(quizPlayers);
 
     const isClosed = thirdRoundState.step === 'closed';
 
@@ -685,58 +699,107 @@ export default function AdminThirdRound(props: Props) {
                         </div>
                     </div>
 
+                    {/* 終了条件の提示。システムはコースを勝手に締めない（決定事項5）。
+                        スタッフが上のコース切り替えで次へ進める。 */}
+                    {finishState.finished && (
+                        <div className="w-full p-4 rounded-xl border-2 border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                            <p className="font-black text-amber-700 dark:text-amber-400">
+                                終了条件を満たしました
+                                {finishState.reason === 'allWinnersDecided'
+                                    ? `：${finishState.winnersCount}名が勝ち抜け`
+                                    : `：${finishState.eliminatedCount}名が失格（残り${finishState.activeCount}名 ＝ 残り枠）`}
+                            </p>
+                            <p className="text-sm text-amber-700/80 dark:text-amber-400/80 mt-1">
+                                {finishState.reason === 'seatsMatchRemaining'
+                                    ? '解答席に残っていた全員を勝ち抜けにしました（ポイント多い順、同点は席順）。'
+                                    : ''}
+                                上の切り替えで次のコースへ進んでください。
+                            </p>
+                        </div>
+                    )}
+
                     {/* 出場者5名。優先順位順に並ぶ（winners の並びをそのまま引き継ぐ） */}
                     <div className="w-full">
                         <div className="flex items-center justify-between mb-3">
                             <h4 className="font-bold text-zinc-700 dark:text-zinc-300">出場者</h4>
                             <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                                計 {quizPlayers.length} 名
+                                勝ち抜け {finishState.winnersCount} / 失格 {finishState.eliminatedCount} / 解答席 {finishState.activeCount}
                             </span>
                         </div>
 
                         <div className="grid grid-cols-5 gap-3">
-                            {quizPlayers.map(p => (
-                                <div
-                                    key={p.id}
-                                    className="p-4 border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 rounded-xl flex flex-col gap-2"
-                                >
-                                    <div className="flex justify-between text-xs font-mono text-zinc-500">
-                                        <span>No.{p.entryNo}</span>
-                                        <span>2R{p.secondRoundRank}位</span>
-                                    </div>
-                                    <div className="text-center font-black text-lg truncate" title={p.name}>
-                                        {p.name}
-                                    </div>
-                                    <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 truncate">
-                                        {p.school || "未登録"}
-                                    </div>
-                                    <div className="flex justify-center gap-4 font-mono font-bold text-sm">
-                                        <span className="text-emerald-600 dark:text-emerald-400">
-                                            ⭕️ {p.thirdRoundCorrectCount}
-                                        </span>
-                                        <span className="text-red-600 dark:text-red-400">
-                                            ❌ {p.thirdRoundWrongCount}
-                                        </span>
-                                    </div>
+                            {quizPlayers.map(p => {
+                                // 勝ち抜け → 正の数、失格 → −1、未決着 → 0
+                                const isWinner = p.thirdRoundRank > 0;
+                                const isEliminated = p.thirdRoundRank < 0;
+                                const isSettled = p.thirdRoundRank !== 0;
 
-                                    <div className="flex gap-2 w-full">
-                                        <button
-                                            onClick={() => handleScore(p.id, 'correct')}
-                                            disabled={isBusy}
-                                            className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
-                                        >
-                                            正解
-                                        </button>
-                                        <button
-                                            onClick={() => handleScore(p.id, 'wrong')}
-                                            disabled={isBusy}
-                                            className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
-                                        >
-                                            誤答
-                                        </button>
+                                return (
+                                    <div
+                                        key={p.id}
+                                        className={`p-4 border rounded-xl flex flex-col gap-2 transition-all ${isWinner
+                                            ? "border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-950/20"
+                                            : isEliminated
+                                                ? "border-transparent bg-zinc-200 dark:bg-zinc-900 opacity-60"
+                                                : "border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800"
+                                            }`}
+                                    >
+                                        <div className="flex justify-between text-xs font-mono text-zinc-500">
+                                            <span>No.{p.entryNo}</span>
+                                            <span>2R{p.secondRoundRank}位</span>
+                                        </div>
+                                        <div className="text-center font-black text-lg truncate" title={p.name}>
+                                            {p.name}
+                                        </div>
+
+                                        {/* 表示する数字はコースによって変える。
+                                            10 up-down で見るべきなのはポイントで、正解数ではない。
+                                            ポイントは誤答で0に戻るため、正解数を出すと
+                                            「⭕️7」なのに勝ち抜けまで残り3問ではない、という
+                                            進行卓が誤読しやすい表示になる。 */}
+                                        <div className="flex justify-center gap-4 font-mono font-bold text-sm">
+                                            {isUpDown ? (
+                                                <span className="text-blue-600 dark:text-blue-400">
+                                                    {p.thirdRoundUpDownPoint} pt
+                                                </span>
+                                            ) : (
+                                                <span className="text-emerald-600 dark:text-emerald-400">
+                                                    ⭕️ {p.thirdRoundCorrectCount}
+                                                </span>
+                                            )}
+                                            <span className="text-red-600 dark:text-red-400">
+                                                ❌ {p.thirdRoundWrongCount}
+                                            </span>
+                                        </div>
+
+                                        {isSettled ? (
+                                            <div className={`text-center font-black py-2 text-sm ${isWinner
+                                                ? "text-amber-600 dark:text-amber-400"
+                                                : "text-zinc-500"
+                                                }`}>
+                                                {isWinner ? `👑 勝ち抜け（${p.thirdRoundRank}位）` : "❌ 失格"}
+                                            </div>
+                                        ) : (
+                                            <div className="flex gap-2 w-full">
+                                                <button
+                                                    onClick={() => handleScore(p.id, 'correct')}
+                                                    disabled={isBusy}
+                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                                >
+                                                    正解
+                                                </button>
+                                                <button
+                                                    onClick={() => handleScore(p.id, 'wrong')}
+                                                    disabled={isBusy}
+                                                    className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                                >
+                                                    誤答
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         {quizPlayers.length === 0 && (

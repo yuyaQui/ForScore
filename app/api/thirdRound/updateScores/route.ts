@@ -106,7 +106,18 @@ export async function POST(request: Request) {
 
         const allPlayers = await loadAllPlayers();
 
-        return NextResponse.json({ success: true, allPlayers });
+        // 15分タイマーは「勝ち抜けまたは失格が出たときのみ止まる」（設計メモ 4.2）。
+        // server/ は DB を見ないので勝ち抜けを知らない。ここで判定して返し、
+        // Admin が socket でタイマー停止を中継する。
+        //
+        // 判定は「rank が 0 から変わった選手がいるか」。rank の規約は
+        // 勝ち抜け → 正の数、失格 → −1、未決着 → 0 なので、この1つの式で両方を拾える。
+        const rankBefore = new Map(coursePlayers.map(p => [p.id, p.thirdRoundRank]));
+        const shouldStopTimer = updated.some(
+            p => rankBefore.get(p.id) === 0 && p.thirdRoundRank !== 0
+        );
+
+        return NextResponse.json({ success: true, allPlayers, shouldStopTimer });
     } catch (error) {
         console.error('Third round score update error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
