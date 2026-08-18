@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import {
     applyThirdRoundScore,
     finalizeCourseByStandings,
+    applyPlayoffScore,
     type ThirdRoundAction
 } from '@/lib/thirdRoundScoring';
 import { THIRD_ROUND_COURSE_NAMES, type ThirdRoundCourseName } from '@/lib/thirdRoundCourses';
@@ -36,7 +37,7 @@ const VALID_ACTIONS: UpdateScoresAction[] = ['correct', 'wrong', 'through', 'fin
  */
 export async function POST(request: Request) {
     try {
-        const { playerId, action, courseName } = await request.json();
+        const { playerId, action, courseName, playoff } = await request.json();
 
         if (!VALID_ACTIONS.includes(action)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });
@@ -85,14 +86,23 @@ export async function POST(request: Request) {
         const snapshot = JSON.stringify(coursePlayers);
 
         // コース終了は採点ではなく順位の確定なので、別の関数へ振り分ける
-        const updated = action === 'finish'
-            ? finalizeCourseByStandings(courseName as ThirdRoundCourseName, coursePlayers)
-            : applyThirdRoundScore({
-                course: courseName as ThirdRoundCourseName,
-                players: coursePlayers,
-                playerId: action === 'through' ? null : playerId,
-                action
-            });
+        // updated は Player の配列
+        const updated =
+            action === 'finish'
+                ? finalizeCourseByStandings(courseName as ThirdRoundCourseName, coursePlayers)
+                : playoff
+                    ? applyPlayoffScore(
+                        courseName as ThirdRoundCourseName,
+                        coursePlayers,
+                        playerId,
+                        action as 'correct' | 'wrong'
+                    )
+                    : applyThirdRoundScore({
+                        course: courseName as ThirdRoundCourseName,
+                        players: coursePlayers,
+                        playerId: action === 'through' ? null : playerId,
+                        action
+                    })
 
         // 変化した選手だけを書き戻す。
         // 毎回全員を UPDATE すると、2nd Round で連答権を消してしまったのと同じ種類の

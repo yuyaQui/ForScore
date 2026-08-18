@@ -61,7 +61,7 @@ export default function AdminThirdRound(props: Props) {
     const [raisedIds, setRaisedIds] = useState<number[]>([]);
     // 直前に確定した結果の内訳（掲げた／強制出場）
     const [lastAssigned, setLastAssigned] = useState<AssignedPlayer[]>([]);
-    const [isBusy, setIsBusy] = useState(false);
+    const [isBusy, setIsBusy] = useState(false); // API と通信中かどうか
     const [errorMessage, setErrorMessage] = useState("");
     // 15分タイマー。サーバが唯一の時計で、ここは受け取った値を表示するだけ。
     // 接続直後にサーバから現在値が届くので、初期値は表示が一瞬崩れないための仮置き。
@@ -199,6 +199,36 @@ export default function AdminThirdRound(props: Props) {
             }
         } catch (error) {
             console.error('Score update failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    // サドンデスの採点部分
+    const handlePlayoffScore = async (playerId: number, action: 'correct' | 'wrong') => {
+        if (!quizCourse) return;
+        setIsBusy(true);
+        setErrorMessage("");
+        try {
+            const res = await fetch('/api/thirdRound/updateScores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    playerId,
+                    action,
+                    courseName: quizCourse.name,
+                    playoff: true
+                })
+            });
+            const data = await res.json()
+            if (data.success && socket) {
+                socket.emit('broadcast_scores', data.allPlayers)
+            } else {
+                setErrorMessage(data.error || 'スコアの更新に失敗しました');
+            }
+        } catch (error) {
+            console.error('Playoff score update failed', error);
             setErrorMessage('通信に失敗しました');
         } finally {
             setIsBusy(false);
@@ -1061,6 +1091,27 @@ export default function AdminThirdRound(props: Props) {
                                     <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 truncate">
                                         {p.school || "未登録"}
                                     </div>
+
+                                    {/* プレーオフは1問正解で勝ち抜け・1問誤答で敗退。
+                                        スルーはこの場面では使わないのでボタンを出さない。
+                                        決着した選手はこの一覧から消えるため、
+                                        ボタンを無効化する処理は要らない。 */}
+                                    <div className="flex gap-2 w-full mt-1">
+                                        <button
+                                            onClick={() => handlePlayoffScore(p.id, 'correct')}
+                                            disabled={isBusy}
+                                            className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                        >
+                                            正解
+                                        </button>
+                                        <button
+                                            onClick={() => handlePlayoffScore(p.id, 'wrong')}
+                                            disabled={isBusy}
+                                            className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-2 rounded-lg transition-colors text-sm"
+                                        >
+                                            誤答
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -1070,8 +1121,19 @@ export default function AdminThirdRound(props: Props) {
                         </div>
                     )}
 
+                    {/* プレーオフの結果もコース単位の履歴に入るので Undo で戻せる */}
+                    {playoffPlayers.length > 0 && (
+                        <button
+                            onClick={handleScoreUndo}
+                            disabled={isBusy}
+                            className="w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
+                        >
+                            Undo（1手戻す）
+                        </button>
+                    )}
+
                     <p className="text-zinc-500 dark:text-zinc-400 text-sm">
-                        正誤ボタンは工程8-3 で実装します。戻るときは上のコース切り替えを使ってください。
+                        戻るときは上のコース切り替えを使ってください。
                     </p>
                 </div>
             )}

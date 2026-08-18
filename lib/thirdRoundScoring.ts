@@ -22,13 +22,6 @@
  * 書き換えたせいで Undo 用スナップショットが「更新後」の状態になるバグが出た。
  * ここで書き換えないようにしておけば、呼び出し側が順序を気にしなくてよい。
  *
- * ## 実装状況
- *
- * 実装済みは共通処理（正解数 +1 / 誤答数 +1）と 10 up-down、および終了条件2
- * （残り人数 === 残り枠 で残り全員を勝ち抜け）。
- * Freeze 10 / Swedish 10 / 10 by 10 は工程7-4〜7-6 で足す。
- *
- * 15分経過時の順位決定とプレーオフ（終了条件3）は工程8。
  */
 
 import type { Player } from './types';
@@ -65,16 +58,7 @@ const SWEDISH_WIN_CORRECT_COUNT = 10;
 /** Swedish 10: 失格となる × の合計 */
 const SWEDISH_LOSE_CROSS = 10;
 
-/**
- * Swedish 10 で、いま誤答したときに付く × の数（設計メモ 3.4）。
- *
- *   誤答時の正解数 0     → 1×
- *                  1〜2  → 2×
- *                  3〜5  → 3×
- *                  6〜9  → 4×
- *
- * 正解が進むほどペナルティが重くなる。正解数10は勝ち抜け済みなので表に無い。
- */
+// Swedish10
 export function getSwedishCrossToAdd(correctCount: number): number {
     if (correctCount <= 0) return 1;
     if (correctCount <= 2) return 2;
@@ -282,20 +266,7 @@ export function compareByCourseCriteria(course: ThirdRoundCourseName, a: Player,
     return 0;
 }
 
-/**
- * 終了条件2（残り人数 === 残り枠）が成立していたら、解答席に残っている全員を
- * 勝ち抜けにする（設計メモ 4.1 の条件2）。
- *
- * 順位は「判定基準（ポイント多い順）→ 同点なら席順」で決める。
- * 席順＝コース選択と同じ優先順位（2R勝ち抜け順 → 1R順位）。
- *
- * 設計メモ 4.3 は同点をプレーオフとしているが、条件2 は**残った全員がどのみち
- * 勝ち抜ける**場面で順位の付け方だけの問題なので、席順で決着させる。
- * 誰が通過するかを決める15分経過（条件3）とは重みが違うため区別している。
- *
- * 並び順は配列の順序に頼らずフィールドから決める。API は paperRank 順で読んで
- * おり優先順位順ではないため、順序に依存すると読み方を変えた瞬間に壊れる。
- */
+// トビ残り判定
 function finalizeRemainingWinners(course: ThirdRoundCourseName, players: Player[]): Player[] {
     const state = getCourseFinishState(players);
 
@@ -325,31 +296,30 @@ function finalizeRemainingWinners(course: ThirdRoundCourseName, players: Player[
     });
 }
 
-/**
- * コースを締めて、判定基準で順位を確定する（設計メモ 4.1 の条件3・4.3）。
- *
- * 15分経過などでスタッフが「コース終了」を押したときに呼ぶ。タイマーが0になっても
- * 自動では発火しない（決定事項5）。最後に読まれていた問題の判定を入力できなくなるため。
- *
- * ```
- * actives = rank === 0 の選手、残り枠 n = 2 − 勝ち抜け済み数
- *
- * actives.length <= n  → 全員通過（枠が余っている）
- * n位と n+1位が完全同値 → 同値グループを rank = 0 のまま残す
- *                          上位は勝ち抜け、下位は敗退
- * それ以外            → 上位 n 名を勝ち抜け、残りを敗退
- * ```
- *
- * **同着の判定は compareByCourseCriteria が 0 を返すかだけで行い、席順を使わない。**
- * ここが終了条件2 との違いで、あちらは席順で決着させ、こちらはプレーオフへ送る。
- * 混ざらないよう関数を分けている。
- *
- * 残った rank === 0 の選手がそのままプレーオフ対象になる。対象者リストを別に持つ
- * 必要がないので、状態を増やさずに済む。
- *
- * 敗退（通過できなかった）と失格は同じ −1 にする。2nd Round と同じ規約で、
- * 区別が要るのは表示だけなので isEliminatedByCourseRule で導出する。
- */
+// サドンデス
+// 組参加者5名を入力・出力
+export function applyPlayoffScore(
+    course: ThirdRoundCourseName,
+    players: Player[],
+    playerId: number,
+    action: 'correct' | 'wrong'
+): Player[] {
+    const target = players.find(p => p.id === playerId);
+    if (!target || target.thirdRoundRank !== 0) return players;
+    const scored = players.map(p => {
+        if (p.id !== playerId) return p;
+        // 正解 or 誤答したプレイヤーへの処理
+        return action === 'correct'
+            // p を複製した上で、 thirdRoundRank を更新し p を出力
+            ? { ...p, thirdRoundRank: nextWinnerRank(players) }
+            : { ...p, thirdRoundRank: -1 }
+    });
+
+    // トビ残りが発生した時の処理
+    return finalizeRemainingWinners(course, scored)
+}
+
+// 「コース終了」を押した時に呼ぶ関数
 export function finalizeCourseByStandings(
     course: ThirdRoundCourseName,
     players: Player[]

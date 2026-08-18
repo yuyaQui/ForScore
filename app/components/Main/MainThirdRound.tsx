@@ -158,8 +158,13 @@ export default function MainThirdRound(props: Props) {
     }
 
     // ===== プレーオフ =====
-    // 設計メモ 7章のとおり対象者のみを表示する。
-    // 通過確定者と敗退者はここには出さない。
+    //
+    // そのコースの5名全員を出す。設計メモ 7章は当初「対象者のみ」としていたが、
+    // 対象者は rank === 0 で絞って導出しているため、勝ち抜けた瞬間にその選手が
+    // 一覧から外れて**画面から消えてしまう**。会場から見ると勝った瞬間が分からない。
+    //
+    // 5名全員を出し、勝ち抜けはコース本体と同じ金色、敗退はグレーにすることで、
+    // プレーオフで勝った選手がその場で金色に変わって残る。
     if (thirdRoundState.phase === 'playoff') {
         return (
             <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
@@ -175,22 +180,50 @@ export default function MainThirdRound(props: Props) {
                     </p>
 
                     <div className="mt-12 flex justify-center gap-6 flex-wrap">
-                        {playoffPlayers.map(p => (
-                            <div
-                                key={p.id}
-                                className="bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border-2 border-purple-400 dark:border-purple-600 rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-3 min-w-[220px]"
-                            >
-                                <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
-                                    No.{p.entryNo}
-                                </span>
-                                <h3 className="text-3xl font-black text-zinc-900 dark:text-white text-center leading-tight">
-                                    {p.name}
-                                </h3>
-                                <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate max-w-full">
-                                    {p.school || "未登録"}
-                                </span>
-                            </div>
-                        ))}
+                        {quizPlayers.map(p => {
+                            // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0
+                            const isWinner = p.thirdRoundRank > 0;
+                            const isEliminated = p.thirdRoundRank < 0;
+
+                            return (
+                                <div
+                                    key={p.id}
+                                    className={`backdrop-blur-md rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-3 min-w-[220px] transition-all duration-500 ${isWinner
+                                        // コース本体の勝ち抜けと同じ見た目にする。
+                                        // プレーオフで勝った瞬間にここへ切り替わる。
+                                        ? "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 ring-4 ring-amber-500/20"
+                                        : isEliminated
+                                            ? "bg-zinc-100/70 dark:bg-zinc-900/40 border-2 border-zinc-300 dark:border-zinc-800 opacity-40 grayscale"
+                                            // まだ争っている選手だけ紫で強調する
+                                            : "bg-white/80 dark:bg-zinc-800/80 border-2 border-purple-400 dark:border-purple-600"
+                                        }`}
+                                >
+                                    <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
+                                        No.{p.entryNo}
+                                    </span>
+                                    <h3 className="text-3xl font-black text-zinc-900 dark:text-white text-center leading-tight">
+                                        {p.name}
+                                    </h3>
+                                    <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate max-w-full">
+                                        {p.school || "未登録"}
+                                    </span>
+
+                                    {isWinner && (
+                                        <div className="text-base font-black text-amber-600 dark:text-amber-400 tracking-wider animate-pulse">
+                                            👑 WIN（{p.thirdRoundRank}位）
+                                        </div>
+                                    )}
+                                    {isEliminated && (
+                                        <div className="text-sm font-black text-zinc-400 tracking-widest">
+                                            {quizCourse && isEliminatedByCourseRule(
+                                                quizCourse.name as ThirdRoundCourseName, p)
+                                                ? "❌ OUT"
+                                                : "－ 敗退"}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {playoffPlayers.length === 0 && (
