@@ -44,6 +44,34 @@ model Player {
 
   // 10 by 10 の総合ポイントは thirdRoundCorrectCount * (10 - thirdRoundWrongCount) で
   // 導出できるため、列として保持しない。
+
+  // Extra Round
+  // Second Step に出るか。First Step（筆記）の採点はシステム外で行うため、
+  // 通過者はスタッフがエントリーNoで入力する。「入力されたかどうか」は
+  // データから導出できないので列として持つ。
+  extraRoundSecondStep   Boolean @default(false)
+
+  extraRoundCorrectCount Int @default(0) // Second Step の正解数（5問で敗者復活）
+  extraRoundRank         Int @default(0) // 敗者復活→1、失格→-1、どちらでもない→0
+
+  // First Step の正誤は保持しない。約200名×10問の入力になり本番で捌けないため、
+  // 採点は紙で行う（ルールにも「スタッフがチェックを行う」とある）。
+
+  // 準決勝
+  // タイムレース形式は「セット中は結果を出さず、セット終了後にまとめて確認する」
+  // 進行のため、正解数・誤答数は保持しない（画面にも出さない）。ポイントだけで足りる。
+  semifinalPoint Int @default(0) // セットをまたいで持ち越す累計ポイント
+  semifinalRank  Int @default(0) // 勝ち抜け→勝ち抜けたセット番号(1〜3)、失格→-1、どちらでもない→0
+
+  // 決勝
+  // 正解数・誤答数はセットごとにリセットされる値（準決勝のポイントと違い持ち越さない）。
+  // 「セット内失格」（誤答3回）はそのセット限りの状態で、finalRank（トーナメント全体の
+  // 最終順位）とは別物。セットごとの内訳は履歴として残さないため、最終セットぶんの
+  // 値は次のセットへ進むまでそのまま残り、順位判定の材料として使える。
+  finalCorrectCount Int @default(0) // 現在のセットの正解数
+  finalWrongCount   Int @default(0) // 現在のセットの誤答数（3回でそのセットのみ失格）
+  finalSetsWon      Int @default(0) // 獲得セット数の累計（リセットしない）
+  finalRank         Int @default(0) // 優勝=1(自動確定)、準優勝=2、第3位=3(Adminが手動確定)、未確定=0
 }
 
 // 3rd Round のコース（4行固定。マイグレーションで投入する）
@@ -68,4 +96,49 @@ model ThirdRoundHistory {
   createdAt DateTime @default(now())
   course    String   // どのコースの履歴かを識別する
   snapshot  String   // そのコースの5名分のJSONスナップショットデータ
+}
+
+// Extra Round First Step の問題
+//
+// このアプリが唯一クイズの中身を持つ場所。1st〜3rd Round は司会が問題を読み、
+// スタッフが正誤だけ入力する作りなので問題データを必要としない。
+// First Step は筆記なので、問題文と正解を会場スクリーンに出す必要がある。
+//
+// 大会ごとに中身が変わるため、ThirdRoundCourse の4行と違いマイグレーションでは
+// 投入しない。CSV 取込で入れる。
+model ExtraRoundQuestion {
+  id     Int    @id @default(autoincrement())
+  number Int    @unique // 問題番号 1〜20
+  text   String         // 問題文
+  answer String         // 正解
+
+  // フェーズ（1〜10 = フェーズ1 / 11〜15 = フェーズ2 / 16〜20 = サバイバル）は
+  // number から導出できるため列にしない。
+}
+
+// Extra Round Second Step の履歴（スナップショット）保存モデル
+//
+// 2nd / 3rd Round と違い、Second Step は組やコースに分かれないので識別子を持たない。
+model ExtraRoundHistory {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  snapshot  String   // Second Step 出場者のJSONスナップショットデータ
+}
+
+// 準決勝の履歴（スナップショット）保存モデル
+//
+// Extra Round と同様、準決勝も9名の単一グループなので識別子を持たない。
+model SemifinalHistory {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  snapshot  String   // 出場9名分のJSONスナップショットデータ
+}
+
+// 決勝の履歴（スナップショット）保存モデル
+//
+// Extra Round / 準決勝と同様、決勝も3名の単一グループなので識別子を持たない。
+model FinalHistory {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  snapshot  String   // 出場3名分のJSONスナップショットデータ
 }

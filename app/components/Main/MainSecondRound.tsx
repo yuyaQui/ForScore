@@ -1,6 +1,27 @@
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
+import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
+import { toOrdinal } from "@/lib/ordinal";
+import { getTurnOverStepSlice, getTurnOverSecondaryIndex, TURN_OVER_STEP_LABELS } from "@/lib/secondRound";
+import {
+    ACCENT,
+    GUNMETAL_DARK,
+    GUNMETAL_MID,
+    INNER_BG,
+    HONEYCOMB_BG,
+    tierOf,
+    shade,
+    outlineShadow,
+    OCTAGON_CLIP_PERCENT,
+    buildTopBottomCutClip,
+    chamferClip,
+    buildSideCutClip,
+    fitFontSizeToWidth,
+} from "@/lib/cyberpunkCard";
+import FixedStage from "@/app/components/FixedStage";
+import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 
 type Props = {
     players: Player[],
@@ -8,9 +29,12 @@ type Props = {
     setPlayers: (players: Player[]) => void
 }
 
+// 「5○2×」ルール: 5ポイントで勝ち抜け（ポイントバーの満タン基準にも使う）
+const CLEAR_POINT = 5;
+
 export default function MainSecondRound(props: Props) {
     const { players, socket, setPlayers } = props
-    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>({ group: 1, view: 'turnOver' });
+    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
 
     useEffect(() => {
         fetch('/api/secondRound/loadPlayers')
@@ -29,170 +53,561 @@ export default function MainSecondRound(props: Props) {
         // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。
     }, [socket, setPlayers])
 
+    // その組の選手を取り出す（Admin と同じ規則）。
+    //
+    // 組番号は取込のときに DB へ保存されている（lib/secondRound.ts）。
     const groupPlayers = players
-        .filter(p => {
-            if (!p.paperRank) return false;
-            const joinGroup = p.paperRank % 4;
-            const nowGroup = secondRoundState.group === 4 ? 0 : secondRoundState.group;
-            return joinGroup === nowGroup;
-        })
-        .sort((a, b) => (a.paperRank || 0) - (b.paperRank || 0));
+        .filter(p => p.secondRoundGroupNumber === secondRoundState.group)
+        .sort((a, b) => a.paperRank - b.paperRank);
 
-    // 結果発表画面 (turnOver) のレンダリング
-    if (secondRoundState.view === 'turnOver') {
-        return (
-            <div className="w-full max-w-6xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
-                {/* 華やかなヘッダー部分 */}
-                <div className="text-center mb-12 animate-fade-in">
-                    <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30">
-                        2nd Round 第 {secondRoundState.group} 組
-                    </span>
-                    <h1 className="mt-4 text-5xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-zinc-900 to-zinc-700 dark:from-white dark:to-zinc-300">
-                        結果発表・選手紹介
-                    </h1>
-                    <p className="mt-3 text-zinc-500 dark:text-zinc-400 text-lg font-medium">
-                        1Rペーパークイズ通過者 12名
-                    </p>
-                </div>
+    // Design アーティファクト（Cowork Design: 2nd Round）の見た目をそのまま移植した
+    // 1920×1080 固定キャンバスを、実際のウィンドウ／モニターに合わせて拡大縮小する。
+    //
+    // key に組番号を含めることで、組が変わるたびに TurnOverView / QuizView を
+    // まっさらに再マウントし、登場アニメーション（カードのフェード＋ポップイン、
+    // Quiz View の額縁展開）を毎回はじめから再生させている。turnOverStep /
+    // turnOverPhase の変化だけでは再マウントしない（段階発表の演出は同じ
+    // マウント内で state が変わることを前提にしている）。
+    return (
+        <FixedStage>
+            {secondRoundState.view === 'turnOver' ? (
+                <TurnOverView
+                    key={`turnover-${secondRoundState.group}`}
+                    groupPlayers={groupPlayers}
+                    groupNumber={secondRoundState.group}
+                    turnOverStep={secondRoundState.turnOverStep}
+                    turnOverPhase={secondRoundState.turnOverPhase}
+                    turnOverFinalRevealed={secondRoundState.turnOverFinalRevealed}
+                />
+            ) : (
+                <QuizView
+                    key={`quiz-${secondRoundState.group}`}
+                    groupPlayers={groupPlayers}
+                    groupNumber={secondRoundState.group}
+                />
+            )}
+        </FixedStage>
+    );
+}
 
-                {/* 選手カードのグリッド (12列 x 1行) */}
-                <div className="w-full grid grid-cols-12 gap-2">
-                    {groupPlayers.map((p, idx) => (
-                        <div
-                            key={p.id}
-                            className="group relative overflow-hidden rounded-2xl bg-white dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/60 dark:border-zinc-700/50 py-6 px-1.5 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:border-blue-500/50 dark:hover:border-blue-500/40 flex flex-col items-center justify-between min-h-[400px]"
-                            style={{ animationDelay: `${idx * 80}ms` }}
-                        >
-                            {/* 背景のグローエフェクト */}
-                            <div className="absolute -right-10 -bottom-10 h-20 w-20 rounded-full bg-blue-500/5 blur-xl transition-all duration-300 group-hover:bg-blue-500/10 group-hover:scale-150" />
+// ============================================================================
+// Turn Over View（順位発表画面）
+// ============================================================================
 
-                            {/* 上部のエントリーNo & ペーパー順位 (横書き) */}
-                            <div className="flex flex-col items-center gap-1 w-full text-center">
-                                <span className="font-mono font-black text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/40">
-                                    rank {p.paperRank}
-                                </span>
-                            </div>
+type TurnOverViewProps = {
+    groupPlayers: Player[];
+    groupNumber: number;
+    turnOverStep: number;
+    turnOverPhase: 'collapsed' | 'expanded';
+    /** 4組目の最終ステップだけで使う、48位を単独発表済みかのフラグ（lib/types.ts 参照） */
+    turnOverFinalRevealed: boolean;
+};
 
-                            {/* 中央〜下部の縦書き表示 (右側に名前、左側に小さく学校名) */}
-                            <div className="flex flex-row-reverse justify-center items-center h-64 my-4 gap-2 w-full">
-                                {/* 氏名 (縦書き・大文字) */}
-                                <h3 className="text-xl font-black text-zinc-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors tracking-widest leading-none select-none" style={{ writingMode: 'vertical-rl' }}>
-                                    {p.name}
-                                </h3>
-                                {/* 学校名・学年 (縦書き・小さめ) */}
-                                <div className="flex flex-col items-center text-zinc-500 dark:text-zinc-400 text-[10px] font-bold tracking-wider leading-none select-none" style={{ writingMode: 'vertical-rl' }}>
-                                    <span className="truncate max-h-[150px]">{p.school || "未登録"}</span>
-                                    <span className="text-zinc-400 mt-2">{p.grade || "-"}</span>
+const CHAMFER = 16; // 角の斜めカット幅(px)。縦横比が変わっても常に45°の切り欠きになるよう両軸共通
+const STAGE_W = 1740;
+const COLLAPSED_W = 176;
+const CARD_H = 220;
+const GAP = 20;
+const ROW_GAP = 20;
+
+function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed }: TurnOverViewProps) {
+    // マウント時に一度だけ、カード全体がフェード＋ポップインする
+    // （Design アーティファクトの componentDidMount と同じ手順。以降、発表ステップの
+    // 切り替えはこのフラグに関係なく「帯(layer)ごとの不透明度フェード」だけで表現する）
+    const [appeared, setAppeared] = useState(false);
+    const [noAppearTransition, setNoAppearTransition] = useState(true);
+    useEffect(() => {
+        // マウント時に一度だけ再生する登場アニメーションの初期化。props/state から導出
+        // できる値ではなく、setTimeout で時間差の演出を組み立てるための起点なので、
+        // このルールが警告する「Effect内での不要なsetState」には当たらない
+        // （app/main/page.tsx の同種の抑制コメントと同じ判断）。
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setAppeared(false);
+        setNoAppearTransition(true);
+        const t1 = setTimeout(() => {
+            setNoAppearTransition(false);
+            setAppeared(true);
+        }, 80);
+        return () => clearTimeout(t1);
+    }, []);
+
+    // 発表ステップが「collapsed → expanded」に切り替わった瞬間だけ、電撃エフェクトを
+    // 一瞬走らせる（幅が広がるトランジション .6s に合わせて650ms後に消す。
+    // Design アーティファクトの advance() 内のタイマーと同じ値）。
+    //
+    // flashSecondaryOnly: 4組目の最終ステップだけ、28〜44位と48位が別々のタイミングで
+    // 展開されるため、電撃も「今まさに展開された側」だけに限定する必要がある。
+    // false=展開直後(28〜44位側、＝48位以外)を光らせる、true=48位を単独発表した瞬間
+    // (48位側だけ)を光らせる。他の組・他のステップはsecondaryIndexが常にnullで
+    // isSecondaryが常にfalseになるため、flashSecondaryOnlyも常にfalseのままとなり、
+    // 結果として今まで通り全員が対象になる(2026-09-27、ユーザー指示)。
+    const [flashLightning, setFlashLightning] = useState(false);
+    const [flashSecondaryOnly, setFlashSecondaryOnly] = useState(false);
+    useEffect(() => {
+        if (turnOverPhase !== 'expanded') return;
+        // 幅が広がるトランジションに合わせて一瞬だけ電撃を光らせるための時限フラグ。
+        // 外部システムとの同期ではなく演出用タイマーの起点なので抑制する。
+        // turnOverFinalRevealed も依存に含め、4組目の最終ステップで48位だけを
+        // 追加で発表したときにも同じ電撃演出が再生されるようにする(2026-09-27)。
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setFlashLightning(true);
+        setFlashSecondaryOnly(turnOverFinalRevealed);
+        const t = setTimeout(() => setFlashLightning(false), 650);
+        return () => clearTimeout(t);
+    }, [turnOverStep, turnOverPhase, turnOverFinalRevealed]);
+
+    const groupDefs = [0, 1, 2, 3].map((step) => ({
+        label: TURN_OVER_STEP_LABELS[step],
+        slice: getTurnOverStepSlice(groupPlayers, step),
+        // 4組目の最終ステップだけ、この帯の中で48位に当たる帯内インデックス（それ以外はnull）
+        secondaryIndex: getTurnOverSecondaryIndex(groupNumber, step),
+    }));
+
+    return (
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+                {groupDefs.map((def, gi) => {
+                    const n = def.slice.length;
+                    const isTwoRow = n > 3;
+                    const perRow = isTwoRow ? Math.ceil(n / 2) : Math.max(1, n);
+                    const maxCardW = isTwoRow ? 460 : 500;
+                    const expandedW = Math.min(maxCardW, Math.max(240, Math.floor((STAGE_W - (perRow - 1) * GAP) / perRow)));
+                    const isActiveGroup = gi === turnOverStep;
+                    const groupPhase = isActiveGroup ? turnOverPhase : 'collapsed';
+                    const layerOpacity = isActiveGroup ? 1 : 0;
+                    const styleLayer: CSSProperties = {
+                        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        opacity: layerOpacity, pointerEvents: isActiveGroup ? 'auto' : 'none',
+                        transition: `opacity .45s ease ${isActiveGroup ? '1s' : '0s'}`,
+                    };
+                    const slotW = expandedW + 14, slotH = CARD_H + 14;
+
+                    const items = def.slice.map((p, idx) => {
+                        const tier = tierOf(p.paperRank, ACCENT);
+                        const textOutlineColor = shade(tier.color, -0.35);
+                        // 4組目の最終ステップでは、48位（secondaryIndexに一致する1人）だけ、
+                        // turnOverFinalRevealed が true になるまで帯全体がexpandedでも
+                        // 収縮したまま(順位のみ)にする。それ以外は帯全体の状態(groupPhase)通り
+                        // 一律で展開する(2026-09-27、ユーザー指示)。
+                        const isSecondary = def.secondaryIndex !== null && idx === def.secondaryIndex;
+                        const playerExpanded = groupPhase === 'expanded' && (!isSecondary || turnOverFinalRevealed);
+                        const w = playerExpanded ? expandedW : COLLAPSED_W;
+                        const chassisW = w + 14, chassisH2 = CARD_H + 14;
+                        const innerW2 = w - 14, innerH2 = CARD_H - 14;
+                        const expanded0 = playerExpanded;
+
+                        const textFadeDelay = expanded0 ? '.8s' : '0s';
+                        const textFadeDur = expanded0 ? '.4s' : '0s';
+                        const shrinkDelay = '0s';
+                        const widthDur = expanded0 ? '.6s' : '.5s';
+                        const widthEase = expanded0 ? 'cubic-bezier(.2,.8,.2,1)' : 'cubic-bezier(.22,1,.36,1)';
+                        const rankFadeDelay = expanded0 ? '0s' : '.4s';
+                        const rankFadeDur = expanded0 ? '0s' : '.4s';
+
+                        const styleSlot: CSSProperties = { width: slotW, height: slotH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+                        const appearOpacity = appeared ? 1 : 0;
+                        const appearScale = appeared ? 1 : 0.82;
+                        const CHASSIS_TRANSITION = `width ${widthDur} ${widthEase} ${shrinkDelay}, clip-path ${widthDur} ${widthEase} ${shrinkDelay}` + (noAppearTransition ? '' : ', opacity .4s ease, transform .4s cubic-bezier(.22,1,.36,1)');
+                        const styleChassis: CSSProperties = {
+                            position: 'relative', width: chassisW, height: chassisH2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            clipPath: chamferClip(chassisW, chassisH2, CHAMFER), background: GUNMETAL_MID,
+                            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)', opacity: appearOpacity, transform: `scale(${appearScale})`, transition: CHASSIS_TRANSITION,
+                        };
+                        const styleOuter: CSSProperties = {
+                            position: 'relative', width: w, height: CARD_H, flexShrink: 0, clipPath: chamferClip(w, CARD_H, CHAMFER),
+                            background: tier.color, padding: 7, boxSizing: 'border-box',
+                            filter: `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 22px ${tier.glowB})`,
+                            transition: `width ${widthDur} ${widthEase} ${shrinkDelay}, clip-path ${widthDur} ${widthEase} ${shrinkDelay}`,
+                        };
+                        const cutClip = buildSideCutClip(w, CARD_H, 7, CHAMFER);
+                        const styleCut: CSSProperties = { position: 'absolute', inset: 0, background: GUNMETAL_MID, clipPath: cutClip, transition: `clip-path ${widthDur} ${widthEase} ${shrinkDelay}`, pointerEvents: 'none' };
+                        const styleInner: CSSProperties = {
+                            position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+                            clipPath: chamferClip(innerW2, innerH2, CHAMFER), overflow: 'hidden', backgroundColor: INNER_BG, backgroundImage: HONEYCOMB_BG,
+                            backgroundRepeat: 'repeat', backgroundSize: '56px 100px',
+                            boxShadow: 'inset 0 3px 6px rgba(255,255,255,.06), inset 0 -6px 14px rgba(0,0,0,.65), inset 0 0 20px rgba(0,0,0,.35)',
+                            transition: `clip-path ${widthDur} ${widthEase} ${shrinkDelay}`,
+                        };
+                        const styleLightL: CSSProperties = { position: 'absolute', top: 0, bottom: 0, left: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${tier.color}, transparent)`, opacity: .95 };
+                        const styleLightR: CSSProperties = { position: 'absolute', top: 0, bottom: 0, right: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${tier.color}, transparent)`, opacity: .95 };
+                        const styleLightning: CSSProperties = {
+                            position: 'absolute', left: '6%', right: '6%', top: '50%', height: 150, transform: 'translateY(-50%)',
+                            opacity: (flashLightning && isActiveGroup && isSecondary === flashSecondaryOnly) ? 1 : 0, transition: 'opacity .15s linear', pointerEvents: 'none', zIndex: 6,
+                        };
+
+                        const rankOpacity = expanded0 ? 0 : 1;
+                        const revealOpacity = expanded0 ? 1 : 0;
+
+                        const META_PAD_SIDE = 26;
+                        const META_BAR_H = 80;
+                        const NAME_PAD_SIDE = 16;
+                        // 2026-09-25 ユーザー指示: Main画面(Turn Over/Quiz View共通)の文字サイズを
+                        // 少し大きく。カード幅wに応じて決まる各サイズを約1割引き上げる。
+                        const rankFontSize = Math.max(38, Math.min(75, Math.floor(w / 5.5)));
+                        const metaAvailW = (w - 14) - META_PAD_SIDE * 2;
+                        const nameAvailW = (w - 14) - NAME_PAD_SIDE * 2;
+                        // 2026-09-26 ユーザー指示: 枠の横幅をめいいっぱい使い、かつ漢字6文字の
+                        // 名前でも枠からはみ出さないよう、名前の文字数から逆算したサイズにする
+                        // (短い名前ほど大きく、6文字に近い名前ほど自動的に縮む)。学校名・学年も
+                        // 同様に文字数から求めるが、上限はカード幅から決まる従来の値のまま。
+                        const metaFontSizeMax = Math.round(Math.max(20, Math.min(26, Math.floor(w / 20))) * 1.65);
+                        const nameFontSize = fitFontSizeToWidth(p.name, nameAvailW - 8, 1, 40, 80);
+                        const metaFontSize = fitFontSizeToWidth((p.school || '未登録') + ' ' + (p.grade || '-'), metaAvailW - 8, 0, 18, metaFontSizeMax);
+                        const metaSizeDur = expanded0 ? '.45s' : '0s';
+
+                        const styleMetaBar: CSSProperties = {
+                            flexShrink: 0, boxSizing: 'border-box', height: expanded0 ? META_BAR_H : 0,
+                            padding: expanded0 ? `16px ${META_PAD_SIDE}px 0 ${META_PAD_SIDE}px` : `0 ${META_PAD_SIDE}px`,
+                            overflow: 'hidden', opacity: revealOpacity,
+                            transition: `opacity ${textFadeDur} ease ${textFadeDelay}, height ${metaSizeDur} ease ${shrinkDelay}, padding ${metaSizeDur} ease ${shrinkDelay}`,
+                        };
+                        const styleMetaLine: CSSProperties = {
+                            fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1.25, color: '#FFFFFF',
+                            textShadow: outlineShadow(textOutlineColor, 1.1), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            maxWidth: Math.max(20, metaAvailW - 6),
+                        };
+                        const styleCenterArea: CSSProperties = { position: 'relative', flex: 1, minHeight: 0 };
+                        const rankFadeEase = expanded0 ? 'ease' : 'cubic-bezier(.22,1,.36,1)';
+                        const styleRankCenter: CSSProperties = { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: rankOpacity, transition: `opacity ${rankFadeDur} ${rankFadeEase} ${rankFadeDelay}` };
+                        const rankChipPadV = Math.max(4, Math.round(rankFontSize * 0.12));
+                        const rankChipPadH = Math.max(10, Math.round(rankFontSize * 0.28));
+                        const rankChipBorder = Math.max(3, Math.round(rankFontSize * 0.06));
+                        const styleRankChip: CSSProperties = {
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: `${rankChipPadV}px ${rankChipPadH}px`,
+                            background: 'transparent', border: `${rankChipBorder}px solid ${tier.color}`,
+                            clipPath: 'polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)',
+                            fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: rankFontSize, lineHeight: 1, color: '#FFFFFF',
+                        };
+                        const styleNameCenter: CSSProperties = { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', padding: `0 ${NAME_PAD_SIDE}px`, opacity: revealOpacity, transition: `opacity ${textFadeDur} ease ${textFadeDelay}` };
+                        const styleNameText: CSSProperties = {
+                            fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1.2, letterSpacing: 1, color: '#F3FAFF',
+                            textShadow: outlineShadow(textOutlineColor, 1.5), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            maxWidth: Math.max(20, nameAvailW - 6),
+                        };
+
+                        return (
+                            <div key={p.id} style={styleSlot}>
+                                <div style={styleChassis}>
+                                    <div style={styleOuter}>
+                                        <div style={styleCut} />
+                                        <div style={styleInner}>
+                                            <div style={styleLightL} />
+                                            <div style={styleLightR} />
+                                            <div style={styleMetaBar}>
+                                                <div style={styleMetaLine}>{(p.school || '未登録') + ' ' + (p.grade || '-')}</div>
+                                            </div>
+                                            <div style={styleCenterArea}>
+                                                <div style={styleRankCenter}><span style={styleRankChip}>{toOrdinal(p.paperRank)}</span></div>
+                                                <div style={styleNameCenter}><span style={styleNameText}>{p.name}</span></div>
+                                            </div>
+                                            <div style={styleLightning}>
+                                                <LightningBoltsHorizontal />
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    });
 
-                    {groupPlayers.length === 0 && (
-                        <div className="col-span-full py-16 text-center text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/50 border border-dashed border-zinc-200 dark:border-zinc-700 rounded-3xl">
-                            選手データがありません。CSVから1st Round結果を登録してください。
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    }
+                    const rowW = Math.max(0, perRow * slotW + (perRow - 1) * GAP);
+                    const combinedWidth = isTwoRow ? (rowW + Math.round(slotW * 0.5)) : rowW;
+                    const styleWrapper: CSSProperties = { width: combinedWidth, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: ROW_GAP };
 
-    // クイズ画面 (quiz) のレンダリング
-    return (
-        <div className="w-full max-w-6xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
-            {/* クイズヘッダー */}
-            <div className="text-center mb-10">
-                <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/30">
-                    2nd Round {secondRoundState.group}組目
-                </span>
-                <h1 className="mt-4 text-4xl font-black tracking-tight text-zinc-900 dark:text-white">
-                    連答つき5○2×クイズ
-                </h1>
-            </div>
-
-            {/* 得点スライドのカードグリッド (12列 x 1行) */}
-            <div className="w-full grid grid-cols-12 gap-2">
-                {groupPlayers.map((p) => {
-                    // DB平坦化に伴うステータスの動的判定
-                    const isWinner = p.secondRoundRank >= 1;
-                    const isEliminated = p.secondRoundRank < 0;
-                    const isActive = p.secondRoundRank === 0;
-
-                    const point = p.secondRoundPoint || 0;
-                    const wrongCount = p.secondRoundWrongCount || 0;
-
-                    // ステータスに応じたカードのスタイルを変更 (プレミアム感のあるデザイン)
-                    let cardStyle = "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg";
-                    if (isWinner) {
-                        cardStyle = "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 shadow-xl shadow-amber-500/10 ring-4 ring-amber-500/20 text-amber-900 dark:text-amber-100 z-20";
-                    } else if (isEliminated) {
-                        cardStyle = "bg-zinc-100/70 dark:bg-zinc-900/40 border border-zinc-300 dark:border-zinc-800 opacity-40 grayscale text-zinc-400 dark:text-zinc-600 shadow-none";
-                    }
+                    const rows: { style: CSSProperties; items: typeof items }[] = isTwoRow
+                        ? [
+                            { style: { display: 'flex', gap: GAP, marginLeft: 0 }, items: items.slice(0, perRow) },
+                            { style: { display: 'flex', gap: GAP, marginLeft: Math.round(slotW * 0.5) }, items: items.slice(perRow) },
+                        ]
+                        : [{ style: { display: 'flex', gap: GAP, marginLeft: 0 }, items }];
 
                     return (
-                        <div
-                            key={p.id}
-                            className={`relative overflow-hidden rounded-2xl py-6 px-1 flex flex-col items-center justify-between min-h-[400px] transition-all duration-500 ${cardStyle}`}
-                        >
-                            {/* 左上のエントリーNoと右上のペーパー順位 */}
-                            <div className="w-full flex flex-col items-center gap-1 text-[10px] font-mono font-bold opacity-60 mb-2 text-center">
-                                <span>Rank {p.paperRank}</span>
-                            </div>
-
-                            {/* 選手名 (12列1行のため縦書き) */}
-                            <div
-                                className="text-xl font-black my-4 select-none tracking-widest leading-none text-zinc-800 dark:text-white"
-                                style={{ writingMode: 'vertical-rl' }}
-                            >
-                                {p.name}
-                            </div>
-
-                            {/* 状態に応じたスコアまたはステータス表示 */}
-                            {isActive && (
-                                <div className="flex flex-col items-center gap-2 mt-2 w-full">
-                                    {/* 正答数 (O) */}
-                                    <div className="flex flex-col items-center justify-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 rounded-lg py-1.5 w-10">
-                                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 tracking-wider">O</span>
-                                        <div className="text-emerald-500 dark:text-emerald-400 font-mono font-black text-lg leading-none mt-0.5">
-                                            {point}
-                                        </div>
+                        <div key={gi} style={styleLayer}>
+                            <div style={styleWrapper}>
+                                {rows.map((row, ri) => (
+                                    <div key={ri} style={row.style}>
+                                        {row.items}
                                     </div>
-                                    {/* 誤答数 (X) */}
-                                    <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 rounded-lg py-1.5 w-10">
-                                        <span className="text-[9px] font-bold text-red-600 dark:text-red-400 tracking-wider">X</span>
-                                        <div className="text-red-500 dark:text-red-400 font-mono font-black text-lg leading-none mt-0.5">
-                                            {wrongCount}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 勝ち抜け時 */}
-                            {isWinner && (
-                                <div className="text-sm font-black mt-2 text-amber-600 dark:text-amber-400 tracking-wider animate-pulse flex flex-col items-center gap-1">
-                                    <span className="text-lg">👑</span>
-                                    <span>WIN</span>
-                                    {p.secondRoundRank && <span className="text-xs">({p.secondRoundRank}位)</span>}
-                                </div>
-                            )}
-
-                            {/* 失格時 */}
-                            {isEliminated && (
-                                <div className="text-sm font-black mt-2 tracking-widest uppercase opacity-70 flex flex-col items-center gap-1 text-zinc-400">
-                                    <span>❌</span>
-                                    <span>LOSE</span>
-                                </div>
-                            )}
+                                ))}
+                            </div>
                         </div>
                     );
                 })}
 
                 {groupPlayers.length === 0 && (
-                    <div className="col-span-full py-16 text-center text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/50 border border-dashed border-zinc-200 dark:border-zinc-700 rounded-3xl">
-                        選手データがありません。
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7FA8D9', fontSize: 28 }}>
+                        選手データがありません。CSVから1st Round結果を登録してください。
                     </div>
                 )}
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
+// Quiz View（正誤判定・ポイント表示画面）
+// ============================================================================
+
+type QuizViewProps = {
+    groupPlayers: Player[];
+    groupNumber: number;
+};
+
+type DoorPhase = 'hidden' | 'collapsed' | 'expanding' | 'open';
+
+const FULL_CHASSIS_H = 694, FULL_OUTER_H = 680;
+const COLLAPSED_CHASSIS_H = 144, COLLAPSED_OUTER_H = 130;
+const COLLAPSED_STRIP_H = 7;
+const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (FULL_OUTER_H / COLLAPSED_OUTER_H));
+const COLLAPSED_BADGE_TOP = 14;
+const FULL_BADGE_TOP = FULL_STRIP_H + 10;
+// 2026-09-26 ユーザー指示: カード内側の横幅を158→164pxに広げ、名前・学校名/学年の
+// フォントサイズを大きくできる余裕を作る(外側シャーシ172pxとの縁は7px→4pxに)。
+// 2026-09-26 ユーザー指示(2回目): 名前を背景の左端に、学校名・学年を背景の右端に
+// 揃えるため、カードの縁(枠の金属部分の太さ)を14→10pxに詰めて内側の横幅を広げる。
+const CARD_OUTER_W = 168, CUT_PAD = 10;
+const NEUTRAL_FRAME = '#4A5568'; // 失格した選手の枠色（順位帯の色に関わらずこのグレーに固定）
+
+function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
+    const [doorPhase, setDoorPhase] = useState<DoorPhase>('hidden');
+    const [noTransition, setNoTransition] = useState(true);
+
+    // マウント時に一度だけ、Turn Over から引き継いだ「小さな八角形（順位だけ見えている
+    // 状態）」から額縁が展開して開くアニメーションを自動再生する
+    // （Design アーティファクトの playIntro() と同じ手順・同じタイミング）。
+    useEffect(() => {
+        // マウント時に一度だけ再生する額縁展開アニメーションの初期化。同じ理由で抑制する。
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setDoorPhase('hidden');
+        setNoTransition(true);
+        const timers = [
+            setTimeout(() => { setNoTransition(false); setDoorPhase('hidden'); }, 50),
+            setTimeout(() => setDoorPhase('collapsed'), 50 + 300),
+            setTimeout(() => setDoorPhase('expanding'), 50 + 300 + 400 + 300),
+            setTimeout(() => setDoorPhase('open'), 50 + 300 + 400 + 300 + 700 + 150),
+        ];
+        return () => timers.forEach(clearTimeout);
+    }, []);
+
+    const isAppeared = doorPhase !== 'hidden';
+    const isExpanding = doorPhase === 'expanding';
+    const isOpen = doorPhase === 'open';
+    const isFullHeight = doorPhase === 'expanding' || doorPhase === 'open';
+    const revealOpacity = isOpen ? 1 : 0;
+    const REVEAL_TRANSITION = noTransition ? 'none' : `opacity .5s ease ${isOpen ? '.1s' : '0s'}`;
+
+    const chassisH = isFullHeight ? FULL_CHASSIS_H : COLLAPSED_CHASSIS_H;
+    const outerH = isFullHeight ? FULL_OUTER_H : COLLAPSED_OUTER_H;
+    const HEIGHT_TRANSITION = noTransition ? 'none' : 'height .7s cubic-bezier(.22,1,.36,1)';
+    const CHASSIS_TRANSITION = noTransition ? 'none' : `${HEIGHT_TRANSITION}, opacity .4s ease, transform .4s cubic-bezier(.22,1,.36,1)`;
+    const appearOpacity = isAppeared ? 1 : 0;
+    const appearScale = isAppeared ? 1 : 0.82;
+    const styleSlot: CSSProperties = { width: 172, height: FULL_CHASSIS_H, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
+    const stripH = isFullHeight ? FULL_STRIP_H : COLLAPSED_STRIP_H;
+    const badgeTop = isFullHeight ? FULL_BADGE_TOP : COLLAPSED_BADGE_TOP;
+    const STRIP_POS_TRANSITION = noTransition ? 'none' : 'height .7s cubic-bezier(.22,1,.36,1), top .7s cubic-bezier(.22,1,.36,1)';
+
+    const cutClip = buildTopBottomCutClip(CARD_OUTER_W, outerH, CUT_PAD);
+    const CUT_TRANSITION = noTransition ? 'none' : 'clip-path .7s cubic-bezier(.22,1,.36,1)';
+
+    // Design アーティファクトの検証は8名分のモックデータで行われていたため、カード幅172px+
+    // 間隔26pxのままだと、実際の1組の人数(12名)ではカード列の合計幅が画面の余白を引いた
+    // 横幅(1920 - 72px*2 = 1776px)を超えてしまい、両端のカードが画面外に見切れる
+    // （2026-09-26 に実際の画面で発覚した不具合）。個々のカードの寸法・文字サイズは
+    // アーティファクト通りに保ったまま、列全体をまとめて transform:scale() で縮小することで
+    // 収める。8名以下（人数が少ない組や表示テスト時）は scale=1 のまま、アーティファクトと
+    // 完全に同じ等倍表示になる。
+    const CARD_SLOT_W = 172;
+    // カード同士の間隔。26px → 12px に詰めて、その分 rowScale（下記）が大きくなるように
+    // している（間隔を削った分だけ縮小率が緩み、カード・カード内の文字とも少し大きく見える。
+    // 2026-09-26、ユーザーの指示で調整）。
+    //
+    // 1組12名を1920px幅の画面に収める都合上、間隔を0にしても1枚あたりの見た目の幅は
+    // 1776px/12 = 148px が理論上の上限（172px×12=2064px > 1776px のため、どのみち
+    // 多少の縮小は避けられない）。これ以上カードや文字を大きくしたい場合は、間隔の調整
+    // だけでは限界があり、カード自体の基準サイズ(CARD_SLOT_W や各文字サイズ)を見直す
+    // 必要がある。
+    const CARD_GAP = 12;
+    const STAGE_CONTENT_W = 1920 - 72 * 2; // 1776px。padding分を引いた実際に使える横幅
+    const naturalRowW = groupPlayers.length > 0
+        ? groupPlayers.length * CARD_SLOT_W + (groupPlayers.length - 1) * CARD_GAP
+        : 0;
+    const rowScale = naturalRowW > STAGE_CONTENT_W ? STAGE_CONTENT_W / naturalRowW : 1;
+
+    return (
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>2nd Round</div>
+                    <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2× クイズ</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 40, color: '#F3FAFF' }}>{groupNumber}</span>
+                        <span style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 24, letterSpacing: 2, color: '#7FA8D9' }}>組目</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ height: 2, marginTop: 26, background: ACCENT, boxShadow: '0 0 12px rgba(79,216,255,.45)', flexShrink: 0 }} />
+
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: CARD_GAP, transform: `scale(${rowScale})`, transformOrigin: 'center center' }}>
+                    {groupPlayers.map((p) => {
+                        // DB平坦化に伴うステータスの動的判定
+                        const tier = tierOf(p.paperRank, ACCENT);
+                        const textOutlineColor = shade(tier.color, -0.35); // 白文字の縁取りに使う、tier色より少し暗い色
+                        const wrongCount = p.secondRoundWrongCount || 0;
+                        // secondRoundRank < 0 は「2誤答で失格」と「組内で5人の勝ち抜けが決まり
+                        // ラウンドが終了した時点で、まだ0/1誤答だった(=本来は失格していない)選手が
+                        // 一括で -1 にされたもの」の2通りを両方含む
+                        // (app/api/secondRound/updateScores/route.ts の isGroupFinished 処理を参照)。
+                        // 後者はLOST表示にしないでほしいというユーザー指示(2026-09-25)のため、
+                        // 実際に2回誤答した選手だけをLOSTとして扱う。
+                        const eliminated = p.secondRoundRank < 0 && wrongCount >= 2;
+                        const winner = p.secondRoundRank >= 1;
+                        // 2nd Roundのポイント上限は5。上記と同じ「ラウンド終了時の一括更新」など
+                        // 想定外の経路で万一5を超える値が入っていても表示上は5で頭打ちにする。
+                        const point = Math.min(CLEAR_POINT, p.secondRoundPoint || 0);
+                        const pct = Math.min(100, (point / CLEAR_POINT) * 100);
+                        const wrongMarks = Array.from({ length: wrongCount });
+                        const dotMarks = Array.from({ length: Math.max(0, 2 - wrongCount) });
+
+                        const metalBase = eliminated ? NEUTRAL_FRAME : tier.color;
+                        const metalGradient = `linear-gradient(0deg, ${metalBase}, ${metalBase})`;
+                        const brushedTexture = 'repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0px, rgba(255,255,255,.06) 1px, transparent 1px, transparent 7px)';
+                        const outerFilter = eliminated
+                            ? 'grayscale(1) opacity(.55)'
+                            : winner
+                                ? `drop-shadow(0 0 16px ${tier.glowA}) drop-shadow(0 0 36px ${tier.glowB})`
+                                : `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 24px ${tier.glowB})`;
+
+                        const styleChassis: CSSProperties = {
+                            position: 'relative', width: 172, height: chassisH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            clipPath: OCTAGON_CLIP_PERCENT, background: GUNMETAL_DARK, boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)',
+                            opacity: appearOpacity, transform: `scale(${appearScale})`, transition: CHASSIS_TRANSITION,
+                        };
+                        const styleOuter: CSSProperties = {
+                            position: 'relative', width: CARD_OUTER_W, height: outerH, flexShrink: 0, clipPath: OCTAGON_CLIP_PERCENT,
+                            backgroundImage: `${brushedTexture}, ${metalGradient}`, padding: CUT_PAD, boxSizing: 'border-box', filter: outerFilter, transition: HEIGHT_TRANSITION,
+                        };
+                        const styleCut: CSSProperties = { position: 'absolute', inset: 0, background: GUNMETAL_DARK, clipPath: cutClip, transition: CUT_TRANSITION, pointerEvents: 'none' };
+                        const styleInner: CSSProperties = {
+                            position: 'relative', width: '100%', height: '100%', clipPath: OCTAGON_CLIP_PERCENT, overflow: 'hidden',
+                            backgroundColor: INNER_BG, backgroundImage: HONEYCOMB_BG, backgroundRepeat: 'repeat', backgroundSize: '56px 100px',
+                            boxShadow: 'inset 0 3px 6px rgba(255,255,255,.06), inset 0 -6px 16px rgba(0,0,0,.65), inset 0 0 26px rgba(0,0,0,.35)',
+                        };
+                        const styleTopStrip: CSSProperties = { position: 'absolute', top: 0, left: 0, right: 0, height: stripH, backgroundImage: `linear-gradient(90deg, transparent, ${tier.color}, transparent)`, opacity: .95, transition: STRIP_POS_TRANSITION };
+                        // 勝ち抜け(winner)が決まったら、ポイントバーの色を通常の水色からオレンジに
+                        // 変える(2026-09-25、ユーザー指示)。
+                        const stylePointBarWrap: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: winner ? 'rgba(255,140,45,.75)' : 'rgba(51,198,255,.55)', opacity: revealOpacity, transition: REVEAL_TRANSITION };
+                        const styleBadge: CSSProperties = { position: 'absolute', top: badgeTop, left: 0, right: 0, display: 'flex', justifyContent: 'center', transition: STRIP_POS_TRANSITION };
+                        const styleBadgeChip: CSSProperties = {
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', background: 'transparent',
+                            border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)',
+                            fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 24, color: '#FFFFFF', letterSpacing: 1,
+                        };
+                        const textRevealStyle: CSSProperties = { opacity: revealOpacity, transition: REVEAL_TRANSITION };
+                        // 名前は背景(暗い八角形)の左端、学校名・学年は右端にできるだけ
+                        // 揃える。八角形のclip-pathが上下端近くで内側に切れ込む形状のため、
+                        // 縦方向中央付近でも左右5%ぶんは背景そのものが無い — 9pxはその
+                        // 切れ込みの外に出ないための最小限の余白。
+                        //
+                        // 2026-09-26 ユーザー指示(3回目): 名前と学校名・学年の間の隙間を、
+                        // フォントサイズを大きくして詰める。縦書きなので「文字数が多いほど
+                        // 高さ方向に長くなる」— fitFontSizeToWidth と同じ考え方を高さ方向に
+                        // 使い、短い名前ほど大きく、漢字6文字級の名前でも上のランクバッジや
+                        // カード下端にはみ出さない範囲で自動的に縮む。学校名・学年も同様に
+                        // (縦に2段で積まれるので、合計文字数に対して1本の帯として計算する)。
+                        // 2026-09-26 ユーザー指摘: 漢字6文字の名前で最後の1文字(例:「美」)が
+                        // カード下端の八角形クリップの切れ込み(下端コーナーが幅方向に内側へ
+                        // 斜めにカットされる帯)にかぶって欠けて見える不具合。原因は、名前・
+                        // 学校名/学年のゾーン高さがカード内側高さ660をほぼそのまま使っており、
+                        // 八角形の下端コーナー(高さ95.5%〜99%、660pxで言うと約630px〜653px)
+                        // まで文字がはみ出せてしまうため。左右9pxの余白は中央の縦帯(高さ4.5%〜
+                        // 95.5%=約30px〜630px)でのみ安全なので、ゾーンをその安全な帯の中に収まる
+                        // 高さに縮め、余裕(マージン)も追加した。
+                        const NAME_ZONE_H = 519; // 660 - 上余白105 - 下端安全マージン36(八角形コーナーの手前で止める)
+                        const META_ZONE_H = 505; // 学校名/学年も同じ下端コーナーにかぶらないよう、余裕を多めに
+                        let nameFontSize = fitFontSizeToWidth(p.name, NAME_ZONE_H, 4, 40, 90);
+                        const metaCharCount = (p.school || '未登録').length + (p.grade || '-').length;
+                        let metaFontSize = fitFontSizeToWidth('*'.repeat(metaCharCount), META_ZONE_H, 1, 20, 40);
+                        // 縦の高さだけで決めると、名前・学校名がどちらも短い時に2つ合計で
+                        // カードの横幅(名前と学校名・学年の間の隙間ぶんを含む)を超えてしまう
+                        // ことがあるため、超える場合は両方を同じ比率で縮めて必ず横に収める。
+                        const NAME_META_WIDTH_BUDGET = 130; // 内側幅148 - 左右の余白(9px×2)
+                        const NAME_META_SAFETY_GAP = 8;
+                        const nameMetaWidthSum = nameFontSize + metaFontSize;
+                        if (nameMetaWidthSum + NAME_META_SAFETY_GAP > NAME_META_WIDTH_BUDGET) {
+                            const shrink = (NAME_META_WIDTH_BUDGET - NAME_META_SAFETY_GAP) / nameMetaWidthSum;
+                            nameFontSize = Math.max(40, Math.floor(nameFontSize * shrink));
+                            metaFontSize = Math.max(20, Math.floor(metaFontSize * shrink));
+                        }
+                        const styleNameWrap: CSSProperties = { position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', ...textRevealStyle };
+                        const styleName: CSSProperties = {
+                            writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1,
+                            letterSpacing: 4, color: eliminated ? '#6E7685' : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.5),
+                        };
+                        const styleMeta: CSSProperties = { position: 'absolute', top: '16%', right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', ...textRevealStyle };
+                        const styleMetaText: CSSProperties = { writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, textShadow: outlineShadow(textOutlineColor, 1.1) };
+                        const styleBelowWrap: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', ...textRevealStyle };
+                        const styleLightning: CSSProperties = { position: 'absolute', top: '6%', bottom: '6%', left: '50%', width: 64, transform: 'translateX(-50%)', opacity: isExpanding ? 1 : 0, transition: 'opacity .15s linear', pointerEvents: 'none', zIndex: 6 };
+
+                        // 選手が勝ち抜け／失格になったら、枠の下のポイント表示をその結果で上書きする
+                        let belowText: string, belowColor: string;
+                        if (eliminated) {
+                            belowText = 'LOST';
+                            belowColor = '#8A93A3';
+                        } else if (winner) {
+                            belowText = toOrdinal(p.secondRoundRank);
+                            belowColor = '#FFE28A';
+                        } else {
+                            belowText = String(point);
+                            belowColor = p.secondRoundDoubleChance ? '#FFC93C' : '#EAF6FF';
+                        }
+
+                        return (
+                            <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 172, flexShrink: 0 }}>
+                                <div style={styleSlot}>
+                                    <div style={styleChassis}>
+                                        <div style={styleOuter}>
+                                            <div style={styleCut} />
+                                            <div style={styleInner}>
+                                                <div style={stylePointBarWrap} />
+                                                <div style={styleTopStrip} />
+                                                <div style={styleBadge}><span style={styleBadgeChip}>{toOrdinal(p.paperRank)}</span></div>
+                                                <div style={styleNameWrap}><span style={styleName}>{p.name}</span></div>
+                                                <div style={styleMeta}>
+                                                    <span style={styleMetaText}>{p.school || '未登録'}</span>
+                                                    <span style={styleMetaText}>{p.grade || '-'}</span>
+                                                </div>
+                                                <div style={styleLightning}>
+                                                    <LightningBoltsVertical />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={styleBelowWrap}>
+                                    <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color: belowColor }}>{belowText}</div>
+                                    <div style={{ display: 'flex', gap: 14, marginTop: 4, height: 70, alignItems: 'center' }}>
+                                        {wrongMarks.map((_, i) => (
+                                            <span key={`x-${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
+                                        ))}
+                                        {dotMarks.map((_, i) => (
+                                            <span key={`dot-${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+
+                    {groupPlayers.length === 0 && (
+                        <div style={{ color: '#7FA8D9', fontSize: 28 }}>選手データがありません。</div>
+                    )}
+                </div>
             </div>
         </div>
     );

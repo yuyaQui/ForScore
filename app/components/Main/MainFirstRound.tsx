@@ -9,25 +9,15 @@ type Props = {
 
 export default function MainFirstRound({ socket }: Props) {
     const [timer, setTimer] = useState(DEFAULT_COUNTDOWN);
-    const [isFinished, setIsFinished] = useState(false);
 
     useEffect(() => {
         if (socket) {
             socket.on("1R_update_timer", (time: number) => {
                 setTimer(time);
-                if (time > 0) setIsFinished(false);
-            });
-            socket.on("1R_finish_timer", () => {
-                setIsFinished(true);
-            });
-            socket.on("1R_reset_timer", () => {
-                setIsFinished(false);
             });
 
             return () => {
                 socket.off("1R_update_timer");
-                socket.off("1R_finish_timer");
-                socket.off("1R_reset_timer");
             };
         }
     }, [socket]);
@@ -39,25 +29,24 @@ export default function MainFirstRound({ socket }: Props) {
 
     return (
         <div className="flex flex-col items-center justify-center w-full">
-            {/* 終了時のオーバーレイ表示 */}
-            {isFinished && (
-                <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-zinc-800 p-16 rounded-3xl shadow-2xl text-center">
-                        <h2 className="text-6xl font-black text-red-600 dark:text-red-500 mb-4">Time up !</h2>
-                    </div>
-                </div>
-            )}
-
-            {/* リアルタイムに同期するタイマー */}
-            <h1 className="font-bold text-zinc-800 dark:text-white mb-6 tracking-wider text-center flex items-baseline justify-center gap-3">
-                <span className="text-2xl text-zinc-500 dark:text-zinc-400">1st Round</span>
-                <span className="text-4xl">Paper Quiz</span>
-            </h1>
-            <div className="text-6xl font-mono font-bold p-6 bg-zinc-800 text-white dark:bg-black rounded-2xl shadow-2xl border-4 border-zinc-700 w-full max-w-md text-center z-10">
+            {/* 「1st Round」は画面左上、「Paper Quiz」は画面右上に固定配置。
+                フォントは画面幅(vw)基準で、解像度が変わっても同じ比率の大きさ・位置になる */}
+            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-[#FBFCF6] tracking-wider z-10">
+                1st Round
+            </div>
+            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-[#FBFCF6] tracking-wider z-10">
+                Paper Quiz
+            </div>
+            {/* 枠内の塗りは指定色(#A2D7DD)を暗くした#205359。色相・彩度は変えず明度だけ下げて、
+                白系の文字(#FBFCF6)とのコントラストを確保している（元の#A2D7DDだと双方が明るく読みにくかった）。
+                周囲のネオングローは元の明るい#A2D7DD寄りの色のまま残し、発光感を保つ */}
+            <div className="text-[14vw] font-mono font-bold p-[1.5vw] bg-[#205359] rounded-none shadow-[0_0_40px_rgba(162,215,221,0.5)] w-[90%] text-center z-10">
+                {/* 背景が#205359（暗め）になったため、赤/黄は明るめの色にしてコントラストを確保する。
+                    彩度の高い赤(red-500系)は暗い背景では逆に沈んで見えにくいので、あえて薄めのred-200/yellow-300を使う */}
                 <span className={
-                    timer <= 60 ? "text-red-500" :
-                        timer <= 300 ? "text-yellow-400" :
-                            "text-white"
+                    timer <= 60 ? "text-red-200" :
+                        timer <= 300 ? "text-yellow-300" :
+                            "text-[#FBFCF6]"
                 }>
                     {formattedTime}
                 </span>

@@ -38,9 +38,10 @@ export default function AdminFirstRoundUpload() {
 
 
     // ↓↓↓ ここからが画面の表示（return）↓↓↓
+    // AdminFirstRound.tsx（タイマー画面）と同じデザイン（黒背景・角四角・#A2D7DD枠・#FBFCF6文字）に揃える
     return (
-        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-8 rounded-xl shadow-md w-full max-w-md">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
+        <div className="flex flex-col gap-[2vh] bg-black border border-[#A2D7DD] rounded-none p-[2vw] shadow-[0_0_30px_rgba(162,215,221,0.25)] w-[90%]">
+            <label className="text-[clamp(0.8rem,1vw,1rem)] font-bold text-[#FBFCF6] tracking-widest uppercase">
                 1st Round 結果アップロード
             </label>
 
@@ -49,26 +50,26 @@ export default function AdminFirstRoundUpload() {
                 type="file"
                 accept=".csv"
                 onChange={handleFileUpload}
-                className="block w-full text-sm text-zinc-500
+                className="block w-full text-[clamp(0.75rem,1vw,0.9rem)] text-[#FBFCF6]
                     file:mr-4 file:py-2 file:px-4
-                    file:rounded-lg file:border-0
+                    file:rounded-none file:border file:border-[#A2D7DD]
                     file:text-sm file:font-bold
-                    file:bg-blue-100 file:text-blue-700
-                    hover:file:bg-blue-200 dark:file:bg-blue-900/50 dark:file:text-blue-300
+                    file:bg-[#A2D7DD] file:text-black
+                    hover:file:brightness-90
                     cursor-pointer"
             />
 
             {/* ▼ 読み込んだデータのプレビュー表示 ▼ */}
             {csvData.length > 0 && (
-                <div className="mt-4">
-                    <p className="text-xs text-zinc-500 mb-2">プレビュー ({csvData.length}件)</p>
-                    <div className="max-h-40 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 bg-zinc-50 dark:bg-zinc-900/50">
-                        <table className="w-full text-sm text-left">
+                <div className="mt-[1.5vh]">
+                    <p className="text-[clamp(0.65rem,0.9vw,0.75rem)] text-[#A2D7DD] mb-2">プレビュー ({csvData.length}件)</p>
+                    <div className="max-h-40 overflow-y-auto border border-[#A2D7DD] rounded-none p-2 bg-black">
+                        <table className="w-full text-sm text-left text-[#FBFCF6]">
                             <tbody>
                                 {csvData.map((row, i) => (
                                     <tr key={i}>
                                         {row.map((cell, j) => (
-                                            <td key={j} className="border-b border-zinc-200 dark:border-zinc-800 p-1 truncate max-w-[100px]">
+                                            <td key={j} className="border-b border-[#A2D7DD]/30 p-1 truncate max-w-[100px]">
                                                 {cell}
                                             </td>
                                         ))}
@@ -79,9 +80,9 @@ export default function AdminFirstRoundUpload() {
                     </div>
                     <button
                         onClick={handleSaveToDatabase}
-                        className="w-full mt-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-lg transition-colors"
+                        className="w-full mt-4 bg-blue-500 hover:bg-blue-600 hover:shadow-[0_0_20px_rgba(59,130,246,0.7)] text-[#FBFCF6] font-bold py-3 rounded-none transition-shadow"
                     >
-                        データベースに登録する
+                        登録する
                     </button>
                 </div>
             )}

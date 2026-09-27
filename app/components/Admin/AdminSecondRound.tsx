@@ -1,15 +1,60 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
+import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
+import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
+import { toOrdinal } from "@/lib/ordinal";
+import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice } from "@/lib/secondRound";
+import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 
 type Props = {
     socket: Socket | null;
 }
 
+// 「5○2×」ルール: 5ポイントで勝ち抜け（ポイントバーの満タン基準にも使う）
+const CLEAR_POINT = 5;
+
+// 手動操作パネル: Cowork Design アーティファクト(AdminManual.dc.html、
+// ユーザーとのコメントレビューで確定した版)の見た目をそのまま移植したスタイル。
+const MANUAL_PANEL_BASE: CSSProperties = {
+    boxSizing: 'border-box', padding: '16px 20px 20px', background: 'rgba(12,22,40,.75)',
+    border: '1px solid rgba(79,216,255,.22)',
+    clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
+    display: 'flex', flexDirection: 'column', gap: 12,
+};
+const MANUAL_LABEL_STYLE: CSSProperties = {
+    fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 12, letterSpacing: 3, color: '#5C7EA6',
+};
+// active=false のときはパネル全体を薄く・操作不可にする（個々のボタンの色は変えない）。
+// 発表ステップの選択はTurn Over専用、データ操作はQuiz View専用の操作なので、
+// 表示中の画面と逆側のパネルをこれで不活性化する(2026-09-25、ユーザー指示)。
+function manualPanelStyle(active: boolean, flex: number): CSSProperties {
+    return { ...MANUAL_PANEL_BASE, flex, ...(active ? {} : { opacity: 0.35, pointerEvents: 'none' as const }) };
+}
+function manualBtnStyle(selected: boolean): CSSProperties {
+    return {
+        padding: '9px 16px',
+        background: selected ? 'rgba(51,198,255,.14)' : 'rgba(255,255,255,.03)',
+        border: `1.5px solid ${selected ? ACCENT : 'rgba(79,216,255,.18)'}`,
+        clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)',
+        cursor: 'pointer',
+        boxShadow: selected ? '0 0 14px rgba(51,198,255,.14)' : undefined,
+    };
+}
+function manualBtnTextStyle(selected: boolean): CSSProperties {
+    return {
+        fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 14, letterSpacing: 1,
+        color: selected ? '#DFF7FF' : '#5C7EA6', whiteSpace: 'nowrap',
+    };
+}
+
 export default function AdminSecondRound(props: Props) {
     const { socket } = props;
     const [players, setPlayers] = useState<Player[]>([]);
-    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>({ group: 1, view: 'turnOver' });
+    const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
+    // Turn Over の「次へ」を押した直後、Design アーティファクト通りの収縮+ペーパー順位
+    // 再表示アニメーション(1300ms)が終わるまで、ボタンの二重押しを防ぐためのフラグ。
+    const [turnOverTransitioning, setTurnOverTransitioning] = useState(false);
 
     useEffect(() => {
         // プレイヤーデータを持ってくる
@@ -92,91 +137,240 @@ export default function AdminSecondRound(props: Props) {
         }
     };
 
-    // 割当ルールに従ってフィルタリング
-    // 1組目: paperRank % 4 === 1
-    // 2組目: paperRank % 4 === 2
-    // 3組目: paperRank % 4 === 3
-    // 4組目: paperRank % 4 === 0
+    // 組参加選手を取り出す。
+    //
+    // 組番号は取込のときに DB へ保存されている（lib/secondRound.ts の規則）。
+    // 列を見れば、2nd Round に出ない選手は組番号が null なので自然に外れる。
     const filteredPlayers = players
-        .filter(p => {
-            if (!p.paperRank) return false;
-            const remainder = p.paperRank % 4;
-            const targetRemainder = secondRoundState.group === 4 ? 0 : secondRoundState.group;
-            return remainder === targetRemainder;
-        })
-        .sort((a, b) => (a.paperRank || 0) - (b.paperRank || 0));
+        .filter(p => p.secondRoundGroupNumber === secondRoundState.group)
+        .sort((a, b) => a.paperRank - b.paperRank);
+
+    // ============================================================
+    // 進行フロー（「1組目発表→1組目クイズ→2組目発表→…」という実際の大会進行は
+    // 基本的に後戻りしない一本道であるという事実に合わせて、状態から次に押すべき
+    // ボタン1つだけを機械的に決める。個別の組・画面切り替えボタンは手動操作
+    // （トラブル時のみ）の中に退避してある。
+    // ============================================================
+    const allResolved = filteredPlayers.length > 0 && filteredPlayers.every(p => p.secondRoundRank !== 0);
+
+    // 手動操作パネル: 発表ステップの選択はTurn Over画面、データ操作はQuiz View画面の
+    // ときだけ意味を持つ操作なので、表示中の画面に応じて片方を不活性化する。
+    const turnOverStepsActive = secondRoundState.view === 'turnOver';
+    const dataOpsActive = secondRoundState.view === 'quiz';
+
+    let primaryLabel: string;
+    let primaryAction: (() => void) | null = null;
+
+    // Turn Over の発表ステップは0〜3の4段階で全組共通(TURN_OVER_STEP_LABELS)。
+    // 4組目の最終ステップ(3)だけ、48位を他の5人より後に単独発表する追加の1手が
+    // 挟まる(turnOverFinalRevealed)。最終ステップの収縮アニメーションが終わったら
+    // turnOverStep を配列の範囲外(4)まで進め、Main側の全ての帯を非表示にした状態
+    // (「消滅」)にしてから「クイズ開始」を出す(2026-09-27、ユーザー指示：組の発表が
+    // 終わったらすぐ早押しへ進むのではなく、6位発表時などと同じ収縮アニメーションを
+    // 挟んでから早押しへのボタンを出す)。
+    const isLastTurnOverStep = secondRoundState.turnOverStep === TURN_OVER_STEP_LABELS.length - 1;
+    const isGroup4FinalStep = secondRoundState.group === 4 && isLastTurnOverStep;
+    const awaitingFinalReveal = isGroup4FinalStep
+        && secondRoundState.turnOverPhase === 'expanded'
+        && !secondRoundState.turnOverFinalRevealed;
+
+    if (secondRoundState.view === 'turnOver') {
+        if (turnOverTransitioning) {
+            // 収縮+ペーパー順位再表示アニメーションの最中は、進行ボタンを一時的に無効化する。
+            primaryLabel = '切替中…';
+            primaryAction = null;
+        } else if (secondRoundState.turnOverStep > TURN_OVER_STEP_LABELS.length - 1) {
+            // 最終ステップの収縮アニメーションが完了し、Main側の帯が全て消えた状態
+            primaryLabel = 'クイズ開始 ▶';
+            primaryAction = () => handleStateChange({ view: 'quiz' });
+        } else if (secondRoundState.turnOverPhase === 'collapsed') {
+            // 4組目の最終ステップだけ、実際に発表されるのは48位を除いた7〜11位の5人
+            // なので、ボタンの表示もそれに合わせる(内部のステップ区切り自体は
+            // 他の組と同じ7〜12位のまま。48位は次の awaitingFinalReveal 操作で
+            // 別枠として発表するため、ここでは「7〜11位」とだけ表示する)。
+            const stepLabel = isGroup4FinalStep ? '7〜11位' : TURN_OVER_STEP_LABELS[secondRoundState.turnOverStep];
+            primaryLabel = `${stepLabel}を発表 ▶`;
+            primaryAction = () => handleStateChange({ turnOverPhase: 'expanded', turnOverFinalRevealed: false });
+        } else if (awaitingFinalReveal) {
+            // 4組目の最終ステップだけ、28〜44位の5人はすでに展開済みで、48位だけが
+            // まだ順位のみのまま。ここで48位単独の発表操作を挟む。
+            primaryLabel = '12位(48位)を発表 ▶';
+            primaryAction = () => handleStateChange({ turnOverFinalRevealed: true });
+        } else {
+            primaryLabel = '次へ ▶';
+            primaryAction = () => {
+                const step = secondRoundState.turnOverStep;
+                // Design アーティファクト(TurnOver.dc.html)の advance() と同じ2段階の演出。
+                // (1) まず今の帯を collapsed に戻す(turnOverStep はそのまま)。Main側はこれで、
+                //     その帯自身の中で「学校名・学年・名前が消える→枠が収縮→ペーパー順位が
+                //     再度フェードイン」という収縮アニメーションだけを再生する(帯はまだ
+                //     アクティブなので opacity は 1 のまま)。
+                // (2) その収縮+順位再表示(.5s収縮 + .4s順位フェードイン(一部重複) + 少しの間 =
+                //     合計1300ms。アーティファクト側の advance() のコメントと同じ内訳)が終わって
+                //     から、次の turnOverStep へ進める。ここで初めて古い帯がフェードアウトし、
+                //     新しい帯が(収縮状態のまま)フェードインする。
+                //     最終ステップの場合はここで turnOverStep が配列の範囲外まで進み、
+                //     Main側の全ての帯が非表示のままになる(「消滅」)。
+                setTurnOverTransitioning(true);
+                handleStateChange({ turnOverPhase: 'collapsed' });
+                setTimeout(() => {
+                    handleStateChange({ turnOverStep: step + 1, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
+                    setTurnOverTransitioning(false);
+                }, 1300);
+            };
+        }
+    } else {
+        if (!allResolved) {
+            primaryLabel = '全員の正誤が確定すると次へ進めます';
+        } else if (secondRoundState.group < 4) {
+            const nextGroup = secondRoundState.group + 1;
+            primaryLabel = `${nextGroup}組目へ進む ▶`;
+            // 次の組の発表(turnOver)は必ず1位からやり直すので、ここで turnOverStep/turnOverPhase をリセットする
+            primaryAction = () => handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
+        } else {
+            primaryLabel = '2nd Round 終了';
+        }
+    }
+
+    const primaryButtonStyle: CSSProperties = primaryAction
+        ? {
+            padding: '18px 40px', background: 'rgba(51,198,255,.14)', border: '2px solid #33C6FF',
+            clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
+            boxShadow: '0 0 22px rgba(51,198,255,.35)', cursor: 'pointer',
+            fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, letterSpacing: 2, color: '#DFF7FF',
+        }
+        : {
+            padding: '18px 40px', background: 'rgba(255,255,255,.04)', border: '2px solid #3A4B63',
+            clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
+            fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 18, letterSpacing: 1, color: secondRoundState.group === 4 && secondRoundState.view === 'quiz' ? '#FFE28A' : '#5C7EA6',
+            cursor: 'default',
+        };
 
     return (
-        <div className="flex flex-col gap-6 bg-white dark:bg-zinc-800 p-8 rounded-xl shadow-md w-full max-w-5xl">
-            {/* コントロールUI */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                {/* 組の選択 */}
-                <div className="flex flex-col gap-2">
-                    <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">組の選択</span>
-                    <div className="flex gap-2">
-                        {[1, 2, 3, 4].map((g) => (
-                            <button
-                                key={g}
-                                onClick={() => handleStateChange({ group: g })}
-                                className={`px-4 py-2 rounded-lg font-bold transition-colors ${secondRoundState.group === g
-                                    ? "bg-blue-500 text-white"
-                                    : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                                    }`}
-                            >
-                                {g}組目
-                            </button>
-                        ))}
-                    </div>
+        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md w-full max-w-[1900px]">
+            {/* 進行フロー: 実際の大会進行(1組目発表→1組目クイズ→2組目発表→…)に沿って、
+                いま押すべきボタンを1つだけ大きく出す。バックエンドの状態を直接いじる
+                操作ではなく、既存の change_2nd_round_state をそのまま呼ぶだけなので
+                データ操作としての承認は不要（AGENTS.md の UI 変更の範囲内）。 */}
+            <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
+                <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
+                    第{secondRoundState.group}組目 / {secondRoundState.view === 'turnOver' ? '選手紹介' : 'クイズ'}
                 </div>
-
-                {/* 画面表示の選択 */}
-                <div className="flex flex-col gap-2">
-                    <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">表示画面の選択</span>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => handleStateChange({ view: 'turnOver' })}
-                            className={`px-5 py-2 rounded-lg font-bold transition-colors ${secondRoundState.view === 'turnOver'
-                                ? "bg-emerald-500 text-white"
-                                : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                                }`}
-                        >
-                            Turn Over
-                        </button>
-                        <button
-                            onClick={() => handleStateChange({ view: 'quiz' })}
-                            className={`px-5 py-2 rounded-lg font-bold transition-colors ${secondRoundState.view === 'quiz'
-                                ? "bg-emerald-500 text-white"
-                                : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                                }`}
-                        >
-                            Quiz View
-                        </button>
-                    </div>
-                </div>
-
-                {/* スコアのリセット */}
-                <div className="flex flex-col gap-2">
-                    <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">データ操作</span>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => {
-                                if (window.confirm(`現在の 第 ${secondRoundState.group} 組のスコアを本当にリセットしますか？`)) {
-                                    handleGroupReset(secondRoundState);
-                                }
-                            }}
-                            className="px-5 py-2 rounded-lg font-bold bg-red-100 hover:bg-red-200 dark:bg-red-950/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 border border-red-200/50 dark:border-red-900/30 transition-colors"
-                        >
-                            Reset
-                        </button>
-                        <button
-                            onClick={() => handleGroupUndo(secondRoundState)}
-                            className="px-5 py-2 rounded-lg font-bold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-600 transition-colors"
-                        >
-                            Undo
-                        </button>
-                    </div>
-                </div>
+                <button onClick={() => primaryAction?.()} disabled={!primaryAction} style={primaryButtonStyle}>
+                    {primaryLabel}
+                </button>
             </div>
+
+            {/* 手動操作: 通常運用では触らない。巻き戻り・スキップなど想定外の対応が
+                必要になったときのための退避ハッチ。見た目は Cowork Design アーティファクト
+                (AdminManual.dc.html)をそのまま移植し、ユーザーとのコメントレビューで
+                「データ操作を発表ステップの選択の右隣に配置し、表示中の画面と逆側を
+                不活性化する」という構成に確定した(2026-09-25)。 */}
+            <details className="group">
+                <summary
+                    className="flex cursor-pointer select-none items-center gap-[10px] bg-black px-5 py-4 [&::-webkit-details-marker]:hidden"
+                    style={{ listStyle: 'none' }}
+                >
+                    <span
+                        className="inline-block transition-transform duration-150 group-open:rotate-90"
+                        style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#7FA8D9' }}
+                    >
+                        ▸
+                    </span>
+                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 3, color: '#7FA8D9' }}>
+                        手動操作
+                    </span>
+                </summary>
+                <div className="flex flex-col gap-[22px] bg-black px-5 pb-6 pt-4">
+                    <div style={{ height: 1, background: 'rgba(79,216,255,.22)', flexShrink: 0 }} />
+
+                    {/* 組の選択・表示画面の選択 */}
+                    <div className="flex gap-[18px]">
+                        <div style={manualPanelStyle(true, 1.4)}>
+                            <div style={MANUAL_LABEL_STYLE}>組の選択</div>
+                            <div className="flex flex-wrap gap-[10px]">
+                                {[1, 2, 3, 4].map((g) => (
+                                    <button key={g} onClick={() => handleStateChange({ group: g })} style={manualBtnStyle(secondRoundState.group === g)}>
+                                        <span style={manualBtnTextStyle(secondRoundState.group === g)}>{g}組目</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={manualPanelStyle(true, 1)}>
+                            <div style={MANUAL_LABEL_STYLE}>表示画面の選択</div>
+                            <div className="flex gap-[10px]">
+                                <button onClick={() => handleStateChange({ view: 'turnOver' })} style={manualBtnStyle(secondRoundState.view === 'turnOver')}>
+                                    <span style={manualBtnTextStyle(secondRoundState.view === 'turnOver')}>Turn Over</span>
+                                </button>
+                                <button onClick={() => handleStateChange({ view: 'quiz' })} style={manualBtnStyle(secondRoundState.view === 'quiz')}>
+                                    <span style={manualBtnTextStyle(secondRoundState.view === 'quiz')}>Quiz View</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 発表ステップの選択・データ操作: 表示中の画面に応じて片方を不活性化する */}
+                    <div className="flex gap-[18px]">
+                        <div style={manualPanelStyle(turnOverStepsActive, 2)}>
+                            <div style={MANUAL_LABEL_STYLE}>発表ステップの選択</div>
+                            <div className="flex flex-wrap items-center gap-[10px]">
+                                {TURN_OVER_STEP_LABELS.map((label, step) => (
+                                    <button
+                                        key={step}
+                                        onClick={() => handleStateChange({ turnOverStep: step, turnOverFinalRevealed: false })}
+                                        disabled={!turnOverStepsActive}
+                                        style={manualBtnStyle(secondRoundState.turnOverStep === step)}
+                                    >
+                                        <span style={manualBtnTextStyle(secondRoundState.turnOverStep === step)}>{label}</span>
+                                    </button>
+                                ))}
+                                <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(79,216,255,.18)', margin: '0 4px' }} />
+                                <button
+                                    onClick={() => handleStateChange({ turnOverPhase: secondRoundState.turnOverPhase === 'collapsed' ? 'expanded' : 'collapsed', turnOverFinalRevealed: false })}
+                                    disabled={!turnOverStepsActive}
+                                    style={manualBtnStyle(false)}
+                                >
+                                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 14, letterSpacing: 0.5, color: '#9FB4D6', whiteSpace: 'nowrap' }}>
+                                        {secondRoundState.turnOverPhase === 'collapsed' ? 'Turn Over' : 'Hide'}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={manualPanelStyle(dataOpsActive, 1)}>
+                            <div style={MANUAL_LABEL_STYLE}>データ操作</div>
+                            <div className="flex gap-[10px]">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm(`現在の 第 ${secondRoundState.group} 組のスコアを本当にリセットしますか？`)) {
+                                            handleGroupReset(secondRoundState);
+                                        }
+                                    }}
+                                    disabled={!dataOpsActive}
+                                    style={{ padding: '9px 18px', background: 'rgba(255,59,92,.10)', border: '1.5px solid #FF3B5C', clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)', cursor: 'pointer' }}
+                                >
+                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>Reset</span>
+                                </button>
+                                <button
+                                    onClick={() => handleGroupUndo(secondRoundState)}
+                                    disabled={!dataOpsActive}
+                                    style={{ padding: '9px 18px', background: 'rgba(255,255,255,.04)', border: '1.5px solid #3A4B63', clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)', cursor: 'pointer' }}
+                                >
+                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#9FB4D6' }}>Undo</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-[10px]">
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
+                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
+                            通常運用ではこのパネルは閉じたまま。進行は画面上部の1本道ボタンだけで完結する。
+                        </span>
+                    </div>
+                </div>
+            </details>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
@@ -201,15 +395,26 @@ export default function AdminSecondRound(props: Props) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700 bg-white dark:bg-zinc-800">
-                                {filteredPlayers.map((p, idx) => (
-                                    <tr key={p.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/30">
-                                        <td className="px-6 py-4 font-mono">{idx + 1}</td>
-                                        <td className="px-6 py-4 font-mono">{p.paperRank}位</td>
-                                        <td className="px-6 py-4 font-mono">No.{p.entryNo}</td>
-                                        <td className="px-6 py-4 font-bold">{p.name}</td>
-                                        <td className="px-6 py-4">{p.school || "未登録"} ({p.grade || "-"})</td>
-                                    </tr>
-                                ))}
+                                {(() => {
+                                    // いま画面(Main)で公開中の帯にいる選手だけ、行を薄く強調する
+                                    const currentStepIds = new Set(
+                                        getTurnOverStepSlice(filteredPlayers, secondRoundState.turnOverStep).map(p => p.id)
+                                    );
+                                    return filteredPlayers.map((p, idx) => (
+                                        <tr
+                                            key={p.id}
+                                            className={currentStepIds.has(p.id)
+                                                ? "bg-blue-50 dark:bg-blue-950/30"
+                                                : "hover:bg-zinc-50 dark:hover:bg-zinc-700/30"}
+                                        >
+                                            <td className="px-6 py-4 font-mono">{idx + 1}</td>
+                                            <td className="px-6 py-4 font-mono">{p.paperRank}位</td>
+                                            <td className="px-6 py-4 font-mono">No.{p.entryNo}</td>
+                                            <td className="px-6 py-4 font-bold">{p.name}</td>
+                                            <td className="px-6 py-4">{p.school || "未登録"} ({p.grade || "-"})</td>
+                                        </tr>
+                                    ));
+                                })()}
                                 {filteredPlayers.length === 0 && (
                                     <tr>
                                         <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">
@@ -223,59 +428,127 @@ export default function AdminSecondRound(props: Props) {
                 </div>
             )}
 
-            {/* クイズ画面用の管理者ビュー (正誤判定ボタン) */}
+            {/* クイズ画面用の管理者ビュー (正誤判定ボタン)。
+                Design アーティファクト(Cowork Design: 2nd Round / Admin.dc.html)の
+                操作パネルの見た目をそのまま移植し、正誤判定ロジック自体は変更しない */}
             {secondRoundState.view === 'quiz' && (
-                <div className="flex flex-col gap-4">
-                    <label className="text-lg font-bold text-zinc-800 dark:text-zinc-200">
-                        2nd Round 第 {secondRoundState.group} 組 クイズ正誤判定
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="flex flex-col gap-4 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
+                    <div className="flex items-center justify-between">
+                        <label className="text-lg font-bold" style={{ color: '#F3FAFF', fontFamily: '"Noto Sans JP",sans-serif' }}>
+                            2nd Round 第 {secondRoundState.group} 組 クイズ正誤判定
+                        </label>
+                        <span className="text-sm font-mono" style={{ color: '#5C7EA6' }}>
+                            残り {filteredPlayers.filter(p => p.secondRoundRank === 0).length} / {filteredPlayers.length}
+                        </span>
+                    </div>
+                    {/* 2026-09-26 ユーザー指示(3回目、UI/UX再設計): 「2列×6行の横長カード」より
+                        「1行12列」の方が操作しやすいとのことなので、縦書きカードの構成に戻しつつ、
+                        今度は1行だけにする。2行だったときは「画面に収める」ために全体を
+                        transform:scaleで縮小してボタンが押せないほど小さくなってしまったが、
+                        1行にすればカードの縦方向はほぼ丸々1画面ぶん使えるため、名前を縦書きの
+                        まま・ボタンも十分な大きさのまま収められる(名前ゾーンだけで300px確保)。
+                        横方向は grid-cols-12 で12等分の可変幅にし、ウィンドウ幅に応じて
+                        1列あたりの幅が自動で変わる(ルート要素の幅上限も広げてある。上記参照)。 */}
+                    <div className="grid grid-cols-12 gap-2">
                         {filteredPlayers.map(p => {
+                            const tier = tierOf(p.paperRank, ACCENT);
                             const isActive = p.secondRoundRank === 0;
+                            const isWinner = p.secondRoundRank >= 1;
+                            const wrongCount = p.secondRoundWrongCount || 0;
+                            // secondRoundRank < 0 は「2誤答で失格」と「組内で5人の勝ち抜けが決まり
+                            // ラウンドが終了した時点で、まだ0/1誤答だった選手が一括で -1 にされた
+                            // もの」の2通りを両方含む(app/api/secondRound/updateScores/route.ts参照)。
+                            // 後者はLOST表示にしないでほしいというユーザー指示(2026-09-25)のため、
+                            // 実際に2回誤答した選手だけをLOSTとして扱う。
+                            const isEliminated = p.secondRoundRank < 0 && wrongCount >= 2;
+                            // 2nd Roundのポイント上限は5。想定外の経路で5を超える値が入っていても
+                            // 表示上は5で頭打ちにする(2026-09-25、ユーザー指示)。
+                            const point = Math.min(CLEAR_POINT, p.secondRoundPoint || 0);
+                            const pct = Math.min(100, (point / CLEAR_POINT) * 100);
+
+                            const dotColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : '#35FFA0';
+                            const barColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : '#4FD8FF';
+                            const opButtonOpacity = isActive ? 1 : 0.35;
+
+                            // 名前ゾーンの高さは固定(300px)。1行だけなので縦方向にかなり
+                            // 余裕があり、MainSecondRoundの縦書きカードと同じ考え方で、
+                            // 文字数が少ない名前ほど大きく・6文字級でもはみ出さないサイズを
+                            // 逆算する(lineHeight:1 を明示しないと、Tailwindのpreflightの
+                            // line-height:1.5 の影響で縦書き文字の実測サイズが1.5倍膨らむ
+                            // 不具合が過去にあったため、ここでも明示しておく)。
+                            const NAME_ZONE_H = 300;
+                            // 実測したところ、計算どおりの文字サイズでも縦書きの実際の描画が
+                            // わずかに規定の高さを超え、勝手に2列へ折り返されて表示が崩れる
+                            // ケースがあった(7文字ぴったりの計算値だと余白が2pxしかなかった
+                            // ため)。逆算に使う高さに安全マージンを持たせ、折り返しが起きない
+                            // ようにする。念のため下のstyleにも whiteSpace:'nowrap' を明示する。
+                            const nameFontSize = fitFontSizeToWidth(p.name, NAME_ZONE_H - 14, 3, 20, 44);
+
+                            const cardStyle: CSSProperties = {
+                                boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                                background: 'rgba(12,22,40,.75)', border: '1px solid rgba(79,216,255,.22)', borderTop: `3px solid ${tier.color}`,
+                                padding: '8px 4px', overflow: 'hidden',
+                            };
+
                             return (
-                                <div key={p.id} className={`p-4 border rounded-xl flex flex-col justify-between transition-all duration-300 ${isActive ? 'border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700/50' : 'border-transparent opacity-60 bg-zinc-200 dark:bg-zinc-900'}`}>
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs text-zinc-500 font-mono">Rank {p.paperRank}</span>
-                                            <span className="text-xs text-zinc-500 font-mono">No.{p.entryNo}</span>
-                                        </div>
-                                        <div className="text-center font-black text-lg mb-2 truncate" title={p.name}>{p.name}</div>
+                                <div key={p.id} style={cardStyle}>
+                                    <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, letterSpacing: 0.5, color: tier.color }}>
+                                        {toOrdinal(p.paperRank)}
                                     </div>
-                                    {isActive ? (
-                                        <>
-                                            <div className="flex justify-between mb-4 px-4 text-base font-mono font-bold">
-                                                <span className="text-emerald-600 dark:text-emerald-400">⭕️ {p.secondRoundPoint || 0}</span>
-                                                <span className="text-red-600 dark:text-red-400">❌ {p.secondRoundWrongCount || 0}</span>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => handleScoreAction(p.id, 'correct')}
-                                                    className="flex-1 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300 font-bold py-2 rounded-lg transition-colors"
-                                                >
-                                                    正解
-                                                </button>
-                                                <button
-                                                    onClick={() => handleScoreAction(p.id, 'wrong')}
-                                                    className="flex-1 bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-800/60 text-red-700 dark:text-red-300 font-bold py-2 rounded-lg transition-colors"
-                                                >
-                                                    誤答
-                                                </button>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="text-center font-bold mt-4 mb-2">
-                                            {p.secondRoundRank > 0 ? (
-                                                <span className="text-yellow-600 dark:text-yellow-400 font-black">🎉 勝ち抜け</span>
-                                            ) : (
-                                                <span className="text-zinc-500 dark:text-zinc-600 font-black">☠️ 失格</span>
-                                            )}
-                                        </div>
-                                    )}
+                                    <span style={{ display: 'block', width: 7, height: 7, borderRadius: '50%', background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
+                                    <div style={{ height: NAME_ZONE_H, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                        <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: nameFontSize, lineHeight: 1, letterSpacing: 3, color: '#E9F3FF', whiteSpace: 'nowrap' }}>
+                                            {p.name}
+                                        </span>
+                                    </div>
+                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 12, letterSpacing: 0.5, color: '#FFC93C', textShadow: '0 0 6px rgba(255,201,60,.6)', whiteSpace: 'nowrap', minHeight: 14 }}>
+                                        {isWinner ? toOrdinal(p.secondRoundRank) : ''}
+                                    </span>
+                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, color: '#EAF6FF' }}>{point}</span>
+                                    <div style={{ width: '80%', height: 7, background: 'rgba(255,255,255,.06)', position: 'relative', overflow: 'hidden' }}>
+                                        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${pct}%`, background: barColor, boxShadow: `0 0 6px ${barColor}` }} />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 3 }}>
+                                        {Array.from({ length: 2 }).map((_, i) => {
+                                            const isX = i < wrongCount;
+                                            return (
+                                                <span key={i} style={{ display: 'inline-block', width: 13, textAlign: 'center', fontSize: 14, lineHeight: 1, color: isX ? '#FF4D6D' : '#3A4B63' }}>
+                                                    {isX ? '×' : '・'}
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%', marginTop: 2 }}>
+                                        <button
+                                            onClick={() => handleScoreAction(p.id, 'correct')}
+                                            disabled={!isActive}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 36,
+                                                background: 'rgba(51,198,255,.12)', border: '1.5px solid #33C6FF',
+                                                clipPath: 'polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px)',
+                                                cursor: isActive ? 'pointer' : 'default', opacity: opButtonOpacity,
+                                            }}
+                                        >
+                                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, letterSpacing: 0.5, color: '#DFF7FF' }}>正解</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleScoreAction(p.id, 'wrong')}
+                                            disabled={!isActive}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 36,
+                                                background: 'rgba(255,59,92,.10)', border: '1.5px solid #FF3B5C',
+                                                clipPath: 'polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px)',
+                                                cursor: isActive ? 'pointer' : 'default', opacity: opButtonOpacity,
+                                            }}
+                                        >
+                                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, letterSpacing: 0.5, color: '#FFE3E8' }}>誤答</span>
+                                        </button>
+                                    </div>
                                 </div>
                             );
                         })}
                         {filteredPlayers.length === 0 && (
-                            <div className="col-span-full py-8 text-center text-zinc-500">
+                            <div className="col-span-12 py-8 text-center" style={{ color: '#5C7EA6' }}>
                                 選手データがありません。
                             </div>
                         )}

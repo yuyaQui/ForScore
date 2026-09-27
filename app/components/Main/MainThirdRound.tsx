@@ -168,6 +168,14 @@ export default function MainThirdRound(props: Props) {
     if (thirdRoundState.phase === 'playoff') {
         return (
             <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
+                {/* 画面左上に「3rd Round」、右上に現在進行中のルール名を固定表示。
+                    1st Round の Main 画面と同じ位置(top-[3vw] left/right-[3vw])に揃えている */}
+                <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                    3rd Round
+                </div>
+                <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                    早押しプレーオフ
+                </div>
                 <div className="text-center animate-fade-in w-full">
                     <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-lg shadow-purple-500/30">
                         {quizCourse ? quizCourse.name : "3rd Round"}
@@ -240,6 +248,14 @@ export default function MainThirdRound(props: Props) {
     if (thirdRoundState.phase === 'quiz') {
         return (
             <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
+                {/* 画面左上に「3rd Round」、右上に実施中のコース名(=ルール名)を固定表示。
+                    コースごとにルールが異なるので、この右上ラベルは quizCourse に連動する動的表示にする */}
+                <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                    3rd Round
+                </div>
+                <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                    {quizCourse ? quizCourse.name : "コース未確定"}
+                </div>
                 <div className="text-center animate-fade-in w-full">
                     <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30">
                         3rd Round 第 {thirdRoundState.quizOrder} コース
@@ -380,6 +396,13 @@ export default function MainThirdRound(props: Props) {
     // ===== コース選択フェーズ =====
     return (
         <div className="w-full max-w-7xl flex flex-col items-center min-h-[80vh] px-4 py-8 z-10">
+            {/* 画面左上に「3rd Round」、右上に現在のフェーズ名を固定表示 */}
+            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                3rd Round
+            </div>
+            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
+                コース選択
+            </div>
 
             {/* --- 見出し --- */}
             <div className="text-center animate-fade-in">

@@ -7,10 +7,18 @@ import AdminFirstRound from "../components/Admin/AdminFirstRound";
 import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
 import AdminThirdRound from "../components/Admin/AdminThirdRound";
+import AdminExtraRound from "../components/Admin/AdminExtraRound";
+import AdminExtraRoundUpload from "../components/Admin/AdminExtraRoundUpload";
+import AdminSemifinal from "../components/Admin/AdminSemifinal";
+import AdminFinal from "../components/Admin/AdminFinal";
+import type { SecondRoundState } from "@/lib/types";
+import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 
 export default function AdminPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [currentMode, setCurrentMode] = useState("secondRound");
+  // 2nd Round の表示画面（Turn Over / Quiz View）。背景色の切り替え判定に使う
+  const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
 
   // サーバー接続時の処理（ここだけ socket が使えない）
   useEffect(() => {
@@ -29,6 +37,11 @@ export default function AdminPage() {
     socketConnection.on("mode_update", (newMode: string) => {
       setCurrentMode(newMode);
     })
+
+    // 2nd Round の表示画面（Turn Over / Quiz View）。背景色の切り替え判定に使う
+    socketConnection.on("update_second_round_state", (state: SecondRoundState) => {
+      setSecondRoundState(state);
+    });
     // クリーンアップ処理（画面が閉じられる時の処理）
     return () => {
       socketConnection.disconnect();
@@ -45,41 +58,108 @@ export default function AdminPage() {
   }
 
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-8 bg-zinc-50 dark:bg-zinc-900 gap-8">
+  // 1st Round・その結果アップロード画面・2nd Round の Quiz View だけサイバーパンク調（黒背景）にする。他のモードは従来の背景のまま
+  const backgroundClass =
+    currentMode === "1stRound" ||
+    currentMode === "1stRoundResult" ||
+    (currentMode === "secondRound" && secondRoundState.view === "quiz")
+      ? "bg-black"
+      : "bg-zinc-50 dark:bg-zinc-900";
 
-      {/* 画面切り替えボタン */}
-      <div className="bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md border border-zinc-200 dark:border-zinc-700 w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100 text-center">画面の切り替え</h2>
-        <div className="flex gap-4">
-          <button
-            onClick={() => changeMode("waiting")}
-            className="flex-1 bg-zinc-500 hover:bg-zinc-600 text-white font-bold py-3 rounded-lg transition-colors text-sm"
-          >
-            休憩画面
-          </button>
-          <button
-            onClick={() => changeMode("1stRound")}
-            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-lg transition-colors text-sm"
-          >
-            1st Round
-          </button>
-          <button
-            onClick={() => changeMode("secondRound")}
-            className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-lg transition-colors text-sm"
-          >
-            2nd Round
-          </button>
-          <button
-            onClick={() => changeMode("thirdRound")}
-            className="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 rounded-lg transition-colors text-sm"
-          >
-            3rd Round
-          </button>
+  // Design アーティファクト(Admin.dc.html)左サイドバーの「SELECT ROUND」見た目をそのまま
+  // 移植したナビゲーション項目。ラベルは既存の短縮表記(待機画面/1R/2R/…)を維持し、見た目だけ
+  // 揃える(2026-09-25、ユーザー指示)。
+  const ROUND_NAV: { mode: string; label: string }[] = [
+    { mode: "waiting", label: "待機画面" },
+    { mode: "1stRound", label: "1R" },
+    { mode: "secondRound", label: "2R" },
+    { mode: "thirdRound", label: "3R" },
+    { mode: "extraRound", label: "Ex" },
+    { mode: "semifinal", label: "SF" },
+    { mode: "final", label: "F" },
+  ];
+  // 「1stRoundResult」「extraRoundQuestionUpload」はそれぞれ 1R・Ex のサブ画面なので、
+  // サイドバー上はそれぞれの親ラウンドをアクティブ表示にする。
+  const isRoundActive = (mode: string) => {
+    if (mode === "1stRound") return currentMode === "1stRound" || currentMode === "1stRoundResult";
+    if (mode === "extraRound") return currentMode === "extraRound" || currentMode === "extraRoundQuestionUpload";
+    return currentMode === mode;
+  };
+
+  return (
+    <div className="flex min-h-screen bg-black">
+
+      {/* 左サイドバー: Select Round。Design アーティファクト(Admin.dc.html)の見た目を
+          そのまま移植。ラウンドをまたいで常にこの配色で固定表示する
+          (下段の各ラウンド画面自体の背景色とは独立させ、絶対に重ならないようにする) */}
+      <div
+        className="shrink-0 flex flex-col gap-[10px]"
+        style={{
+          width: 220,
+          minHeight: "100vh",
+          boxSizing: "border-box",
+          padding: "30px 18px",
+          background: "rgba(8,15,28,.7)",
+          borderRight: "1px solid rgba(79,216,255,.18)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "Orbitron, sans-serif",
+            fontWeight: 800,
+            fontSize: 13,
+            letterSpacing: 5,
+            color: "#5C7EA6",
+            marginBottom: 10,
+          }}
+        >
+          SELECT ROUND
         </div>
+        {ROUND_NAV.map((r) => {
+          const active = isRoundActive(r.mode);
+          return (
+            <button
+              key={r.mode}
+              onClick={() => changeMode(r.mode)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "12px 12px",
+                cursor: "pointer",
+                background: active ? "rgba(79,216,255,.10)" : "transparent",
+                border: "none",
+                textAlign: "left",
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 20,
+                  flexShrink: 0,
+                  background: active ? "#4FD8FF" : "transparent",
+                  boxShadow: active ? "0 0 8px #4FD8FF" : "none",
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "Orbitron, sans-serif",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  letterSpacing: 2,
+                  color: active ? "#F3FAFF" : "#5C7EA6",
+                }}
+              >
+                {r.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-
+      {/* 右側: ラウンドごとの操作画面。サイドバーとは別領域なので絶対に重ならない */}
+      <div className={`flex-1 flex flex-col items-center justify-center gap-[3vh] p-[3vw] overflow-y-auto ${backgroundClass}`}>
 
       {/* // admin 画面の切り替え */}
       {currentMode === "1stRound" && (
@@ -105,6 +185,33 @@ export default function AdminPage() {
         <AdminThirdRound socket={socket} />
       )}
 
+      {currentMode === "extraRound" && (
+        <>
+          <AdminExtraRound socket={socket} />
+          {/* Extra Round 問題の取込は進行モードとは別枠。会場配信（Main）には影響しないローカル操作なので
+              change_mode を送らず、この画面だけのタブ切り替えにする */}
+          <button
+            onClick={() => setCurrentMode("extraRoundQuestionUpload")}
+            className="text-sm font-bold text-orange-600 dark:text-orange-400 hover:underline"
+          >
+            Extra Round 問題取込を開く
+          </button>
+        </>
+      )}
+
+      {currentMode === "extraRoundQuestionUpload" && (
+        <AdminExtraRoundUpload />
+      )}
+
+      {currentMode === "semifinal" && (
+        <AdminSemifinal socket={socket} />
+      )}
+
+      {currentMode === "final" && (
+        <AdminFinal socket={socket} />
+      )}
+
+      </div>
     </div>
   );
 }

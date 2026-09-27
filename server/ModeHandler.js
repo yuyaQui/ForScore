@@ -1,7 +1,13 @@
 let currentMode = "waiting";
+// turnOverFinalRevealed: 4組目の最終ステップ(7〜12位)だけ、48位を他の5人より
+// 後に単独発表するためのフラグ(lib/types.ts の SecondRoundState と同じ初期値を
+// 持たせる。2026-09-27、ユーザー指示)。
 let secondRoundState = {
     group: 1,
-    view: "turnOver"
+    view: "turnOver",
+    turnOverStep: 0,
+    turnOverPhase: "collapsed",
+    turnOverFinalRevealed: false
 };
 // 3rd Round の進行状態は server/ThirdRoundHandler.js が持つ
 

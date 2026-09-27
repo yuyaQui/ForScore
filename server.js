@@ -18,6 +18,9 @@ const firstRoundHandlers = require("./server/FirstRoundHandler");
 const registerTextHandlers = require("./server/TextHandler");
 const ModeHandler = require("./server/ModeHandler");
 const ThirdRoundHandler = require("./server/ThirdRoundHandler");
+const ExtraRoundHandler = require("./server/ExtraRoundHandler");
+const SemifinalHandler = require("./server/SemifinalHandler");
+const FinalHandler = require("./server/FinalHandler");
 
 // 4. アプリケーションの立ち上げ処理
 console.log("Next.jsを起動しています。しばらくお待ちください");
@@ -53,6 +56,9 @@ app.prepare().then(() => {
         registerTextHandlers(io, socket);
         ModeHandler(io, socket);
         ThirdRoundHandler(io, socket);
+        ExtraRoundHandler(io, socket);
+        SemifinalHandler(io, socket);
+        FinalHandler(io, socket);
 
         socket.on('broadcast_scores', (allPlayers) => {
             io.emit('update_players', allPlayers);

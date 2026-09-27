@@ -9,7 +9,7 @@
   /* ここの警告は無視して大丈夫 */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-noto-sans);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -23,7 +23,55 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
 /* 自作のアニメーションを作るときにこのファイルをいじることになる */
+
+/* Select Round は Admin.dc.html の左サイドバー・デザインに揃えたため、
+   このシェブロン形状は使わなくなった(2026-09-25)。 */
+
+/* 縦長のプレイヤー枠（幅が狭く高さがある箱）向けの八角形。
+   4隅を絶対px量で均等に切り落とすことで、幅高比が変わっても
+   一貫した八角形の見た目になる（%指定だと縦横比でいびつになるため）。
+   border はこの clip-path（border-box基準）で一緒に切り取られるので、
+   ふちも自然に八角形の輪郭になる。 */
+.octagon-card {
+  --octagon-cut: clamp(6px, 1vw, 14px);
+  clip-path: polygon(
+    var(--octagon-cut) 0,
+    calc(100% - var(--octagon-cut)) 0,
+    100% var(--octagon-cut),
+    100% calc(100% - var(--octagon-cut)),
+    calc(100% - var(--octagon-cut)) 100%,
+    var(--octagon-cut) 100%,
+    0 calc(100% - var(--octagon-cut)),
+    0 var(--octagon-cut)
+  );
+}
+
+/* 2nd Round のプレイヤー枠(縦長、幅:高さ=2:9)向け。
+   PlayerFrameBorder の SVG(viewBox 0 0 40 180)と全く同じ比率の角カットにすることで、
+   背景の塗り(このクリップ)と、枠のふち(SVG)がぴったり重なり、過不足がないようにしている。
+   %指定なので、aspect-[2/9] で常に同じ縦横比になるこのカードでは歪まない。 */
+.player-frame-fill {
+  clip-path: polygon(
+    20% 1%,
+    80% 1%,
+    95% 4.5%,
+    95% 95.5%,
+    80% 99%,
+    20% 99%,
+    5% 95.5%,
+    5% 4.5%
+  );
+}
+/* サイバーパンクデザインの共通アニメーション。詳細は docs/visual-design-system.md 参照。
+   カードの登場時に電撃が明滅するのに使う。複数本を steps() のstep数・duration・
+   delayをそれぞれ変えて重ねると、不規則に瞬く電撃の集合に見える。 */
+@keyframes boltFlicker {
+  0%, 100% { opacity: 1; }
+  25% { opacity: .35; }
+  50% { opacity: 1; }
+  75% { opacity: .5; }
+}
