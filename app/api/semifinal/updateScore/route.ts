@@ -2,36 +2,45 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
     applySemifinalSetPoints,
-    finalizeSetAdvance,
-    finalizeSetElimination,
-    applySemifinalPlayoffScore,
-    getAdvanceTieGroup,
-    getEliminateTieGroup,
+    applyAdvance,
+    applyElimination,
+    getAdvanceJudgement,
+    getEliminationJudgement,
+    getSemifinalSetStage,
+    resolveJudgement,
+    validateSetPointEntries,
     type SemifinalPointEntry,
-    type SemifinalPlayoffPurpose,
-    type SemifinalAction
+    type SemifinalSetStage,
 } from '@/lib/semifinalScoring';
 import type { Player } from '@/lib/types';
 
 /**
- * このルートが受け付ける操作。
+ * 準決勝の得点入力と判定（設計メモ 6章）。
  *
- * 得点入力・勝ち抜け確定・失格確定・プレーオフ正誤は、スナップショット・履歴保存・
- * 変化検出・配信の流れがすべて同じなので、3rd Round の updateScores と同じく
- * 1本のルートにまとめる。分けると「勝ち抜け確定」だけ Undo できなくなる。
+ *   points        … セットの得点を入力（対象全員ぶん。判定前のみ）
+ *   judgeAdvance  … 勝ち抜けを確定（同点ならプレーオフの勝者 chosenIds が必要）
+ *   judgeEliminate… 失格を確定（同点ならプレーオフの失格者 chosenIds が必要）
+ *
+ * どの操作も対象のセット（set）を受け取り、DB の状態がそのセットのその段階に
+ * あるときだけ受け付ける（古い画面からの操作や二重送信で、別の段階のデータを
+ * 書き換えないため）。スナップショット・履歴・配信の流れは同じなので1本のルートにまとめる。
  */
 type UpdateScoreBody =
-    | { action: 'points'; entries: SemifinalPointEntry[] }
-    | { action: 'finalizeAdvance'; set: number }
-    | { action: 'finalizeEliminate' }
-    | { action: 'playoff'; playerId: number; set: number; purpose: SemifinalPlayoffPurpose; playoffAction: SemifinalAction };
+    | { action: 'points'; set: number; entries: SemifinalPointEntry[] }
+    | { action: 'judgeAdvance'; set: number; chosenIds?: number[] }
+    | { action: 'judgeEliminate'; set: number; chosenIds?: number[] };
 
-const VALID_ACTIONS = ['points', 'finalizeAdvance', 'finalizeEliminate', 'playoff'];
+/** 各操作を受け付ける段階 */
+const REQUIRED_STAGE: Record<UpdateScoreBody['action'], SemifinalSetStage> = {
+    points: 'beforeJudge',
+    judgeAdvance: 'beforeJudge',
+    judgeEliminate: 'advanced',
+};
+
+const STALE_MESSAGE = '状態が変わっています。画面を再読み込みしてください';
 
 /**
- * 準決勝の対象9名を取得する。
- *
- * 席と同じく、参加者そのものも新しい列を持たない。3rd Round 通過（thirdRoundRank > 0）
+ * 準決勝の対象9名を取得する。参加者は新しい列を持たず、3rd Round 通過（thirdRoundRank > 0）
  * と Extra Round 敗者復活（extraRoundRank === 1）から都度導出する（設計メモ 3.4）。
  */
 async function loadSemifinalPlayers() {
@@ -41,83 +50,58 @@ async function loadSemifinalPlayers() {
     });
 }
 
-/** 全選手の最新状態を返す（Socket 配信でそのまま使う） */
-async function loadAllPlayers() {
-    return prisma.player.findMany({ orderBy: { paperRank: 'asc' } });
-}
-
 export async function POST(request: Request) {
     try {
         const body = (await request.json()) as UpdateScoreBody;
-
-        if (!VALID_ACTIONS.includes(body.action)) {
+        if (!body || typeof body !== 'object' || !(body.action in REQUIRED_STAGE)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });
         }
 
         const semifinalPlayers = await loadSemifinalPlayers();
 
-        // Undo 用のスナップショット（更新「前」の状態）を、読んだ直後に固める。
-        // 3rd Round と同じ規律（2nd Round で踏んだ「取得後に書き換えて履歴がずれる」
-        // バグを避けるため、以降の純関数呼び出しより先に固定する）。
+        // Undo 用のスナップショット（更新「前」の状態）を、読んだ直後に固める（3rd Round と同じ規律）
         const snapshot = JSON.stringify(semifinalPlayers);
 
-        let updated: Player[];
-        // 勝ち抜け・失格の確定操作で、境界が同点のまま決着しなかった場合に
-        // Admin へ返す同点者一覧。空ならプレーオフ不要で確定済み。
-        let tieGroup: Player[] = [];
-
-        if (body.action === 'points') {
-            if (!Array.isArray(body.entries)) {
-                return NextResponse.json({ error: 'entries が不正です' }, { status: 400 });
-            }
-            updated = applySemifinalSetPoints(semifinalPlayers, body.entries);
-        } else if (body.action === 'finalizeAdvance') {
-            if (typeof body.set !== 'number') {
-                return NextResponse.json({ error: 'set が不正です' }, { status: 400 });
-            }
-            updated = finalizeSetAdvance(semifinalPlayers, body.set);
-            tieGroup = getAdvanceTieGroup(updated);
-        } else if (body.action === 'finalizeEliminate') {
-            updated = finalizeSetElimination(semifinalPlayers);
-            tieGroup = getEliminateTieGroup(updated);
-        } else {
-            // action === 'playoff'
-            if (typeof body.playerId !== 'number' || typeof body.set !== 'number') {
-                return NextResponse.json({ error: 'playerId または set が不正です' }, { status: 400 });
-            }
-            updated = applySemifinalPlayoffScore({
-                players: semifinalPlayers,
-                playerId: body.playerId,
-                set: body.set,
-                purpose: body.purpose,
-                action: body.playoffAction
-            });
+        if (getSemifinalSetStage(semifinalPlayers, body.set) !== REQUIRED_STAGE[body.action]) {
+            return NextResponse.json({ error: STALE_MESSAGE }, { status: 409 });
         }
 
-        // 変化した選手だけを書き戻す。id で突き合わせる（並び順に頼らない）。
+        let updated: Player[];
+        if (body.action === 'points') {
+            const error = validateSetPointEntries(semifinalPlayers, body.entries);
+            if (error) return NextResponse.json({ error }, { status: 400 });
+            updated = applySemifinalSetPoints(semifinalPlayers, body.entries);
+        } else {
+            const isAdvance = body.action === 'judgeAdvance';
+            const judgement = isAdvance ? getAdvanceJudgement(semifinalPlayers) : getEliminationJudgement(semifinalPlayers);
+            if (!judgement) return NextResponse.json({ error: STALE_MESSAGE }, { status: 409 });
+            const resolved = resolveJudgement(judgement, body.chosenIds);
+            if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+            updated = isAdvance
+                ? applyAdvance(semifinalPlayers, body.set, resolved.playerIds)
+                : applyElimination(semifinalPlayers, resolved.playerIds);
+        }
+
+        // 変化した選手だけを書き戻す。id で突き合わせる（並び順に頼らない）
         const before = new Map(semifinalPlayers.map(p => [p.id, JSON.stringify(p)]));
         const changed = updated.filter(p => before.get(p.id) !== JSON.stringify(p));
 
-        // 何も変わらなかった操作（同点で確定しなかった finalize など）では
-        // 履歴を残さない。残すと Undo を押しても何も起きない空振りの1手ができる。
-        if (changed.length > 0) {
+        // 得点入力は全員0点でも履歴を残す（Undo で「入力」を1手として戻せるように。
+        // 残さないと、入力直後の Undo が1つ前の判定を戻してしまう）
+        if (changed.length > 0 || body.action === 'points') {
             await prisma.$transaction([
                 prisma.semifinalHistory.create({ data: { snapshot } }),
                 ...changed.map(p =>
                     prisma.player.update({
                         where: { id: p.id },
-                        data: {
-                            semifinalPoint: p.semifinalPoint,
-                            semifinalRank: p.semifinalRank
-                        }
+                        data: { semifinalPoint: p.semifinalPoint, semifinalRank: p.semifinalRank }
                     })
                 )
             ]);
         }
 
-        const allPlayers = await loadAllPlayers();
-
-        return NextResponse.json({ success: true, allPlayers, tieGroup });
+        const allPlayers = await prisma.player.findMany({ orderBy: { paperRank: 'asc' } });
+        return NextResponse.json({ success: true, allPlayers });
     } catch (error) {
         console.error('Semifinal score update error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

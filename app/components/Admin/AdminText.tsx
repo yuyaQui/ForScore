@@ -17,13 +17,13 @@ export default function AdminText({ socket }: Props) {
     return (
         < div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-8 rounded-xl shadow-md w-full max-w-md" >
             <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
-                休憩中の案内テキスト
+                案内テキスト
             </label>
             <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 className="border border-zinc-300 dark:border-zinc-700 p-3 rounded-lg text-black bg-white dark:bg-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 h-32 resize-none"
-                placeholder="案内テキストを入力してください"
+                placeholder="案内テキスト"
             />
             <button
                 onClick={handleSend}

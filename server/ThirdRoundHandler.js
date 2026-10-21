@@ -106,6 +106,17 @@ module.exports = function ThirdRoundHandler(io, socket) {
         }
     });
 
+    // 選手名簿（CSV）を取り込み直したときに、3rd Round の進行を最初に戻す（2026-10-20 追加・ユーザー承認済み）。
+    // 抽選結果（DB）は取り込みの API が空に戻し済み。ここではメモリの進行状態とタイマーを初期値に戻す:
+    // コース選択・エントリー中・1コース目、走っているタイマーを止め、4コース分を制限時間（15分）に戻す
+    socket.on('reset_third_round_progress', () => {
+        stopTimer();
+        for (const key of Object.keys(remainings)) delete remainings[key];
+        thirdRoundState = { phase: "courseSelect", step: "entry", quizOrder: 1, finishedOrder: null };
+        io.emit('update_third_round_state', thirdRoundState);
+        io.emit('update_third_round_timer', timerPayload());
+    });
+
     // 抽選結果の中継。
     // 抽選そのものは app/api/thirdRound/draw が実行済みで、
     // ここは受け取った結果を全員に配るだけ。乱数はここでは引かない。
@@ -167,4 +178,14 @@ module.exports = function ThirdRoundHandler(io, socket) {
     // 接続直後、この1人にだけ現在の状態を渡す（io.emit ではなく socket.emit）
     socket.emit('update_third_round_state', thirdRoundState);
     socket.emit('update_third_round_timer', timerPayload());
+
+    // 画面（Main / Admin の 3rd Round）を開いたときに、現在の状態を取り直すための要求。
+    // 接続直後の配信は、Socket がつながった時点ではまだ 3rd Round の画面が無い
+    // （別のラウンドを表示中だった）と受け取れずに失われる。そのため画面側が表示された
+    // タイミングでこの要求を送り、その1人にだけ現在の状態とタイマーを返す。
+    // 読み取りだけで、状態は変えない（2026-10-11 追加）。
+    socket.on('request_third_round_sync', () => {
+        socket.emit('update_third_round_state', thirdRoundState);
+        socket.emit('update_third_round_timer', timerPayload());
+    });
 };

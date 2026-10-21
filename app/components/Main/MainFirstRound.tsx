@@ -31,22 +31,20 @@ export default function MainFirstRound({ socket }: Props) {
         <div className="flex flex-col items-center justify-center w-full">
             {/* 「1st Round」は画面左上、「Paper Quiz」は画面右上に固定配置。
                 フォントは画面幅(vw)基準で、解像度が変わっても同じ比率の大きさ・位置になる */}
-            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-[#FBFCF6] tracking-wider z-10">
+            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-[#F3FAFF] tracking-wider z-10">
                 1st Round
             </div>
-            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-[#FBFCF6] tracking-wider z-10">
+            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-[#F3FAFF] tracking-wider z-10">
                 Paper Quiz
             </div>
-            {/* 枠内の塗りは指定色(#A2D7DD)を暗くした#205359。色相・彩度は変えず明度だけ下げて、
-                白系の文字(#FBFCF6)とのコントラストを確保している（元の#A2D7DDだと双方が明るく読みにくかった）。
-                周囲のネオングローは元の明るい#A2D7DD寄りの色のまま残し、発光感を保つ */}
-            <div className="text-[14vw] font-mono font-bold p-[1.5vw] bg-[#205359] rounded-none shadow-[0_0_40px_rgba(162,215,221,0.5)] w-[90%] text-center z-10">
-                {/* 背景が#205359（暗め）になったため、赤/黄は明るめの色にしてコントラストを確保する。
-                    彩度の高い赤(red-500系)は暗い背景では逆に沈んで見えにくいので、あえて薄めのred-200/yellow-300を使う */}
+            {/* 色は 2nd Round 以降と同じ配色（地: #0C1628、枠・グロー: ACCENT #2F7BFF、文字: #F3FAFF）。
+                残り5分以下は金(#FFC93C)、1分以下は赤(#FF4D6D)。2026-10-06 に1st Roundの色を2nd Round以降に揃えた */}
+            <div className="text-[14vw] font-mono font-bold p-[1.5vw] bg-[#0C1628] border-2 border-[#2F7BFF] rounded-none shadow-[0_0_40px_rgba(47,123,255,0.45)] w-[90%] text-center z-10">
+                
                 <span className={
-                    timer <= 60 ? "text-red-200" :
-                        timer <= 300 ? "text-yellow-300" :
-                            "text-[#FBFCF6]"
+                    timer <= 60 ? "text-[#FF4D6D]" :
+                        timer <= 300 ? "text-[#FFC93C]" :
+                            "text-[#F3FAFF]"
                 }>
                     {formattedTime}
                 </span>

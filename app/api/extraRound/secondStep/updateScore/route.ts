@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   try {
     const { playerId, action } = await request.json();
 
-    if (!playerId || !action) {
+    if (!playerId || (action !== 'correct' && action !== 'wrong')) {
       return NextResponse.json({ error: 'Missing playerId or action' }, { status: 400 });
     }
 
@@ -14,6 +14,20 @@ export async function POST(request: Request) {
     const entrants = await prisma.player.findMany({
       where: { extraRoundSecondStep: true }
     });
+
+    // 出場者でない選手・すでに結果が出ている選手への操作は受け付けない。
+    // 受け付けると、何も変わらない履歴だけが積まれてUndoの手数がずれる。
+    const target = entrants.find(p => p.id === playerId);
+    if (!target) {
+      return NextResponse.json({ error: 'Second Step の出場者ではありません' }, { status: 400 });
+    }
+    // 勝ち抜け者が決まった後は採点を止める（残りの選手が5問正解すると勝者が2名になるため）
+    if (entrants.some(p => p.extraRoundRank > 0)) {
+      return NextResponse.json({ error: '勝ち抜け者がすでに決まっています' }, { status: 400 });
+    }
+    if (target.extraRoundRank !== 0) {
+      return NextResponse.json({ error: 'この選手の結果はすでに確定しています' }, { status: 400 });
+    }
 
     // Undo 用のスナップショット（更新「前」の状態）を先に固める
     const snapshot = JSON.stringify(entrants);

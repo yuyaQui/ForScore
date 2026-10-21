@@ -72,6 +72,26 @@ model Player {
   finalWrongCount   Int @default(0) // 現在のセットの誤答数（3回でそのセットのみ失格）
   finalSetsWon      Int @default(0) // 獲得セット数の累計（リセットしない）
   finalRank         Int @default(0) // 優勝=1(自動確定)、準優勝=2、第3位=3(Adminが手動確定)、未確定=0
+
+  // 準決勝の進出者紹介（2026-10-15 追加）
+  // 二つ名は 3rd Round 通過の8名だけが持つ（敗者復活者は紹介しないため空のまま）。
+  // 最大12文字。検証は lib/semifinalProfile.ts。
+  nickname String @default("")
+  // 写真は別テーブル（PlayerPhoto）。選手データは点数が変わるたびに全画面へ配信するため、
+  // 画像をこの行に入れると配信が重くなる。Prisma の文法上必須の項目で、DB の列にはならない
+  photo PlayerPhoto?
+}
+
+// 準決勝・決勝で表示する選手の顔写真（2026-10-15 追加）
+//
+// Admin の準備画面で切り抜いた 3:4 の JPEG（600×800）を1人1枚だけ持つ。
+// 選手を消すと写真も消える（onDelete: Cascade）。大会後は選手データと一緒に削除する運用。
+model PlayerPhoto {
+  playerId  Int      @id
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  mimeType  String   // 例: image/jpeg
+  data      Bytes    // 画像のバイト列
+  updatedAt DateTime @updatedAt // 差し替えたときに画面側のキャッシュを捨てるための版として使う
 }
 
 // 3rd Round のコース（4行固定。マイグレーションで投入する）
@@ -111,6 +131,9 @@ model ExtraRoundQuestion {
   number Int    @unique // 問題番号 1〜20
   text   String         // 問題文
   answer String         // 正解
+  // 別解・正誤判定基準。CSV の4列目。Admin（採点するスタッフ）だけが見る補足で、
+  // Main には出さない。空の問題もあるので既定値は空文字。
+  altAnswer String @default("")
 
   // フェーズ（1〜10 = フェーズ1 / 11〜15 = フェーズ2 / 16〜20 = サバイバル）は
   // number から導出できるため列にしない。

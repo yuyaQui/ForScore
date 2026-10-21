@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
 
 export async function POST(request: Request) {
   try {
@@ -17,11 +18,17 @@ export async function POST(request: Request) {
     });
 
     if (!latestHistory) {
-      return NextResponse.json({ error: 'No history found to undo' }, { status: 400 });
+      return NextResponse.json({ error: NO_HISTORY_MESSAGE }, { status: 400 });
     }
 
     // 2. スナップショットをデシリアライズする
     const playersToRestore = JSON.parse(latestHistory.snapshot);
+
+    // 選手名簿の取り込み直しなどで、履歴が参照する選手がもう存在しない場合は、
+    // 復元しようとして落ちる前に中止する（履歴行は消さない）。
+    if (!(await allSnapshotPlayersExist(playersToRestore.map((p: { id: number }) => p.id)))) {
+      return NextResponse.json({ error: NO_HISTORY_MESSAGE }, { status: 400 });
+    }
 
     // 3. トランザクション処理でプレイヤーデータの復元と履歴レコードの削除を行う
     await prisma.$transaction(async (tx) => {

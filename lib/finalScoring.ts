@@ -21,9 +21,8 @@
  * 「3セット先取で優勝」も同様に一意（複数人が同時に3勝目に達することはない）なので
  * ここで自動確定する。
  *
- * 一方、準優勝・第3位はタイブレークの判断が要る（設計メモ 3.2: システムでは
- * タイブレークを行わない）。この lib では計算せず、Admin が手動で選ぶ
- * （setRunnerUp）。
+ * 準優勝・第3位も、優勝が決まったその操作の中でルールの判定基準で自動確定する
+ * （2026-10-10 ユーザー決定。設計メモ 6.1。compareFinalStanding）。
  */
 
 import type { Player } from './types';
@@ -94,12 +93,42 @@ export function applyFinalScore({ players, playerId, action }: FinalScoringInput
 }
 
 /**
+ * 優勝者以外の最終順位の比較（ルール「決勝」節の判定基準）。a が上位なら負の数、同率なら 0。
+ *
+ *   (1) 獲得セット数が多い順
+ *   (2) 最終セットでの正解数が多い順（そのセットで失格した選手の正解数も含む。
+ *       セット内失格でも finalCorrectCount は止めないので、そのまま比べればよい）
+ *   (3) 準決勝での勝ち抜けが早い順（semifinalRank = 勝ち抜けたセット番号が小さい順）
+ */
+export function compareFinalStanding(a: Player, b: Player): number {
+    if (a.finalSetsWon !== b.finalSetsWon) return b.finalSetsWon - a.finalSetsWon;
+    if (a.finalCorrectCount !== b.finalCorrectCount) return b.finalCorrectCount - a.finalCorrectCount;
+    const sa = a.semifinalRank > 0 ? a.semifinalRank : Number.POSITIVE_INFINITY;
+    const sb = b.semifinalRank > 0 ? b.semifinalRank : Number.POSITIVE_INFINITY;
+    if (sa !== sb) return sa < sb ? -1 : 1;
+    return 0;
+}
+
+/**
+ * 優勝者を除く選手に 2位以下の順位を付ける。全基準が同じなら同率
+ * （準決勝は各セット1名ずつ勝ち抜けるので、通常は(3)で必ず決着する）。
+ */
+function rankRunnersUp(players: Player[], championId: number): Player[] {
+    const others = players.filter(p => p.id !== championId).sort(compareFinalStanding);
+    const rankById = new Map<number, number>();
+    others.forEach((p, i) => {
+        const prev = others[i - 1];
+        rankById.set(p.id, i > 0 && compareFinalStanding(prev, p) === 0 ? rankById.get(prev.id)! : i + 2);
+    });
+    return players.map(p => (rankById.has(p.id) ? { ...p, finalRank: rankById.get(p.id)! } : p));
+}
+
+/**
  * 採点直後に、セットの決着・優勝の確定を続けて判定する。
  *
  * 3rd Round の applyThirdRoundScore が「採点→トビ残り判定」と段階を分けているのと
  * 同じ構造。ここでセットの勝者が決まれば finalSetsWon を+1し、それで3勝に
- * 到達すればその選手を優勝（finalRank = 1）にする。準優勝・第3位はここでは
- * 確定しない（setRunnerUp の仕事）。
+ * 到達すればその選手を優勝（finalRank = 1）にし、残りの最終順位も同時に確定する。
  */
 function applySetAndChampionResult(players: Player[]): Player[] {
     const winner = getSetWinner(players);
@@ -114,7 +143,8 @@ function applySetAndChampionResult(players: Player[]): Player[] {
     );
     if (!isChampionDecided) return withSetWon;
 
-    return withSetWon.map(p => (p.id === winner.id ? { ...p, finalRank: 1 } : p));
+    const withChampion = withSetWon.map(p => (p.id === winner.id ? { ...p, finalRank: 1 } : p));
+    return rankRunnersUp(withChampion, winner.id);
 }
 
 /**
@@ -128,26 +158,4 @@ export function resetForNextSet(players: Player[]): Player[] {
     if (!isSetOver(players)) return players;
 
     return players.map(p => ({ ...p, finalCorrectCount: 0, finalWrongCount: 0 }));
-}
-
-/**
- * 準優勝・第3位をAdminが手動で確定する（設計メモ 5.5）。
- *
- * 優勝（finalRank === 1）が決まっている前提。残り2名のうち runnerUpId で
- * 指定した方を準優勝(2)、もう一方を自動的に第3位(3)にする
- * （残り2名しかいないので、どちらが準優勝かを選べば足りる）。
- * タイブレークの計算はしない。判断はAdminに委ねる。
- */
-export function setRunnerUp(players: Player[], runnerUpId: number): Player[] {
-    const champion = players.find(p => p.finalRank === 1);
-    if (!champion) return players; // 優勝が決まっていなければ何もしない
-
-    const undecided = players.filter(p => p.finalRank === 0);
-    if (undecided.length !== 2) return players; // 想定外の状態では何もしない
-    if (!undecided.some(p => p.id === runnerUpId)) return players;
-
-    return players.map(p => {
-        if (p.finalRank !== 0) return p;
-        return p.id === runnerUpId ? { ...p, finalRank: 2 } : { ...p, finalRank: 3 };
-    });
 }

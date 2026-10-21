@@ -75,3 +75,24 @@ body {
   50% { opacity: 1; }
   75% { opacity: .5; }
 }
+
+/* 3rd Round コース選択（MainThirdRound.tsx の ReelDisplay）のルーレット回転。
+   Cowork Design アーティファクト(ThirdRoundCourseSelect.dc.html)のhelmet内 @keyframes を
+   そのまま移植したもの。--reel-from/--reel-to は抽選のたびに変わる値なので、
+   component側のインラインスタイルでCSSカスタムプロパティとして渡す。
+   全体15秒を3区間に分け、①0-25%は一定速度、②25-72.937%は単調減速、
+   ③72.937-100%(最後の5アイテム分)は「最も遅い速度で回転する」区間として
+   さらに減速し、ちょうど100%で停止する。詳しい経緯は元アーティファクトのコメント参照。 */
+@keyframes reelSpin {
+  0%      { transform: translateY(var(--reel-from)); }
+  25%     { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.4)); }
+  34.587% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.543593)); }
+  44.175% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.667577)); }
+  53.762% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.771952)); }
+  63.349% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.856718)); }
+  72.937% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.921875)); }
+  79.703% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.956055)); }
+  86.468% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.980469)); }
+  93.234% { transform: translateY(calc(var(--reel-from) + (var(--reel-to) - var(--reel-from)) * 0.995117)); }
+  100%    { transform: translateY(var(--reel-to)); }
+}

@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
-import { getTurnOverStepSlice, getTurnOverSecondaryIndex, TURN_OVER_STEP_LABELS } from "@/lib/secondRound";
+import { getTurnOverStepSlice, getTurnOverSecondaryIndex, TURN_OVER_STEP_LABELS, SECOND_ROUND_WINNERS_PER_GROUP } from "@/lib/secondRound";
 import {
     ACCENT,
     GUNMETAL_DARK,
@@ -22,6 +22,7 @@ import {
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
+import { WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
     players: Player[],
@@ -435,22 +436,32 @@ function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
         : 0;
     const rowScale = naturalRowW > STAGE_CONTENT_W ? STAGE_CONTENT_W / naturalRowW : 1;
 
+    // 右下の「残り参加者数 → 残り勝ち抜け枠数」（2026-10-11 ユーザー指示）。
+    // 残り参加者 = まだ勝ち抜けも失格もしていない選手（secondRoundRank === 0）
+    const activeCount = groupPlayers.filter(p => p.secondRoundRank === 0).length;
+    const remainingSlots = Math.max(0, SECOND_ROUND_WINNERS_PER_GROUP - groupPlayers.filter(p => p.secondRoundRank > 0).length);
+
     return (
         <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* 見出し。1行目は左「2nd Round」・右「○組目」を同じ大きさ・高さで並べ、
+                2行目は左にルール、右に「残り参加者数 → 残り勝ち抜け枠数」を出す（2026-10-11 ユーザー指示） */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                     <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>2nd Round</div>
-                    <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2× クイズ</div>
+                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>{groupNumber}組目</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 40, color: '#F3FAFF' }}>{groupNumber}</span>
-                        <span style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 24, letterSpacing: 2, color: '#7FA8D9' }}>組目</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2×</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
+                        <span style={{ color: '#4FD8FF' }}>{activeCount}</span>
+                        <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
+                        <span style={{ color: '#FFC93C' }}>{remainingSlots}</span>
                     </div>
                 </div>
             </div>
 
-            <div style={{ height: 2, marginTop: 26, background: ACCENT, boxShadow: '0 0 12px rgba(79,216,255,.45)', flexShrink: 0 }} />
+            {/* 見出し下の横線は、選手枠の緑（25位以下の順位帯の色。lib/cyberpunkCard の tierOf と同じ値）にする（2026-10-11 ユーザー指示） */}
+            <div style={{ height: 2, marginTop: 26, background: '#35FFA0', boxShadow: '0 0 12px rgba(53,255,160,.45)', flexShrink: 0 }} />
 
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: CARD_GAP, transform: `scale(${rowScale})`, transformOrigin: 'center center' }}>
@@ -501,7 +512,7 @@ function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
                         const styleTopStrip: CSSProperties = { position: 'absolute', top: 0, left: 0, right: 0, height: stripH, backgroundImage: `linear-gradient(90deg, transparent, ${tier.color}, transparent)`, opacity: .95, transition: STRIP_POS_TRANSITION };
                         // 勝ち抜け(winner)が決まったら、ポイントバーの色を通常の水色からオレンジに
                         // 変える(2026-09-25、ユーザー指示)。
-                        const stylePointBarWrap: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: winner ? 'rgba(255,140,45,.75)' : 'rgba(51,198,255,.55)', opacity: revealOpacity, transition: REVEAL_TRANSITION };
+                        const stylePointBarWrap: CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: winner ? WINNER_BAR_COLOR : 'rgba(51,198,255,.55)', opacity: revealOpacity, transition: REVEAL_TRANSITION };
                         const styleBadge: CSSProperties = { position: 'absolute', top: badgeTop, left: 0, right: 0, display: 'flex', justifyContent: 'center', transition: STRIP_POS_TRANSITION };
                         const styleBadgeChip: CSSProperties = {
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', background: 'transparent',

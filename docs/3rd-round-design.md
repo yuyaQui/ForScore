@@ -396,6 +396,8 @@ let thirdRoundState = {
 
 エントリータイムのタイマーは持たない（BGM で管理するため。2.5 参照）。
 
+Main / Admin の 3rd Round 画面は、表示した時点で `request_third_round_sync` を送り、サーバはその1人にだけ現在の進行状態とタイマーを返す（読み取りのみ）。接続直後の配信は、別ラウンドの表示中だと 3rd Round 画面が購読しておらず失われるため。
+
 ### 6.2 DB
 
 復元が必要な結果。
@@ -491,6 +493,15 @@ model ThirdRoundHistory {
 
 2nd Round では**スナップショットを取るタイミングのバグ**で Undo が壊れていた。3rd Round でも同じ轍を踏まないよう、状態を書き換える前に文字列化することを設計時点で明記しておく。
 
+#### コースのリセット（2026-10-11 追加・ユーザー承認済み）
+
+`POST /api/thirdRound/resetScores`（body: `{ courseName }`）。2nd Round の組ごとのリセットに相当する。Admin の手動操作「タイマー・データ操作」の「リセット（コース名）」から、確認ダイアログを経て呼ぶ。
+
+- 対象は指定コースに割り当てられた選手だけ。スコア6項目（正解数・誤答数・10 up-down のポイント・Swedish の×・Freeze の休み・順位）を0に戻す
+- 所属コース・抽選結果（playOrder）・タイマーは変えない
+- そのコースの `ThirdRoundHistory` も削除する（リセット後の Undo で古い途中経過が戻らないように）。リセット自体は Undo できない
+- 成功後、Admin は `broadcast_scores` で全選手を配信し、`finishedOrder` を解除する
+
 ---
 
 ## 7. 画面構成
@@ -529,7 +540,7 @@ Main は独自の状態を持たない。配信された `thirdRoundState` と�
 |---|---|
 | `courseSelect` / `draw` | 抽選する / 抽選をリセット |
 | `courseSelect` / `entry` | エントリー締切 → 掲げた人のチェック → 出場者を確定 → 次のコースの抽選へ |
-| `quiz` | 正解 / 誤答 / **スルー（Freeze 10 のみ）** / Undo / タイマー操作 / コース終了 / プレーオフへ |
+| `quiz` | 正解 / 誤答 / **スルー（Freeze 10 のみ）** / Undo / リセット（コース） / タイマー操作 / コース終了 / サドンデスへ |
 | `playoff` | 正解 / 誤答 / Undo |
 
 2nd Round との差分は **スルーボタン**（Freeze 10 限定）、**タイマー操作**、**コース終了の明示操作**。
@@ -576,3 +587,9 @@ Admin は抽選直後から確定したコースを見られる。会場に伏�
 - Freeze 10 の休み累計問数
 - 「3名失格」と「残り人数＝残り枠」が同値であること
 - 席順 `[4,6,3,7,2,8,1,9]` が9席のうち8席を重複なく埋め、5番席のみが空くこと
+
+## 選手 CSV の取り込み直しで 3rd Round の進行もリセットする（2026-10-20、ユーザー承認済み）
+
+- `POST /api/firstRound`（選手名簿の取り込み）は、選手の作り直しと同じトランザクションで `ThirdRoundCourse.playOrder`（抽選結果）を空に戻す。抽選結果が残っているときは、Undo 履歴と同じく確認（409 → `confirmClearHistory`）を取ってから実行する
+- 取り込みに成功したら、Admin（`AdminFirstRoundUpload`）が `reset_third_round_progress`（進行状態をコース選択・エントリー中・1コース目に戻し、タイマーを止めて4コースとも15分に戻す）・`broadcast_third_round_courses`・`broadcast_scores` を送り、開いている画面を再読み込みなしで初期状態にする
+- 3rd Round 以外のラウンドの進行状態（サーバのメモリ）は対象外

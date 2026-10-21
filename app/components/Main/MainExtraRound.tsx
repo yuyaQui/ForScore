@@ -1,181 +1,347 @@
 import { Socket } from "socket.io-client";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ExtraRoundState, ExtraRoundQuestion, Player } from "@/lib/types";
-import { getExtraRoundPhaseLabel } from "@/lib/extraRound";
+import { DEFAULT_EXTRA_ROUND_STATE } from "@/lib/types";
+import {
+    getExtraRoundPhaseRange,
+    getFirstStepItem,
+    normalizeExtraRoundState,
+} from "@/lib/extraRound";
+import { ACCENT, TIER_PURPLE } from "@/lib/cyberpunkCard";
+import FixedStage from "@/app/components/FixedStage";
+import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
+import { RevealWhole } from "@/app/components/Main/RevealText";
 
 type Props = {
     socket: Socket | null;
 }
 
+// Second Step の勝ち抜けに必要な正解数（lib/extraRoundScoring.ts と同じ値）
+const SECOND_STEP_WIN_CORRECT_COUNT = 5;
+
+// 色。2nd / 3rd Round の Main と同じ配色を使う（金=勝ち抜け・解答、赤=失格）。
+const GOLD = '#FFC93C';
+const GOLD_SOFT = '#FFE28A';
+const PANEL_CLIP = 'polygon(26px 0,100% 0,100% calc(100% - 26px),calc(100% - 26px) 100%,0 100%,0 26px)';
+
+/**
+ * Extra Round（敗者復活）の Main 画面。
+ *
+ * Main は独自の状態を持たない。サーバから配信される進行状態（stage / cursor / revealed）
+ * だけで表示が決まる。stage ごとの表示:
+ *   setup / entrantSelect … 「準備中」（スタッフが Admin 側で作業している間の待機画面）
+ *   firstStep             … 筆記クイズの問題 → 解答の順に1つずつ表示。問題文・解答は
+ *                            Admin が「問題を表示する」「解答を表示」を押す（revealed が
+ *                            false → true）まで出ず、押した瞬間に文字が徐々に現れる
+ *   secondStep            … 進出者による早押し。2nd / 3rd Round と同じ縦長カード
+ */
 export default function MainExtraRound(props: Props) {
     const { socket } = props;
 
-    // Main は独自の状態を持たない。配信された進行状態だけで表示が決まる。
-    const [extraRoundState, setExtraRoundState] = useState<ExtraRoundState>({
-        step: "firstStep",
-        questionNumber: 1,
-        answerRevealed: false,
-        mode: "asking"
-    });
-
-    // 問題文・解答は取込済みのものを一度取得しておく
-    const [questions, setQuestions] = useState<ExtraRoundQuestion[]>([]);
-
-    // Second Step の出場者スコア表示に使う選手一覧
+    const [state, setState] = useState<ExtraRoundState>(DEFAULT_EXTRA_ROUND_STATE);
+    const [questions, setQuestions] = useState<Pick<ExtraRoundQuestion, 'number' | 'text' | 'answer' | 'altAnswer'>[]>([]);
     const [players, setPlayers] = useState<Player[]>([]);
 
     useEffect(() => {
-        fetch('/api/extraRound/questions').then(res => res.json()).then(data => {
-            if (data.success) setQuestions(data.questions);
-        });
-
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        });
+        fetch('/api/secondRound/loadPlayers')
+            .then(res => res.json())
+            .then(data => { if (data.success) setPlayers(data.allPlayers); })
+            .catch(err => console.error('Failed to load players', err));
 
         if (socket) {
-            const handleStateUpdate = (state: ExtraRoundState) => setExtraRoundState(state);
+            const handleStateUpdate = (next: ExtraRoundState) => setState(normalizeExtraRoundState(next));
             const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
 
-            socket.on("update_extra_round_state", handleStateUpdate);
-            socket.on("update_players", handlePlayersUpdate);
+            socket.on('update_extra_round_state', handleStateUpdate);
+            socket.on('update_players', handlePlayersUpdate);
 
             return () => {
-                socket.off("update_extra_round_state", handleStateUpdate);
-                socket.off("update_players", handlePlayersUpdate);
+                socket.off('update_extra_round_state', handleStateUpdate);
+                socket.off('update_players', handlePlayersUpdate);
             };
         }
     }, [socket]);
 
-    // 現在の問題番号に対応する問題文・解答を探す
-    const currentQuestion = questions.find(q => q.number === extraRoundState.questionNumber);
+    // 問題は First Step に入るたびに取り直す。Main を開いたまま、Admin で問題CSVを
+    // 取り込み直すことがあるため（準備中の間に取り込まれた問題を確実に拾う）。
+    // public=1 で、Main で使う項目（問題文・解答・別解・正誤判定基準）だけを受け取る。
+    const isFirstStep = state.stage === 'firstStep';
+    useEffect(() => {
+        if (!isFirstStep) return;
+        fetch('/api/extraRound/questions?public=1')
+            .then(res => res.json())
+            .then(data => { if (data.success) setQuestions(data.questions); })
+            .catch(err => console.error('Failed to load extra round questions', err));
+    }, [isFirstStep]);
 
-    // Second Step 出場者だけを抜き出す
-    const entrants = players.filter(p => p.extraRoundSecondStep);
+    if (state.stage === 'firstStep') {
+        const item = getFirstStepItem(state.cursor);
+        const question = questions.find(q => q.number === item.number);
+        return (
+            <FixedStage>
+                <FirstStepView
+                    key={`${item.view}-${item.number}`}
+                    number={item.number}
+                    view={item.view}
+                    question={question ?? null}
+                    revealed={state.revealed}
+                />
+            </FixedStage>
+        );
+    }
+
+    if (state.stage === 'secondStep') {
+        const entrants = players.filter(p => p.extraRoundSecondStep);
+        return (
+            <FixedStage>
+                <SecondStepView entrants={entrants} />
+            </FixedStage>
+        );
+    }
+
+    // setup / entrantSelect
+    return (
+        <FixedStage>
+            <StandbyView />
+        </FixedStage>
+    );
+}
+
+// ============================================================================
+// 共通部品
+// ============================================================================
+
+const STAGE_STYLE = {
+    width: 1920, height: 1080, boxSizing: 'border-box' as const, padding: '56px 72px', backgroundColor: '#000000',
+    display: 'flex', flexDirection: 'column' as const, position: 'relative' as const, overflow: 'hidden',
+    fontFamily: "'Rajdhani',sans-serif",
+};
+
+/**
+ * 見出し。1行目は「Extra Round」、step を渡すと「Extra Round - First Step」のように段階名を
+ * 右に並べる（2026-10-11 のユーザー指示）。subtitle を渡すと2行目に大きく出す。
+ */
+function Header({ step, subtitle, right }: { step?: string; subtitle?: string; right?: React.ReactNode }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>{step ? `Extra Round - ${step}` : 'Extra Round'}</div>
+                {subtitle && (
+                    <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>{subtitle}</div>
+                )}
+            </div>
+            {right}
+        </div>
+    );
+}
+
+// 見出し下の横線。Extra Round は 49位以下の順位帯と同じ紫にする（解答・敗者復活決定のときも同じ。2026-10-11 ユーザー指示）
+function Rule({ color }: { color: string }) {
+    return <div style={{ height: 2, marginTop: 26, background: color, boxShadow: `0 0 12px ${color}73`, flexShrink: 0 }} />;
+}
+
+// ============================================================================
+// 準備中（setup / entrantSelect）
+// ============================================================================
+
+function StandbyView() {
+    return (
+        <div style={STAGE_STYLE}>
+            {/* 進出者の選考中も First Step の一部として「Extra Round - First Step」と出す（2026-10-11 ユーザー指示） */}
+            <Header step="First Step" />
+            <Rule color={TIER_PURPLE} />
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
+                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 120, letterSpacing: 12, color: '#F3FAFF', textShadow: `0 0 28px ${ACCENT}66` }}>
+                        準備中
+                    </span>
+                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: 10, color: '#5C7EA6' }}>
+                        STANDBY
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
+// First Step（問題 / 解答）
+// ============================================================================
+
+/**
+ * 問題文の長さに応じた文字サイズ。パネルの横幅（約1700px）と高さに収まるよう、
+ * 長い問題ほど小さくする。1行あたりの文字数と行数から逆算した段階値。
+ */
+function questionFontSize(text: string, hasAnswer: boolean): number {
+    const len = text.length;
+    // 解答も同じ画面に出す場合、問題文に使える高さが減るので一段小さくする
+    const shrink = hasAnswer ? 0.78 : 1;
+    let size: number;
+    if (len <= 30) size = 76;
+    else if (len <= 60) size = 62;
+    else if (len <= 100) size = 52;
+    else if (len <= 150) size = 44;
+    else if (len <= 220) size = 36;
+    else size = 30;
+    return Math.floor(size * shrink);
+}
+
+function answerFontSize(text: string): number {
+    const len = text.length;
+    if (len <= 12) return 84;
+    if (len <= 24) return 68;
+    if (len <= 48) return 54;
+    return 42;
+}
+
+function FirstStepView({ number, view, question, revealed }: {
+    number: number;
+    view: 'question' | 'answer';
+    question: Pick<ExtraRoundQuestion, 'number' | 'text' | 'answer' | 'altAnswer'> | null;
+    /** 問題のステップでは問題文、解答のステップでは解答を出してよいか */
+    revealed: boolean;
+}) {
+    const isAnswer = view === 'answer';
+    const lineColor = isAnswer ? GOLD : ACCENT;
+    const [phaseStart, phaseEnd] = getExtraRoundPhaseRange(number);
+    const inPhase = Array.from({ length: phaseEnd - phaseStart + 1 }, (_, i) => phaseStart + i);
 
     return (
-        <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
-            {/* 画面左上に「Extra Round」、右上に現在のステップ名（筆記/早押し）を固定表示。
-                1st Round の Main 画面と同じ位置(top-[3vw] left/right-[3vw])に揃えている */}
-            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                Extra Round
-            </div>
-            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                {extraRoundState.step === 'firstStep' ? '敗者復活 筆記クイズ' : '敗者復活 早押しクイズ'}
-            </div>
-            <div className="text-center animate-fade-in w-full">
-                <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/30">
-                    Extra Round
-                </span>
-                <h1 className="mt-4 text-5xl font-black tracking-tight text-zinc-950 dark:text-white">
-                    {extraRoundState.step === 'firstStep' ? '敗者復活 筆記クイズ' : '敗者復活 早押しクイズ'}
-                </h1>
+        <div style={STAGE_STYLE}>
+            {/* 右上のフェーズ名（Phase 1 / Phase 2 / Survival）は 2026-10-11 のユーザー指示で削除した */}
+            <Header step="First Step" />
+            <Rule color={TIER_PURPLE} />
 
-                {/* firstStep は「問題だけ」と「問題＋解答」を別ブロックとして完全に分ける。
-                    同じ入れ物の中で解答部分だけを足し引きすると、両者が同居して見えてしまうため */}
-                {extraRoundState.step === 'firstStep' && !extraRoundState.answerRevealed && (
-                    <div className="mt-12 p-12 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-3xl shadow-2xl max-w-3xl mx-auto min-h-[250px] flex flex-col items-center justify-center">
-                        <div className="text-sm font-bold text-purple-600 dark:text-purple-400 tracking-widest">
-                            {getExtraRoundPhaseLabel(extraRoundState.questionNumber)}
-                        </div>
-                        <div className="mt-2 text-2xl font-black text-zinc-500 dark:text-zinc-400">
-                            第 {extraRoundState.questionNumber} 問
-                        </div>
-                        <p className="mt-8 text-4xl font-bold text-zinc-900 dark:text-white leading-relaxed">
-                            {currentQuestion ? currentQuestion.text : '問題を準備中です'}
-                        </p>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 32, minHeight: 0 }}>
+                {/* 問題番号と、フェーズ内の位置 */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 22 }}>
+                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 40, letterSpacing: 4, color: isAnswer ? GOLD_SOFT : '#7FA8D9' }}>
+                            {isAnswer ? 'ANSWER' : 'QUESTION'}
+                        </span>
+                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 150, lineHeight: 1, color: '#F3FAFF', textShadow: `0 0 26px ${lineColor}66` }}>
+                            {number}
+                        </span>
                     </div>
-                )}
-
-                {extraRoundState.step === 'firstStep' && extraRoundState.answerRevealed && (
-                    <div className="mt-12 p-12 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-3xl shadow-2xl max-w-3xl mx-auto min-h-[250px] flex flex-col items-center justify-center">
-                        <div className="text-sm font-bold text-purple-600 dark:text-purple-400 tracking-widest">
-                            {getExtraRoundPhaseLabel(extraRoundState.questionNumber)}
-                        </div>
-                        <div className="mt-2 text-2xl font-black text-zinc-500 dark:text-zinc-400">
-                            第 {extraRoundState.questionNumber} 問
-                        </div>
-                        <p className="mt-8 text-4xl font-bold text-zinc-900 dark:text-white leading-relaxed">
-                            {currentQuestion ? currentQuestion.text : '問題を準備中です'}
-                        </p>
-                        <p className="mt-8 text-4xl font-black text-yellow-500">
-                            {currentQuestion ? currentQuestion.answer : ''}
-                        </p>
+                    <div style={{ display: 'flex', gap: 10, paddingBottom: 18 }}>
+                        {inPhase.map(n => (
+                            <span
+                                key={n}
+                                style={{
+                                    width: n === number ? 44 : 24, height: 10, transition: 'width .3s ease',
+                                    background: n === number ? lineColor : n < number ? '#3A5170' : 'rgba(255,255,255,.08)',
+                                    boxShadow: n === number ? `0 0 10px ${lineColor}` : 'none',
+                                }}
+                            />
+                        ))}
                     </div>
-                )}
+                </div>
 
-                {/* 2nd Round のクイズ画面（MainSecondRound）と同じ、縦書き名前のカードデザインに揃える。
-                    1人あたりの横幅も 2nd Round と揃えるため、2nd Round と同じ
-                    「max-w-6xl の中に12列」という枠をそのまま使う。
-                    出場者数ぶんのカードしか描画しないので、12列のうち先頭から
-                    埋まる形になり、カード自体の幅は常に2nd Roundと同じになる */}
-                {extraRoundState.step === 'secondStep' && (
-                    <div className="w-full flex justify-center mt-10">
-                        <div className="max-w-6xl w-full grid grid-cols-12 gap-2">
-                        {entrants.map(p => {
-                            const isWinner = p.extraRoundRank >= 1;
-                            const isEliminated = p.extraRoundRank < 0;
-                            const isActive = p.extraRoundRank === 0;
-
-                            let cardStyle = "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg";
-                            if (isWinner) {
-                                cardStyle = "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 shadow-xl shadow-amber-500/10 ring-4 ring-amber-500/20 text-amber-900 dark:text-amber-100 z-20";
-                            } else if (isEliminated) {
-                                cardStyle = "bg-zinc-100/70 dark:bg-zinc-900/40 border border-zinc-300 dark:border-zinc-800 opacity-40 grayscale text-zinc-400 dark:text-zinc-600 shadow-none";
-                            }
-
-                            return (
-                                <div
-                                    key={p.id}
-                                    className={`relative overflow-hidden rounded-2xl py-6 px-1 flex flex-col items-center justify-between min-h-[400px] transition-all duration-500 ${cardStyle}`}
-                                >
-                                    <div className="w-full flex flex-col items-center gap-1 text-[10px] font-mono font-bold opacity-60 mb-2 text-center">
-                                        <span>No.{p.entryNo}</span>
+                {/* 問題文（と解答）。枠は ACCENT（解答のときは金）。clip-path で面取りした外枠＋内側 */}
+                <div style={{ clipPath: PANEL_CLIP, background: lineColor, padding: 3, boxShadow: `0 0 30px ${lineColor}55` }}>
+                    <div style={{ clipPath: PANEL_CLIP, background: 'rgba(8,14,26,.96)', padding: '46px 64px', minHeight: 420, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 36 }}>
+                        {question ? (
+                            <>
+                                <p style={{ margin: 0, fontFamily: '"Noto Sans JP",sans-serif', fontWeight: isAnswer ? 700 : 900, fontSize: questionFontSize(question.text, isAnswer), lineHeight: 1.5, letterSpacing: 1, color: '#F3FAFF', whiteSpace: 'pre-wrap' }}>
+                                    {/* 文字色は問題・解答のステップで同じ（2026-10-11 ユーザー指示）。
+                                        問題のステップでは、問題文だけが全体一度に現れる。解答のステップでは問題文は最初から出ている */}
+                                    {isAnswer
+                                        ? question.text
+                                        : <RevealWhole text={question.text} revealed={revealed} />}
+                                </p>
+                                {isAnswer && (
+                                    <div style={{ borderTop: `2px solid ${GOLD}66`, paddingTop: 30, display: 'flex', alignItems: 'baseline', gap: 28 }}>
+                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, color: GOLD, flexShrink: 0 }}>A.</span>
+                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: answerFontSize(question.answer), lineHeight: 1.3, color: GOLD_SOFT, textShadow: '0 0 22px rgba(255,201,60,.45)', whiteSpace: 'pre-wrap' }}>
+                                            {/* 解答は、Admin の「解答を表示」を押すと問題文と同じ動き（全体一度に）で現れる（2026-10-11 ユーザー指示） */}
+                                            <RevealWhole text={question.answer} revealed={revealed} />
+                                        </span>
                                     </div>
-
-                                    <div
-                                        className="text-xl font-black my-4 select-none tracking-widest leading-none text-zinc-800 dark:text-white"
-                                        style={{ writingMode: 'vertical-rl' }}
-                                    >
-                                        {p.name}
+                                )}
+                                {/* 別解・正誤判定基準（2026-10-11 のユーザー指示で Main にも出す）。
+                                    解答と同時に、同じ動きで現れる。空のときは出さない */}
+                                {/* 「別解・正誤判定」という見出しは付けない（2026-10-11 ユーザー指示）。
+                                    左端は解答の文字とそろえるため、見えない「A.」を同じ幅で置く */}
+                                {isAnswer && question.altAnswer && (
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, marginTop: -8 }}>
+                                        <span aria-hidden style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, flexShrink: 0, visibility: 'hidden' }}>A.</span>
+                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 32, lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
+                                            <RevealWhole text={question.altAnswer} revealed={revealed} />
+                                        </span>
                                     </div>
-
-                                    {isActive && (
-                                        <div className="flex flex-col items-center gap-2 mt-2 w-full">
-                                            <div className="flex flex-col items-center justify-center bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 rounded-lg py-1.5 w-10">
-                                                <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 tracking-wider">O</span>
-                                                <div className="text-emerald-500 dark:text-emerald-400 font-mono font-black text-lg leading-none mt-0.5">
-                                                    {p.extraRoundCorrectCount}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {isWinner && (
-                                        <div className="text-sm font-black mt-2 text-amber-600 dark:text-amber-400 tracking-wider animate-pulse flex flex-col items-center gap-1">
-                                            <span className="text-lg">🎉</span>
-                                            <span>敗者復活</span>
-                                        </div>
-                                    )}
-
-                                    {isEliminated && (
-                                        <div className="text-sm font-black mt-2 tracking-widest uppercase opacity-70 flex flex-col items-center gap-1 text-zinc-400">
-                                            <span>❌</span>
-                                            <span>LOSE</span>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-
-                        {entrants.length === 0 && (
-                            <div className="col-span-full py-16 text-center text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800/50 border border-dashed border-zinc-200 dark:border-zinc-700 rounded-3xl">
-                                出場者を準備中です
-                            </div>
+                                )}
+                            </>
+                        ) : (
+                            <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 52, color: '#5C7EA6', textAlign: 'center' }}>
+                                問題 {number} を準備中です
+                            </span>
                         )}
-                        </div>
                     </div>
-                )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
+// Second Step（早押し）
+// ============================================================================
+
+function SecondStepView({ entrants }: { entrants: Player[] }) {
+    const phase = useCardIntroPhase();
+
+    // 2nd Round と同じく、人数が多いときは列全体を transform:scale() で縮小して画面幅に収める。
+    // 少ないときは間隔を広げて見栄えを保つ。
+    const CARD_SLOT_W = 172;
+    const STAGE_CONTENT_W = 1920 - 72 * 2;
+    const n = entrants.length;
+    const gap = n <= 6 ? 56 : n <= 9 ? 28 : 12;
+    const naturalRowW = n > 0 ? n * CARD_SLOT_W + (n - 1) * gap : 0;
+    const rowScale = naturalRowW > STAGE_CONTENT_W ? STAGE_CONTENT_W / naturalRowW : 1;
+
+    return (
+        <div style={STAGE_STYLE}>
+            {/* 右上の「敗者復活者が決定しました」は 2026-10-11 のユーザー指示で削除した */}
+            {/* 2026-10-11 のユーザー指示で、1行目を「Extra Round - Second Step」、2行目をルール（5○1×）にした */}
+            <Header step="Second Step" subtitle={`${SECOND_STEP_WIN_CORRECT_COUNT}○1×`} />
+            <Rule color={TIER_PURPLE} />
+
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap, transform: `scale(${rowScale})`, transformOrigin: 'center center' }}>
+                    {entrants.map(p => {
+                        const isWinner = p.extraRoundRank > 0;
+                        const eliminated = p.extraRoundRank < 0;
+                        const resultColor = eliminated ? '#8A93A3' : isWinner ? GOLD_SOFT : '#EAF6FF';
+                        const filled = Math.min(SECOND_STEP_WIN_CORRECT_COUNT, p.extraRoundCorrectCount);
+                        return (
+                            <PlayerCardFrame
+                                key={p.id}
+                                phase={phase}
+                                paperRank={p.paperRank}
+                                eliminated={eliminated}
+                                winner={isWinner}
+                                name={p.name}
+                                school={p.school}
+                                grade={p.grade}
+                                pct={Math.min(100, (filled / SECOND_STEP_WIN_CORRECT_COUNT) * 100)}
+                                // 勝ち抜けたら 2nd・3rd Round と同じくバーをオレンジにする（2026-10-11、ユーザー指示）
+                                barColor={isWinner ? WINNER_BAR_COLOR : undefined}
+                                belowContent={
+                                    <>
+                                        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color: resultColor }}>
+                                            {eliminated ? 'LOST' : isWinner ? 'WIN' : p.extraRoundCorrectCount}
+                                        </div>
+                                    </>
+                                }
+                            />
+                        );
+                    })}
+                    {n === 0 && (
+                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 28, color: '#5C7EA6' }}>
+                            出場者が選ばれていません。
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );

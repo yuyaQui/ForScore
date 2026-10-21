@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma';
 import {
     applyFinalScore,
     resetForNextSet,
-    setRunnerUp,
     type FinalAction
 } from '@/lib/finalScoring';
 import type { Player } from '@/lib/types';
@@ -11,16 +10,15 @@ import type { Player } from '@/lib/types';
 /**
  * このルートが受け付ける操作。
  *
- * 正解/誤答・次のセットへ・準優勝の手動確定は、スナップショット・履歴保存・
+ * 正解/誤答・次のセットへは、スナップショット・履歴保存・
  * 変化検出・配信の流れがすべて同じなので、準決勝の updateScore と同じく
  * 1本のルートにまとめる。
  */
 type UpdateScoreBody =
     | { action: 'correct' | 'wrong'; playerId: number }
-    | { action: 'nextSet' }
-    | { action: 'setRunnerUp'; runnerUpId: number };
+    | { action: 'nextSet' };
 
-const VALID_ACTIONS = ['correct', 'wrong', 'nextSet', 'setRunnerUp'];
+const VALID_ACTIONS = ['correct', 'wrong', 'nextSet'];
 
 /**
  * 決勝の対象3名を取得する。
@@ -67,13 +65,6 @@ export async function POST(request: Request) {
             }
             case 'nextSet': {
                 updated = resetForNextSet(finalPlayers);
-                break;
-            }
-            case 'setRunnerUp': {
-                if (typeof body.runnerUpId !== 'number') {
-                    return NextResponse.json({ error: 'runnerUpId が不正です' }, { status: 400 });
-                }
-                updated = setRunnerUp(finalPlayers, body.runnerUpId);
                 break;
             }
         }

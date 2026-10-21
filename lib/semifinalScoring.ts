@@ -1,188 +1,266 @@
 /**
  * 準決勝（Nine Hundred）の採点ロジック
  *
- * タイムレース形式のため、セット中は1問ごとの正解・誤答をリアルタイムでは
- * 記録しない。セット終了後、まとめて集計した得点変動（1セットぶんの増減）を
- * 選手ごとに入力する（applySemifinalSetPoints）。この lib が扱うのはそれに加え、
- * 「セット終了時に勝ち抜け1名・失格2名をどう確定するか」と「境界の同点を
- * プレーオフでどう決めるか」。DB の読み書きは app/api 側の仕事で、ここには
- * 持ち込まない（3rd Round と同じ形）。
+ * タイムレース形式のため、1問ごとの正誤は記録しない。セット終了後、スタッフが手動で
+ * 集計した「各選手のそのセットの得点」を入力し、累計 semifinalPoint に加算する
+ * （2026-10-10 ユーザー決定。設計メモ 6.1）。DB の読み書きは app/api 側の仕事で、
+ * ここには持ち込まない（3rd Round と同じ形）。
  *
- * ## セット終了時の確定は2段階（勝ち抜け→失格の順）
+ * ## 判定は2段階（勝ち抜け → 失格の順）
  *
- * 1. 対象（semifinalRank === 0）をポイント降順に並べ、1位が同点でなければ
- *    その1名を勝ち抜け（semifinalRank = 何セット目に勝ち抜けたか）にする。
- *    同点ならこの関数は何もしない。呼び出し側が同点者だけのプレーオフに
- *    進める（phase: 'playoff'）。
- * 2. 勝ち抜けが確定した後、残り（semifinalRank === 0 で再フィルタするだけで
- *    勝ち抜け者は自然に除外される）をポイント降順に並べ、下位2名の境界に
- *    同点がなければ確定失格。同点ならこの関数も何もしない。
+ * 1. 勝ち抜け: 対象（semifinalRank === 0）のうち最高得点の1名。最高得点が同点なら
+ *    その同点者でプレーオフ（1名を決める）。
+ * 2. 失格: 勝ち抜けを除いた対象の下位2名。境界（安全圏の最後と失格圏の最初）が同点なら、
+ *    境界の点数に並ぶ全員でプレーオフ（残りの失格枠の人数を決める）。境界より下の選手は
+ *    プレーオフをせずに失格。対象が2名以下なら全員失格（第3セットは常にこれ）。
  *
- * ## 「残り2名なら自動失格」は特別扱いしない
- *
- * 第3セット終了時は、勝ち抜け1名を除くと残りがちょうど2名（＝失格枠と同数）になる。
- * このとき比較すべき「安全圏の最後の1名」が存在しないため、境界同点の判定自体が
- * 発生せず、残った2名がそのまま失格になる。これは3rd Round の「残り人数＝残り枠」
- * のような自動ショートカットを別途実装したものではなく、同じ境界判定の式が
- * 安全枠0という入力を受けたときに導く自然な結果。したがってこの状況は算数上
- * 第3セット終了時にしか起こらず、他のセットで誤って自動発火することもない。
+ * どちらも「判定結果を出す関数」（get…Judgement）と「確定させる関数」（apply…）に分ける。
+ * Admin は前者で次の操作（そのまま確定 / プレーオフ）を決め、API は後者の前に
+ * 同じ前者で入力（プレーオフの勝者・敗者）を検証する。
  *
  * ## プレーオフはポイントを変えない（設計メモ 1章）
  *
- * プレーオフの正解・誤答は勝ち抜け/失格の決定にのみ使い、それまでのポイントには
- * 影響しない。境界が2箇所あるぶん、3rd Round の early-buzzer プレーオフ
- * （正解=勝ち抜け／誤答=失格）とは意味が逆になる場面がある（下記 purpose 参照）。
+ * プレーオフの進行（誰が正解・誤答したか）は lib/semifinalPlayoff.ts が扱い、
+ * DB には最終的な勝ち抜け・失格だけを書く。
  */
 
 import type { Player } from './types';
 
-/** プレーオフで押すボタン */
-export type SemifinalAction = 'correct' | 'wrong';
+/** 1セットで勝ち抜ける人数 */
+export const SEMIFINAL_ADVANCE_COUNT = 1;
+/** 1セットで失格する人数 */
+export const SEMIFINAL_ELIMINATE_COUNT = 2;
+/** 1セットの得点として入力できる絶対値の上限（桁の打ち間違いを止めるため） */
+export const SEMIFINAL_SET_POINT_LIMIT = 999;
 
-/** 1セットで勝ち抜ける人数（常に1名） */
-const ADVANCE_COUNT = 1;
-/** 1セットで失格する人数（常に2名） */
-const ELIMINATE_COUNT = 2;
-
-/**
- * まだ決着していない（semifinalRank === 0）対象を、ポイント降順で並べる。
- * 勝ち抜け・失格が決まった選手は rank が 0 でなくなるため、このフィルタだけで
- * 「今どのセットのどの段階を争っているか」に応じた対象が自然に絞り込める。
- */
-function getActiveSortedByPoint(players: Player[]): Player[] {
+/** まだ決着していない（semifinalRank === 0）選手を、ポイント降順で並べる */
+export function getActiveSortedByPoint(players: Player[]): Player[] {
     return players
         .filter(p => p.semifinalRank === 0)
-        .sort((a, b) => b.semifinalPoint - a.semifinalPoint);
+        .sort((a, b) => b.semifinalPoint - a.semifinalPoint || a.id - b.id);
 }
 
 export type SemifinalPointEntry = {
     playerId: number;
-    /** そのセットぶんの得点変動（増減）。累計 semifinalPoint に加算する */
+    /** そのセットの得点（増減）。累計 semifinalPoint に加算する */
     delta: number;
 };
 
 /**
- * セット終了後にまとめて入力した得点変動を、対象選手の累計ポイントへ加算する。
- * 引数の players は書き換えない。
- *
- * entries に含まれない選手（そのセットの対象外）や、すでに勝ち抜け／失格が
- * 確定した選手（semifinalRank !== 0）は変更しない。値の正しさ（何点が妥当か）は
- * 判定しない。入力されたとおりに加算するだけで、集計はスタッフの目視に委ねる
- * （このコースは1問ごとの記録を持たないため、システム側で検算できない）。
+ * セットの得点入力が正しいかを調べる。問題なければ null、あればエラー文。
+ * 対象（semifinalRank === 0）の全員ぶんが1件ずつ、整数で入っていることを求める
+ * （入力漏れ・二重入力・決着済みの選手への入力を止める）。
  */
+export function validateSetPointEntries(players: Player[], entries: unknown): string | null {
+    if (!Array.isArray(entries)) return '得点の形式が不正です';
+    const activeIds = new Set(players.filter(p => p.semifinalRank === 0).map(p => p.id));
+    const seen = new Set<number>();
+    for (const e of entries) {
+        if (!e || typeof e !== 'object') return '得点の形式が不正です';
+        const { playerId, delta } = e as Record<string, unknown>;
+        if (typeof playerId !== 'number' || !activeIds.has(playerId)) return '対象外の選手が含まれています';
+        if (seen.has(playerId)) return '同じ選手が重複しています';
+        if (typeof delta !== 'number' || !Number.isInteger(delta) || Math.abs(delta) > SEMIFINAL_SET_POINT_LIMIT) {
+            return '得点は整数で入力してください';
+        }
+        seen.add(playerId);
+    }
+    if (seen.size !== activeIds.size) return '全員の得点を入力してください';
+    return null;
+}
+
+/** セットの得点を累計に加算する。引数の players は書き換えない */
 export function applySemifinalSetPoints(players: Player[], entries: SemifinalPointEntry[]): Player[] {
     const deltaByPlayerId = new Map(entries.map(e => [e.playerId, e.delta]));
-
     return players.map(p => {
         const delta = deltaByPlayerId.get(p.id);
-        if (delta === undefined) return p;
-        if (p.semifinalRank !== 0) return p;
-
+        if (delta === undefined || p.semifinalRank !== 0) return p;
         return { ...p, semifinalPoint: p.semifinalPoint + delta };
     });
 }
 
 /**
- * 勝ち抜け境界（1位）に同点があれば、その同点者全員を返す。同点がなければ空配列。
- * Admin がプレーオフに進めるべきか、対象は誰かを判断するための読み取り専用関数。
- */
-export function getAdvanceTieGroup(players: Player[]): Player[] {
-    const active = getActiveSortedByPoint(players);
-    if (active.length < ADVANCE_COUNT + 1) return [];
-
-    const topPoint = active[0].semifinalPoint;
-    if (active[1].semifinalPoint !== topPoint) return [];
-
-    return active.filter(p => p.semifinalPoint === topPoint);
-}
-
-/**
- * 失格境界（下位2名とその上）に同点があれば、その同点者全員を返す。同点がなければ空配列。
+ * いまのセットがどこまで進んだか（DB の値だけから導く）。
  *
- * 勝ち抜けが確定済みであること（対象を rank === 0 で絞る時点で自然に満たされる）が前提。
- * 対象が ELIMINATE_COUNT 以下（＝第3セット終了時）は比較対象の「安全圏最後の1名」が
- * 存在しないため、判定不要（＝同点扱いにしない。finalizeSetElimination が直接処理する）。
+ *   beforeJudge … 判定前（得点入力・点数発表はこの段階でだけ行う）
+ *   advanced    … 勝ち抜けは確定、失格はまだ
+ *   complete    … このセットの判定が終わった
+ *   mismatch    … 指定したセットと DB が噛み合わない（画面が古い、セットの指定違いなど）
  */
-export function getEliminateTieGroup(players: Player[]): Player[] {
-    const active = getActiveSortedByPoint(players);
-    if (active.length <= ELIMINATE_COUNT) return [];
+export type SemifinalSetStage = 'beforeJudge' | 'advanced' | 'complete' | 'mismatch';
 
-    const safeCount = active.length - ELIMINATE_COUNT;
-    const boundaryPoint = active[safeCount - 1].semifinalPoint;
-    if (active[safeCount].semifinalPoint !== boundaryPoint) return [];
+export function getSemifinalSetStage(players: Player[], set: number): SemifinalSetStage {
+    if (!Number.isInteger(set) || set < 1 || set > 3) return 'mismatch';
+    const advancedEarlier = players.filter(p => p.semifinalRank > 0 && p.semifinalRank < set).length;
+    const advancedLater = players.some(p => p.semifinalRank > set);
+    const advancedNow = players.some(p => p.semifinalRank === set);
+    const eliminated = players.filter(p => p.semifinalRank === -1).length;
+    const active = players.filter(p => p.semifinalRank === 0).length;
+    const eliminatedBefore = SEMIFINAL_ELIMINATE_COUNT * (set - 1);
 
-    return active.filter(p => p.semifinalPoint === boundaryPoint);
+    if (advancedLater || advancedEarlier !== set - 1) return 'mismatch';
+    if (!advancedNow) return eliminated === eliminatedBefore ? 'beforeJudge' : 'mismatch';
+    if (eliminated === eliminatedBefore && active > 0) return 'advanced';
+    if (eliminated > eliminatedBefore) return 'complete';
+    return active === 0 ? 'complete' : 'mismatch';
 }
 
 /**
- * 勝ち抜け1名を確定する。1位が同点なら何もしない（呼び出し側が getAdvanceTieGroup で
- * 検出し、プレーオフに進める）。引数の players は書き換えない。
+ * DB の状態から「いま進めるべきセット」を求める。判定前・途中のセットがあればそれ、
+ * 全セット終わっていれば 3。どのセットとも噛み合わなければ null。
+ * サーバ再起動で進行状態（セット番号）が 1 に戻ったときに、Admin が正しいセットを示すのに使う。
  */
-export function finalizeSetAdvance(players: Player[], set: number): Player[] {
-    const active = getActiveSortedByPoint(players);
-    if (active.length === 0) return players;
-    if (getAdvanceTieGroup(players).length > 0) return players;
-
-    const winnerId = active[0].id;
-    return players.map(p => (p.id === winnerId ? { ...p, semifinalRank: set } : p));
-}
-
-/**
- * 失格2名を確定する。境界が同点なら何もしない（呼び出し側が getEliminateTieGroup で
- * 検出し、プレーオフに進める）。勝ち抜けが確定済みであることが前提
- * （finalizeSetAdvance の後に呼ぶ）。引数の players は書き換えない。
- */
-export function finalizeSetElimination(players: Player[]): Player[] {
-    const active = getActiveSortedByPoint(players);
-    if (active.length === 0) return players;
-
-    // 安全圏なし（第3セット終了時）。比較対象がないので残り全員がそのまま失格になる。
-    // 特別扱いの分岐ではなく、下の一般処理が safeCount <= 0 を受けたときに導く結果と同じ。
-    if (active.length <= ELIMINATE_COUNT) {
-        const eliminatedIds = new Set(active.map(p => p.id));
-        return players.map(p => (eliminatedIds.has(p.id) ? { ...p, semifinalRank: -1 } : p));
+export function findSemifinalCurrentSet(players: Player[]): number | null {
+    for (let set = 1; set <= 3; set++) {
+        const stage = getSemifinalSetStage(players, set);
+        if (stage === 'beforeJudge' || stage === 'advanced') return set;
+        if (stage === 'complete' && set === 3) return 3;
     }
-
-    if (getEliminateTieGroup(players).length > 0) return players;
-
-    const safeCount = active.length - ELIMINATE_COUNT;
-    const eliminatedIds = new Set(active.slice(safeCount).map(p => p.id));
-    return players.map(p => (eliminatedIds.has(p.id) ? { ...p, semifinalRank: -1 } : p));
+    return null;
 }
 
-/** プレーオフがどちらの境界を決めるためのものか */
-export type SemifinalPlayoffPurpose = 'advance' | 'eliminate';
+/** 判定の結果。そのまま確定できるか、プレーオフが要るか */
+export type SemifinalJudgement =
+    | { kind: 'decided'; playerIds: number[] }
+    | {
+        kind: 'playoff';
+        /** プレーオフに参加する同点者 */
+        candidateIds: number[];
+        /** プレーオフで決める人数（勝ち抜けなら1、失格なら残りの失格枠） */
+        slots: number;
+        /** プレーオフをせずに確定する選手（失格判定で、境界より下の選手） */
+        fixedIds: number[];
+    };
 
-export type SemifinalPlayoffInput = {
-    players: Player[];
-    playerId: number;
-    /** 現在のセット 1〜3。advance 側の勝ち抜けセット番号として使う */
-    set: number;
-    purpose: SemifinalPlayoffPurpose;
-    action: SemifinalAction;
+/** 勝ち抜けの判定。対象がいなければ null */
+export function getAdvanceJudgement(players: Player[]): SemifinalJudgement | null {
+    const active = getActiveSortedByPoint(players);
+    if (active.length === 0) return null;
+    const top = active[0].semifinalPoint;
+    const tied = active.filter(p => p.semifinalPoint === top);
+    if (tied.length <= SEMIFINAL_ADVANCE_COUNT) return { kind: 'decided', playerIds: [active[0].id] };
+    return { kind: 'playoff', candidateIds: tied.map(p => p.id), slots: SEMIFINAL_ADVANCE_COUNT, fixedIds: [] };
+}
+
+/** 失格の判定（勝ち抜け確定後に呼ぶ）。対象がいなければ null */
+export function getEliminationJudgement(players: Player[]): SemifinalJudgement | null {
+    const active = getActiveSortedByPoint(players);
+    if (active.length === 0) return null;
+    if (active.length <= SEMIFINAL_ELIMINATE_COUNT) return { kind: 'decided', playerIds: active.map(p => p.id) };
+
+    const safeCount = active.length - SEMIFINAL_ELIMINATE_COUNT;
+    const boundary = active[safeCount - 1].semifinalPoint;
+    if (active[safeCount].semifinalPoint !== boundary) {
+        return { kind: 'decided', playerIds: active.slice(safeCount).map(p => p.id) };
+    }
+    const candidateIds = active.filter(p => p.semifinalPoint === boundary).map(p => p.id);
+    const fixedIds = active.filter(p => p.semifinalPoint < boundary).map(p => p.id);
+    return { kind: 'playoff', candidateIds, slots: SEMIFINAL_ELIMINATE_COUNT - fixedIds.length, fixedIds };
+}
+
+/**
+ * 判定に従って確定する選手を決める。プレーオフが要る判定では、プレーオフの結果
+ * （chosenIds: 勝ち抜けなら勝者1名、失格なら失格者）を検証してから足し合わせる。
+ * 入力が判定と合わなければエラー文を返す。
+ */
+export function resolveJudgement(
+    judgement: SemifinalJudgement,
+    chosenIds: unknown
+): { ok: true; playerIds: number[] } | { ok: false; error: string } {
+    if (judgement.kind === 'decided') {
+        if (chosenIds !== undefined && chosenIds !== null) {
+            const same = Array.isArray(chosenIds)
+                && chosenIds.length === judgement.playerIds.length
+                && judgement.playerIds.every(id => chosenIds.includes(id));
+            if (!same) return { ok: false, error: '判定結果が一致しません。画面を再読み込みしてください' };
+        }
+        return { ok: true, playerIds: judgement.playerIds };
+    }
+    if (!Array.isArray(chosenIds) || chosenIds.length !== judgement.slots) {
+        return { ok: false, error: 'プレーオフの結果が不正です' };
+    }
+    const unique = new Set(chosenIds);
+    const valid = unique.size === chosenIds.length
+        && chosenIds.every(id => typeof id === 'number' && judgement.candidateIds.includes(id));
+    if (!valid) return { ok: false, error: 'プレーオフの結果が不正です' };
+    return { ok: true, playerIds: [...judgement.fixedIds, ...(chosenIds as number[])] };
+}
+
+/** 勝ち抜けを確定する（semifinalRank = 勝ち抜けたセット番号） */
+export function applyAdvance(players: Player[], set: number, winnerIds: number[]): Player[] {
+    const ids = new Set(winnerIds);
+    return players.map(p => (ids.has(p.id) && p.semifinalRank === 0 ? { ...p, semifinalRank: set } : p));
+}
+
+/** 失格を確定する（semifinalRank = -1） */
+export function applyElimination(players: Player[], loserIds: number[]): Player[] {
+    const ids = new Set(loserIds);
+    return players.map(p => (ids.has(p.id) && p.semifinalRank === 0 ? { ...p, semifinalRank: -1 } : p));
+}
+
+const STALE_PLAYOFF_MESSAGE = 'プレーオフの結果が判定と一致しません。画面を再読み込みしてください';
+
+/** 判定で行う1回ぶんの確定（API の judgeAdvance / judgeEliminate 1回に当たる） */
+export type SemifinalJudgeStep = {
+    action: 'judgeAdvance' | 'judgeEliminate';
+    /** API に送る chosenIds（そのまま確定ならその選手、プレーオフ後なら勝者・失格者） */
+    chosenIds: number[];
+    /** 実際に確定する選手（失格では、プレーオフをせずに失格になる選手を含む） */
+    playerIds: number[];
+};
+
+export type SemifinalJudgePlan = {
+    steps: SemifinalJudgeStep[];
+    /** 続けてプレーオフが必要なら、その内容 */
+    playoff: { purpose: 'advance' | 'eliminate'; candidateIds: number[]; slots: number } | null;
+    error: string | null;
 };
 
 /**
- * プレーオフの1問ぶんの正解・誤答を適用する。ポイントは変えない（設計メモ 1章）。
+ * 「判定」ボタン1回で確定できるところまでの手順を組み立てる（Admin 用）。
  *
- * purpose によって正解・誤答の意味が逆になる。
- *   advance   … 正解した1名が勝ち抜け。誤答はこのプレーオフから外れるだけで、
- *               まだ1位タイの実力者なので失格にはしない（rank は 0 のまま）。
- *   eliminate … 誤答した人が失格。正解はこのプレーオフから外れて残留するだけで、
- *               まだ勝ち抜けが決まったわけではない（rank は 0 のまま）。
- *
- * どちらの場合も「対象から外れるだけ」のケースは rank を変更しない＝players をそのまま
- * 返す形になる。同点者が3名以上いても、この関数は1名ぶんの結果を反映するだけで、
- * 「プレーオフを終えて次に進んでよいか」は Admin が見て判断する（3rd Round と同じ）。
+ * 勝ち抜け → 失格の順に、同点がなければそのまま確定し、同点ならそこで止めて
+ * プレーオフを返す。playoffResult を渡すと、その目的の判定はプレーオフの結果で確定する
+ * （プレーオフ後の「結果を確定」で使う）。各手順は API 側でも同じ関数で検証される。
  */
-export function applySemifinalPlayoffScore({ players, playerId, set, purpose, action }: SemifinalPlayoffInput): Player[] {
-    return players.map(p => {
-        if (p.id !== playerId) return p;
-        if (p.semifinalRank !== 0) return p;
+export function planSemifinalJudgement(
+    players: Player[],
+    set: number,
+    playoffResult?: { purpose: 'advance' | 'eliminate'; chosenIds: number[] }
+): SemifinalJudgePlan {
+    const steps: SemifinalJudgeStep[] = [];
+    let current = players;
+    let resultUsed = false;
 
-        if (purpose === 'advance') {
-            return action === 'correct' ? { ...p, semifinalRank: set } : p;
+    for (;;) {
+        const stage = getSemifinalSetStage(current, set);
+        if (stage !== 'beforeJudge' && stage !== 'advanced') break;
+        const purpose = stage === 'beforeJudge' ? 'advance' : 'eliminate';
+        const judgement = purpose === 'advance' ? getAdvanceJudgement(current) : getEliminationJudgement(current);
+        if (!judgement) break;
+
+        let chosenIds: number[];
+        if (judgement.kind === 'decided') {
+            chosenIds = judgement.playerIds;
+        } else if (playoffResult && !resultUsed && playoffResult.purpose === purpose) {
+            chosenIds = playoffResult.chosenIds;
+            resultUsed = true;
+        } else if (playoffResult && !resultUsed) {
+            // 渡されたプレーオフの結果が、いま必要な判定と合わない（古い画面など）
+            return { steps: [], playoff: null, error: STALE_PLAYOFF_MESSAGE };
+        } else {
+            return { steps, playoff: { purpose, candidateIds: judgement.candidateIds, slots: judgement.slots }, error: null };
         }
-        return action === 'wrong' ? { ...p, semifinalRank: -1 } : p;
-    });
+
+        const resolved = resolveJudgement(judgement, chosenIds);
+        if (!resolved.ok) return { steps, playoff: null, error: resolved.error };
+        steps.push({ action: purpose === 'advance' ? 'judgeAdvance' : 'judgeEliminate', chosenIds, playerIds: resolved.playerIds });
+        current = purpose === 'advance'
+            ? applyAdvance(current, set, resolved.playerIds)
+            : applyElimination(current, resolved.playerIds);
+    }
+    if (playoffResult && !resultUsed) {
+        return { steps: [], playoff: null, error: STALE_PLAYOFF_MESSAGE };
+    }
+    return { steps, playoff: null, error: null };
 }

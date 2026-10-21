@@ -1,18 +1,29 @@
 import { Socket } from "socket.io-client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
+import { toOrdinal } from "@/lib/ordinal";
 import {
     COURSE_TIME_LIMIT_SECONDS,
+    THIRD_ROUND_COURSE_NAMES,
     THIRD_ROUND_COURSES,
     type ThirdRoundCourseName
 } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
 import {
-    getCourseFinishState,
     getTenByTenTotal,
-    getTenByTenWrongPoint,
-    isEliminatedByCourseRule
+    getTenByTenWrongPoint
 } from "@/lib/thirdRoundScoring";
+import {
+    ACCENT,
+    INNER_BG,
+    HONEYCOMB_BG,
+    tierOf,
+    shade,
+    outlineShadow,
+} from "@/lib/cyberpunkCard";
+import FixedStage from "@/app/components/FixedStage";
+import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
     players: Player[],
@@ -76,6 +87,10 @@ export default function MainThirdRound(props: Props) {
             socket.on("update_third_round_courses", handleCoursesUpdate);
             socket.on("update_third_round_timer", handleTimerUpdate);
 
+            // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で
+            // 現在の進行状態とタイマーを取り直す（server/ThirdRoundHandler.js）
+            socket.emit("request_third_round_sync");
+
             return () => {
                 socket.off("update_third_round_state", handleStateUpdate);
                 socket.off("update_third_round_courses", handleCoursesUpdate);
@@ -106,15 +121,8 @@ export default function MainThirdRound(props: Props) {
                 : a.paperRank - b.paperRank
         );
 
-    // 「確定済みかどうか」は状態として持たず、割当済みの人数から判定する
-    const assignedToCurrent = currentCourse
-        ? winners.filter(p => p.thirdRoundCourseName === currentCourse.name)
-        : [];
-    const isCurrentAssigned = assignedToCurrent.length >= 5;
-
-    const isClosed = thirdRoundState.step === 'closed';
-
-    // 常に20枠（2行×10列）を維持する
+    // コース選択フェーズの画面(CourseSelectView)が、各選手を4行×5列のどこに置くかを
+    // 決めるための並び。空き枠はnullのまま渡し、CourseSelectView側でプレースホルダーを出す。
     const gridItems = Array.from({ length: 20 }, (_, index) => winners[index] || null);
 
     // クイズ実施フェーズで対象になっているコース
@@ -130,428 +138,640 @@ export default function MainThirdRound(props: Props) {
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
 
-    // 表示する数字はコースによって変わる（Admin と同じ規則）。
-    // 10 up-down はポイント、10 by 10 は「正解pt × 誤答pt = 総合pt」
-    const isUpDown = quizCourse?.name === THIRD_ROUND_COURSES.UP_DOWN;
-    const isTenByTen = quizCourse?.name === THIRD_ROUND_COURSES.TEN_BY_TEN;
-    const isSwedish = quizCourse?.name === THIRD_ROUND_COURSES.SWEDISH;
-    const isFreeze = quizCourse?.name === THIRD_ROUND_COURSES.FREEZE;
 
-    // 終了条件（Admin と同じ関数で判定する）
-    const finishState = getCourseFinishState(quizPlayers);
-
-    // プレーオフの対象者（Admin と同じ導出）。
-    // コース終了処理で決着した人には順位が入るので、rank === 0 で残った選手が対象。
-    const playoffPlayers = quizPlayers.filter(p => p.thirdRoundRank === 0);
-    const playoffSeats = 2 - finishState.winnersCount;
-
-    // ---- 現在の状況を表す見出し ----
-    let statusLabel: string;
-    if (!currentCourse) {
-        statusLabel = "抽選をお待ちください";
-    } else if (isCurrentAssigned) {
-        statusLabel = "出場者決定";
-    } else if (isClosed) {
-        statusLabel = "エントリー締切";
-    } else {
-        statusLabel = "エントリータイム中";
-    }
 
     // ===== プレーオフ =====
     //
-    // そのコースの5名全員を出す。設計メモ 7章は当初「対象者のみ」としていたが、
-    // 対象者は rank === 0 で絞って導出しているため、勝ち抜けた瞬間にその選手が
-    // 一覧から外れて**画面から消えてしまう**。会場から見ると勝った瞬間が分からない。
+    // Cowork Design アーティファクトにはこの画面(Main・Adminとも)のモックアップが
+    // そもそも作られていない。ユーザー判断(2026-10-03)により、ここまでの実装で作った
+    // 共通部品(PlayerCardFrame、ティア配色)をそのまま流用し、サイバーパンクのトーンに
+    // 合わせて自分でデザインする。横線は 2026-10-11 のユーザー指示でコース本体と同じ黄色(#FFC93C)にした。
     //
-    // 5名全員を出し、勝ち抜けはコース本体と同じ金色、敗退はグレーにすることで、
-    // プレーオフで勝った選手がその場で金色に変わって残る。
+    // そのコースの5名全員を出す。設計メモ7章は当初「対象者のみ」としていたが、対象者は
+    // rank === 0 で絞って導出しているため、勝ち抜けた瞬間にその選手が一覧から外れて
+    // **画面から消えてしまう**。会場から見ると勝った瞬間が分からないため、5名全員を出し、
+    // 勝ち抜けはコース本体と同じ金色、敗退はグレーにすることで、プレーオフで勝った選手が
+    // その場で金色に変わって残るようにする。
     if (thirdRoundState.phase === 'playoff') {
         return (
-            <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
-                {/* 画面左上に「3rd Round」、右上に現在進行中のルール名を固定表示。
-                    1st Round の Main 画面と同じ位置(top-[3vw] left/right-[3vw])に揃えている */}
-                <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                    3rd Round
-                </div>
-                <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                    早押しプレーオフ
-                </div>
-                <div className="text-center animate-fade-in w-full">
-                    <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-lg shadow-purple-500/30">
-                        {quizCourse ? quizCourse.name : "3rd Round"}
-                    </span>
-                    <h1 className="mt-4 text-5xl font-black tracking-tight text-zinc-950 dark:text-white">
-                        早押しプレーオフ
-                    </h1>
-                    <p className="mt-3 text-lg font-bold text-zinc-500 dark:text-zinc-400">
-                        1問正解で勝ち抜け・1問誤答で敗退　／　残り {playoffSeats} 枠
-                    </p>
-
-                    <div className="mt-12 flex justify-center gap-6 flex-wrap">
-                        {quizPlayers.map(p => {
-                            // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0
-                            const isWinner = p.thirdRoundRank > 0;
-                            const isEliminated = p.thirdRoundRank < 0;
-
-                            return (
-                                <div
-                                    key={p.id}
-                                    className={`backdrop-blur-md rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-3 min-w-[220px] transition-all duration-500 ${isWinner
-                                        // コース本体の勝ち抜けと同じ見た目にする。
-                                        // プレーオフで勝った瞬間にここへ切り替わる。
-                                        ? "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 ring-4 ring-amber-500/20"
-                                        : isEliminated
-                                            ? "bg-zinc-100/70 dark:bg-zinc-900/40 border-2 border-zinc-300 dark:border-zinc-800 opacity-40 grayscale"
-                                            // まだ争っている選手だけ紫で強調する
-                                            : "bg-white/80 dark:bg-zinc-800/80 border-2 border-purple-400 dark:border-purple-600"
-                                        }`}
-                                >
-                                    <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
-                                        No.{p.entryNo}
-                                    </span>
-                                    <h3 className="text-3xl font-black text-zinc-900 dark:text-white text-center leading-tight">
-                                        {p.name}
-                                    </h3>
-                                    <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate max-w-full">
-                                        {p.school || "未登録"}
-                                    </span>
-
-                                    {isWinner && (
-                                        <div className="text-base font-black text-amber-600 dark:text-amber-400 tracking-wider animate-pulse">
-                                            👑 WIN（{p.thirdRoundRank}位）
-                                        </div>
-                                    )}
-                                    {isEliminated && (
-                                        <div className="text-sm font-black text-zinc-400 tracking-widest">
-                                            {quizCourse && isEliminatedByCourseRule(
-                                                quizCourse.name as ThirdRoundCourseName, p)
-                                                ? "❌ OUT"
-                                                : "－ 敗退"}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {playoffPlayers.length === 0 && (
-                        <p className="mt-12 text-zinc-500 dark:text-zinc-400">
-                            プレーオフの対象者がいません。
-                        </p>
-                    )}
-                </div>
-            </div>
+            <FixedStage>
+                <PlayoffView quizCourse={quizCourse ?? null} quizPlayers={quizPlayers} />
+            </FixedStage>
         );
     }
 
     // ===== クイズ実施フェーズ =====
+    // ===== クイズ実施フェーズ =====
+    //
+    // Cowork Design アーティファクト(ThirdRound10UpDown.dc.html / ThirdRoundFreeze10.dc.html /
+    // ThirdRoundSwedish10.dc.html / ThirdRound10by10.dc.html、いずれもユーザーとのコメント
+    // レビューで確定した版)の見た目をそのまま移植する。4コースともカードの額縁(開扉演出・
+    // 八角形カット・縁取り)は完全に共通で、枠下の表示(below)と枠内の追加演出(overlay)だけが
+    // コースごとに違うため、共通部分を PlayerCardFrame に、コース別の差分を QuizPlayerCard に
+    // 分けている。なお、どのモックアップにも15分タイマーの表示は無いが、Admin側でタイマーを
+    // 操作する以上、会場にも残り時間を見せるべきというユーザー判断(2026-10-03)により
+    // QuizHeader にタイマー表示を追加した。
     if (thirdRoundState.phase === 'quiz') {
         return (
-            <div className="w-full max-w-7xl flex flex-col items-center justify-center min-h-[80vh] px-4 py-8 z-10">
-                {/* 画面左上に「3rd Round」、右上に実施中のコース名(=ルール名)を固定表示。
-                    コースごとにルールが異なるので、この右上ラベルは quizCourse に連動する動的表示にする */}
-                <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                    3rd Round
-                </div>
-                <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                    {quizCourse ? quizCourse.name : "コース未確定"}
-                </div>
-                <div className="text-center animate-fade-in w-full">
-                    <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30">
-                        3rd Round 第 {thirdRoundState.quizOrder} コース
-                    </span>
-                    <h1 className="mt-4 text-5xl font-black tracking-tight text-zinc-950 dark:text-white">
-                        {quizCourse ? quizCourse.name : "コース未確定"}
-                    </h1>
-
-                    {/* 15分タイマー。
-                        0秒到達はコースの終了ではないので、表示を消したり止めたりしない。
-                        色だけ変えて「時間切れ」を伝える（設計メモ 4.2）。 */}
-                    <div className="mt-12 p-12 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-700/50 rounded-3xl shadow-2xl max-w-2xl mx-auto flex flex-col items-center justify-center min-h-[250px]">
-                        <div
-                            className={`font-mono font-black text-8xl tabular-nums leading-none ${remaining === 0
-                                ? "text-red-600 dark:text-red-500"
-                                : remaining <= 60
-                                    ? "text-amber-600 dark:text-amber-500 animate-pulse"
-                                    : "text-zinc-900 dark:text-white"
-                                }`}
-                        >
-                            {formatTime(remaining)}
-                        </div>
-                        {remaining === 0 && (
-                            <p className="mt-6 text-2xl font-black tracking-widest text-red-600 dark:text-red-500">
-                                TIME UP
-                            </p>
-                        )}
+            <FixedStage>
+                {quizCourse ? (
+                    <QuizView
+                        key={`quiz-${quizCourse.name}`}
+                        quizCourse={quizCourse}
+                        quizPlayers={quizPlayers}
+                        remaining={remaining}
+                    />
+                ) : (
+                    <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', fontFamily: "'Rajdhani',sans-serif" }}>
+                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 36, color: '#5C7EA6' }}>
+                            コースが確定していません
+                        </span>
                     </div>
-
-                    {/* 出場者5名のスコアボード。並びは優先順位順（winners の並びを引き継ぐ） */}
-                    <div className="mt-10 w-full grid grid-cols-5 gap-4">
-                        {quizPlayers.map(p => {
-                            // 勝ち抜け → 正の数、失格 → −1、未決着 → 0
-                            const isWinner = p.thirdRoundRank > 0;
-                            const isEliminated = p.thirdRoundRank < 0;
-
-                            return (
-                                <div
-                                    key={p.id}
-                                    className={`backdrop-blur-md border rounded-2xl p-5 shadow-lg flex flex-col items-center gap-3 min-h-[260px] justify-between transition-all duration-500 ${isWinner
-                                        ? "bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-400 dark:border-amber-500 scale-105 ring-4 ring-amber-500/20"
-                                        : isEliminated
-                                            ? "bg-zinc-100/70 dark:bg-zinc-900/40 border-zinc-300 dark:border-zinc-800 opacity-40 grayscale"
-                                            : "bg-white/80 dark:bg-zinc-800/80 border-zinc-200/50 dark:border-zinc-700/50"
-                                        }`}
-                                >
-                                    <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-500">
-                                        No.{p.entryNo}
-                                    </span>
-                                    <h3 className="text-2xl font-black text-zinc-900 dark:text-white text-center leading-tight">
-                                        {p.name}
-                                    </h3>
-                                    <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-full">
-                                        {p.school || "未登録"}
-                                    </span>
-
-                                    {/* コースによって意味のある数字が違う。
-                                        10 up-down はポイント（誤答で0に戻るため正解数は誤読を招く）。
-                                        10 by 10 は式そのもの（誤答は回数ではなく誤答ポイント）。 */}
-                                    {isTenByTen ? (
-                                        <div className="flex flex-col items-center font-mono font-black">
-                                            <div className="flex items-baseline gap-1 text-xl">
-                                                <span className="text-emerald-600 dark:text-emerald-400">
-                                                    {p.thirdRoundCorrectCount}
-                                                </span>
-                                                <span className="text-zinc-400">×</span>
-                                                <span className="text-red-600 dark:text-red-400">
-                                                    {getTenByTenWrongPoint(p)}
-                                                </span>
-                                            </div>
-                                            <span className="text-blue-600 dark:text-blue-400 text-4xl leading-tight">
-                                                {getTenByTenTotal(p)}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-end gap-4 font-mono font-black">
-                                            {isUpDown ? (
-                                                <span className="text-blue-600 dark:text-blue-400 text-4xl">
-                                                    {p.thirdRoundUpDownPoint}
-                                                    <span className="text-base ml-1">pt</span>
-                                                </span>
-                                            ) : (
-                                                <span className="text-emerald-600 dark:text-emerald-400 text-4xl">
-                                                    {p.thirdRoundCorrectCount}
-                                                </span>
-                                            )}
-                                            <span className="text-red-600 dark:text-red-400 text-2xl">
-                                                {/* Swedish 10 で意味を持つのは×の合計。
-                                                    誤答回数は失格判定にも判定基準にも使わない。 */}
-                                                ×{isSwedish ? p.thirdRoundSwedishCross : p.thirdRoundWrongCount}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {/* Freeze 10 の休み中。解答権が無いことが会場から見て分かるようにする */}
-                                    {isFreeze && p.thirdRoundFreezeRest > 0 && !isWinner && (
-                                        <div className="text-base font-black text-sky-600 dark:text-sky-400 tracking-wider">
-                                            ❄️ 休み {p.thirdRoundFreezeRest} 問
-                                        </div>
-                                    )}
-
-                                    {isWinner && (
-                                        <div className="text-sm font-black text-amber-600 dark:text-amber-400 tracking-wider animate-pulse">
-                                            👑 WIN（{p.thirdRoundRank}位）
-                                        </div>
-                                    )}
-                                    {isEliminated && (
-                                        <div className="text-sm font-black text-zinc-400 tracking-widest">
-                                            {/* 失格と敗退は DB 上どちらも −1。
-                                                コースの失格条件から導出して出し分ける */}
-                                            {quizCourse && isEliminatedByCourseRule(
-                                                quizCourse.name as ThirdRoundCourseName, p)
-                                                ? "❌ OUT"
-                                                : "－ 敗退"}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {finishState.finished && (
-                        <p className="mt-8 text-3xl font-black tracking-widest text-amber-600 dark:text-amber-400">
-                            COURSE FINISHED
-                        </p>
-                    )}
-
-                    {quizPlayers.length === 0 && (
-                        <p className="mt-10 text-zinc-500 dark:text-zinc-400">
-                            このコースの出場者がまだ確定していません。
-                        </p>
-                    )}
-                </div>
-            </div>
+                )}
+            </FixedStage>
         );
     }
 
     // ===== コース選択フェーズ =====
+    //
+    // Cowork Design アーティファクト(ThirdRoundCourseSelect.dc.html、ユーザーとの
+    // コメントレビューで確定した版)の見た目をそのまま移植する。レビュー過程で
+    // 「実施順4枠ストリップ」と「コース割当タグ」は一旦削除の指示が出て最終版から
+    // 外れているため、ここにも含めない。
     return (
-        <div className="w-full max-w-7xl flex flex-col items-center min-h-[80vh] px-4 py-8 z-10">
-            {/* 画面左上に「3rd Round」、右上に現在のフェーズ名を固定表示 */}
-            <div className="absolute top-[3vw] left-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                3rd Round
-            </div>
-            <div className="absolute top-[3vw] right-[3vw] text-[3vw] font-bold text-zinc-950 dark:text-white tracking-wider z-10">
-                コース選択
+        <FixedStage>
+            <CourseSelectView gridItems={gridItems} currentCourse={currentCourse} />
+        </FixedStage>
+    );
+}
+
+// ============================================================================
+// コース選択フェーズ（Main）
+// ============================================================================
+
+type CourseSelectViewProps = {
+    gridItems: (Player | null)[];
+    currentCourse: Course | null;
+}
+
+// ルーレット表示の寸法・色・周回数。Design アーティファクトの値をそのまま使う。
+const REEL_ITEM_H = 235, REEL_VIEW_W = 1150, REEL_VIEW_H = 295, CHAM_REEL = 20;
+const REEL_FRAME_COLOR = '#FFC93C'; // 選手カードの黄色(13〜24位帯)と同じ色に揃えている
+const REEL_LAPS = 16;
+// reelSpin(app/globals.css)のanimation-durationと必ず一致させる
+const REEL_SPIN_MS = 15000;
+// INNER_BG/HONEYCOMB_BGはlib/cyberpunkCard.tsのものをそのまま使う(上のimport参照)。
+
+// 固定px基準のchamferClip（ルーレットのような実サイズが既知の要素向け）
+function chamferClip(w: number, h: number, c: number): string {
+    return `polygon(${c}px 0, ${w - c}px 0, ${w}px ${c}px, ${w}px ${h - c}px, ${w - c}px ${h}px, ${c}px ${h}px, 0 ${h - c}px, 0 ${c}px)`;
+}
+// パーセント基準のchamferClip（CSS Gridのfr幅で実サイズが可変な選手カード向け）。
+// buildTopBottomCutClip(lib/cyberpunkCard.ts、px固定)がそのまま使えないのはこのため。
+// このコース選択カードだけで使うので、共通ライブラリへは加えずここに閉じている。
+function chamferClipPct(refW: number, refH: number, c: number): string {
+    const xp = c / refW * 100, yp = c / refH * 100;
+    const f = (n: number) => n.toFixed(2);
+    return `polygon(${f(xp)}% 0, ${f(100 - xp)}% 0, 100% ${f(yp)}%, 100% ${f(100 - yp)}%, ${f(100 - xp)}% 100%, ${f(xp)}% 100%, 0 ${f(100 - yp)}%, 0 ${f(yp)}%)`;
+}
+// cutClipPctのパーセント版。chamferClipPctと同じ理由でローカル関数にしている。
+function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number): string {
+    const outerX1 = chamferPx, outerX2 = refW - chamferPx;
+    const innerX1 = padPx + chamferPx, innerX2 = refW - padPx - chamferPx;
+    const px = (x: number) => (x / refW * 100).toFixed(2) + '%';
+    const py = (y: number) => (y / refH * 100).toFixed(2) + '%';
+    return `polygon(${px(outerX1)} ${py(0)}, ${px(innerX1)} ${py(padPx)}, ${px(innerX1)} ${py(refH - padPx)}, ${px(outerX1)} ${py(refH)}, ${px(outerX2)} ${py(refH)}, ${px(innerX2)} ${py(refH - padPx)}, ${px(innerX2)} ${py(padPx)}, ${px(outerX2)} ${py(0)})`;
+}
+
+// CSSカスタムプロパティ(--reel-from/--reel-to)をインラインstyleで渡すための型。
+// reelSpin(app/globals.css)がこの2つを参照する。抽選のたびに値が変わるため、
+// 固定値の@keyframesではなくCSS変数経由でアニメーションの始点・終点を渡している。
+type ReelTrackStyle = CSSProperties & { '--reel-from': string; '--reel-to': string };
+
+function CourseSelectView({ gridItems, currentCourse }: CourseSelectViewProps) {
+    // ルーレットの回転演出。抽選そのものは Admin 側(app/api/thirdRound/draw)がすでに
+    // 確定させていて、ここは「currentCourse の名前が変わった」ことを検知して結果を
+    // 演出するだけ。結果はここでは決めない(app/api/thirdRound/draw/route.ts のコメント
+    // 「アニメーションは確定した結果を演出するだけで、結果を決めてはいけない」と同じ方針)。
+    const [spinStage, setSpinStage] = useState<'landed' | 'spinning'>('landed');
+    const [reelTarget, setReelTarget] = useState<string | null>(currentCourse?.name ?? null);
+    const prevCourseNameRef = useRef<string | null>(currentCourse?.name ?? null);
+
+    useEffect(() => {
+        const name = currentCourse?.name ?? null;
+        if (name && name !== prevCourseNameRef.current) {
+            // 新しい抽選が確定した。Cowork Design アーティファクトのplayDraw()と同じ、
+            // 15秒かけて初速維持→減速→最終区間でさらに減速して停止する演出を1回再生する。
+            prevCourseNameRef.current = name;
+            setReelTarget(name);
+            setSpinStage('spinning');
+            const timer = setTimeout(() => setSpinStage('landed'), REEL_SPIN_MS);
+            return () => clearTimeout(timer);
+        }
+        // currentCourseが無い(まだ1つも抽選されていない)間は何もしない。
+    }, [currentCourse]);
+
+    // 回転中に流れる全アイテムを的中アイテムと同じスタイル(白文字+縁取り)で揃える
+    // (アーティファクトのコメント：「選択されない部分のスタイルも選択される部分に
+    // 揃えてほしい」というユーザー指示による)。
+    const reelSequence: string[] = [];
+    for (let lap = 0; lap < REEL_LAPS; lap++) reelSequence.push(...THIRD_ROUND_COURSE_NAMES);
+    if (reelTarget) reelSequence.push(reelTarget);
+    // track内では的中アイテムが先頭(最上部)に来るよう、時系列を反転させる
+    const reelTrackItems = reelSequence.slice().reverse();
+    const reelYLanded = (REEL_VIEW_H - REEL_ITEM_H) / 2;
+    const reelYSpinning = reelYLanded - (reelTrackItems.length - 1) * REEL_ITEM_H;
+    const reelItemTextStyle: CSSProperties = {
+        color: '#FFFFFF',
+        textShadow: outlineShadow(shade(REEL_FRAME_COLOR, -0.35), 5.7),
+    };
+    const trackStyle: ReelTrackStyle = {
+        display: 'flex', flexDirection: 'column', width: '100%',
+        transform: `translateY(${reelYLanded}px)`,
+        animation: spinStage === 'spinning' ? `reelSpin ${REEL_SPIN_MS / 1000}s linear 1 forwards` : 'none',
+        '--reel-from': `${reelYSpinning}px`,
+        '--reel-to': `${reelYLanded}px`,
+    };
+
+    return (
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
+                {/* 右上の「○ / 4 コース抽選済み」は 2026-10-11 のユーザー指示で削除した */}
             </div>
 
-            {/* --- 見出し --- */}
-            <div className="text-center animate-fade-in">
-                <span className="px-4 py-1.5 rounded-full text-xs font-bold tracking-widest uppercase bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30">
-                    3rd Round
-                </span>
-                <h1 className="mt-4 text-5xl font-black tracking-tight text-zinc-950 dark:text-white">
-                    コース選択
-                </h1>
-            </div>
+            <div style={{ height: 2, marginTop: 20, background: '#FFC93C', boxShadow: '0 0 12px rgba(255,201,60,.45)', flexShrink: 0 }} />
 
-            {/* --- 実施順（抽選が進むと「？」が埋まっていく）--- */}
-            <div className="mt-8 w-full max-w-5xl">
-                <div className="grid grid-cols-4 gap-3">
-                    {[1, 2, 3, 4].map((order) => {
-                        const course = drawnCourses.find(c => c.playOrder === order);
-                        const isCurrent = currentCourse?.playOrder === order;
-                        return (
-                            <div
-                                key={order}
-                                className={`rounded-2xl p-4 border flex flex-col items-center justify-center min-h-[90px] transition-all duration-500 ${course
-                                    ? isCurrent
-                                        ? "bg-purple-100 dark:bg-purple-950/40 border-2 border-purple-500 dark:border-purple-500 scale-105 shadow-xl shadow-purple-500/20"
-                                        : "bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 shadow-md"
-                                    : "bg-zinc-50/50 dark:bg-zinc-900/30 border-dashed border-zinc-300 dark:border-zinc-700"
-                                    }`}
-                            >
-                                <span className="text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-500 mb-1.5">
-                                    {order} 番目
-                                </span>
-                                <span className={`text-xl font-black text-center ${course
-                                    ? isCurrent
-                                        ? "text-purple-800 dark:text-purple-200"
-                                        : "text-zinc-800 dark:text-zinc-200"
-                                    : "text-zinc-300 dark:text-zinc-700"
-                                    }`}>
-                                    {course ? course.name : "？"}
-                                </span>
-                            </div>
-                        );
-                    })}
+            {/* 抽選ルーレット。決定後もそのまま残り、着地した表示が「現在選択中のコース」を兼ねる */}
+            <div style={{ marginTop: 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)' }}>
+                    <div style={trackStyle}>
+                        {reelTrackItems.map((name, i) => (
+                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle }}>
+                                {name}
+                            </span>
+                        ))}
+                    </div>
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 56, background: `linear-gradient(180deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(0deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none' }} />
                 </div>
             </div>
 
-            {/* --- 現在のコースと状況 --- */}
-            <div className="mt-8 flex flex-col items-center gap-2">
-                {currentCourse ? (
-                    <>
-                        <span className="text-sm font-bold tracking-widest text-zinc-400 dark:text-zinc-500">
-                            {currentCourse.playOrder} 番目のコース
-                        </span>
-                        <h2 className="text-4xl font-black text-purple-700 dark:text-purple-300">
-                            {currentCourse.name}
-                        </h2>
-                    </>
-                ) : (
-                    <h2 className="text-3xl font-black text-zinc-400 dark:text-zinc-600">
-                        コース抽選
-                    </h2>
-                )}
-                <span className={`mt-1 px-5 py-2 rounded-full text-base font-black tracking-wider ${isCurrentAssigned
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    : isClosed
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                        : currentCourse
-                            ? "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 animate-pulse"
-                            : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                    }`}>
-                    {statusLabel}
-                </span>
+            {/* 参加者20名。4行×5列、優先順位(2nd Round順位→ペーパー順位)順に並ぶ
+                (gridItemsは親コンポーネント側ですでにその順に並べてある) */}
+            <div style={{ marginTop: 26, flex: 1, minHeight: 0, maxHeight: 520, display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gridTemplateRows: 'repeat(4,minmax(0,1fr))', gap: 8 }}>
+                {gridItems.map((p, index) => (
+                    p
+                        ? <CourseSelectCard
+                            key={p.id}
+                            player={p}
+                            isElsewhere={!!p.thirdRoundCourseName && p.thirdRoundCourseName !== currentCourse?.name}
+                            isCurrent={!!currentCourse && p.thirdRoundCourseName === currentCourse.name}
+                        />
+                        : <EmptyCourseSelectSlot key={`empty-${index}`} />
+                ))}
             </div>
+        </div>
+    );
+}
 
-            {/* --- 参加者20名 --- */}
-            <div className="mt-10 w-full">
-                <div className="grid grid-cols-10 grid-rows-2 gap-3 w-full">
-                    {gridItems.map((p, index) => {
-                        if (!p) {
-                            return (
-                                <div
-                                    key={`empty-${index}`}
-                                    className="border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/20 dark:bg-zinc-900/10 rounded-2xl p-3 flex flex-col items-center justify-center min-h-[300px] opacity-30 select-none"
-                                >
-                                    <span className="text-xs font-mono font-bold text-zinc-400 dark:text-zinc-600 mb-2">
-                                        枠 {index + 1}
-                                    </span>
-                                    <span className="text-2xl text-zinc-300 dark:text-zinc-700 font-black">
-                                        ?
-                                    </span>
-                                </div>
-                            );
-                        }
+type CourseSelectCardProps = {
+    player: Player;
+    isElsewhere: boolean;
+    isCurrent: boolean;
+}
 
-                        // 今のコースに決まった選手を強調する。
-                        // 5名だけを抜き出さないのは、誰が残っているかも見せたいため。
-                        const isJustAssigned =
-                            !!currentCourse && p.thirdRoundCourseName === currentCourse.name;
-                        const isAssignedElsewhere =
-                            !!p.thirdRoundCourseName && !isJustAssigned;
+function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCardProps) {
+    const tier = tierOf(p.paperRank, ACCENT);
+    const textOutlineColor = shade(tier.color, -0.35);
+    // コースが決まった選手（Admin で「出場者を確定」を押した時点。前のコースで決まった選手も含む）は、
+    // クイズ画面の失格者（PlayerCardFrame の eliminated）と同じ見た目にする（2026-10-11 ユーザー指示）:
+    // 枠をグレー（NEUTRAL_FRAME）にし、全体をグレースケール＋半透明、名前をグレーにする。
+    const isDecided = isCurrent || isElsewhere;
+    const frameColor = isDecided ? NEUTRAL_FRAME : tier.color;
 
+    const OUTER_REF_W = 340, OUTER_REF_H = 120, OUTER_CHAMFER = 11, OUTER_PAD = 4;
+    const outerStyle: CSSProperties = {
+        position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box',
+        clipPath: chamferClipPct(OUTER_REF_W, OUTER_REF_H, OUTER_CHAMFER), background: frameColor, padding: OUTER_PAD,
+        filter: isDecided ? ELIMINATED_FRAME_FILTER : `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 20px ${tier.glowB})`,
+    };
+    const cutStyle: CSSProperties = {
+        position: 'absolute', inset: 0, background: '#3A3F46',
+        clipPath: cutClipPct(OUTER_REF_W, OUTER_REF_H, OUTER_CHAMFER, OUTER_PAD), pointerEvents: 'none',
+    };
+    const innerStyle: CSSProperties = {
+        position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+        alignItems: 'stretch', gap: 4, padding: '5px 14px', clipPath: chamferClipPct(330, 112, 9), overflow: 'hidden',
+        backgroundColor: INNER_BG, backgroundImage: HONEYCOMB_BG, backgroundRepeat: 'repeat', backgroundSize: '56px 100px',
+        boxShadow: 'inset 0 3px 6px rgba(255,255,255,.06), inset 0 -6px 14px rgba(0,0,0,.65), inset 0 0 20px rgba(0,0,0,.35)',
+    };
+
+    return (
+        <div style={{ position: 'relative', height: '100%', minWidth: 0, display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
+            <div style={{ position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box', padding: 2, clipPath: chamferClipPct(344, 124, 13), background: '#3A3F46', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.05)' }}>
+                <div style={outerStyle}>
+                    <div style={cutStyle} />
+                    <div style={innerStyle}>
+                        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${frameColor}, transparent)`, opacity: 0.95 }} />
+                        <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${frameColor}, transparent)`, opacity: 0.95 }} />
+                        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, minWidth: 52, padding: '3px 10px', border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 20, color: '#FFFFFF', letterSpacing: 1, boxSizing: 'border-box' }}>
+                                {toOrdinal(p.paperRank)}
+                            </span>
+                            <span style={{ flex: 1, minWidth: 0, display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 17, color: '#DFEBFA', textShadow: outlineShadow(textOutlineColor, 0.7), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {(p.school || '未登録') + ' ' + (p.grade || '-')}
+                            </span>
+                        </div>
+                        <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 2px' }}>
+                            <span style={{ display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 46, letterSpacing: 1, color: isDecided ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.2), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', textAlign: 'center' }}>
+                                {p.name}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EmptyCourseSelectSlot() {
+    return (
+        <div style={{ position: 'relative', height: '100%', minWidth: 0, opacity: 0.3, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed rgba(255,255,255,.15)' }}>
+            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, color: '#3A4B63' }}>?</span>
+        </div>
+    );
+}
+
+// ============================================================================
+// クイズ実施フェーズ（Main）
+// ============================================================================
+
+/**
+ * Freeze 10固有：休み中(isFrozen)の選手に重ねる、氷のシート越しに見ているような
+ * オーバーレイ。枠の色・フィルターは変えず、このオーバーレイと残り休み問題数の
+ * 大きな数字だけで「休み中」を伝える(Design アーティファクトの構成をそのまま移植)。
+ */
+function FreezeOverlay({ remaining, opacity, transition }: { remaining: number; opacity: number; transition: string }) {
+    const crackStroke = (w: number, o: number) => ({ fill: 'none', stroke: `rgba(235,250,255,${o})`, strokeWidth: w, strokeLinecap: 'round' as const, style: { filter: `drop-shadow(0 0 ${w >= 2 ? 3 : 2}px rgba(200,235,255,${o - 0.1}))` } });
+    return (
+        <div
+            style={{
+                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'radial-gradient(circle at 50% 50%, rgba(6,12,18,.55) 0%, rgba(6,12,18,.5) 34%, transparent 62%), linear-gradient(115deg, transparent 30%, rgba(255,255,255,.18) 45%, transparent 60%), linear-gradient(160deg, rgba(220,245,255,.42) 0%, rgba(150,210,235,.3) 45%, rgba(80,140,180,.4) 100%)',
+                opacity, transition, zIndex: 7, pointerEvents: 'none',
+            }}
+        >
+            <svg style={{ position: 'absolute', inset: 0 }} width="100%" height="100%" viewBox="0 0 158 694" preserveAspectRatio="none">
+                <path d="M20 40 L55 120 L40 210 L70 300" {...crackStroke(2, 0.5)} />
+                <path d="M140 60 L100 150 L120 260 L90 340" {...crackStroke(2, 0.5)} />
+                <path d="M30 400 L65 480 L45 560 L75 640" {...crackStroke(2, 0.5)} />
+                <path d="M130 420 L95 500 L115 580 L85 660" {...crackStroke(2, 0.5)} />
+                <path d="M79 8 L60 90 L90 180" {...crackStroke(1.6, 0.4)} />
+                <path d="M8 300 L45 340 L15 380" {...crackStroke(1.6, 0.4)} />
+                <path d="M150 300 L113 340 L143 380" {...crackStroke(1.6, 0.4)} />
+                <path d="M15 15 L35 45 L25 75" {...crackStroke(1.6, 0.4)} />
+                <path d="M145 15 L125 50 L138 80" {...crackStroke(1.6, 0.4)} />
+                <path d="M40 210 L90 228 L130 210" {...crackStroke(1.3, 0.35)} />
+                <path d="M60 600 L79 650 L95 690" {...crackStroke(1.6, 0.4)} />
+                <path d="M148 460 L120 490 L135 520" {...crackStroke(1.3, 0.35)} />
+                <path d="M10 460 L38 490 L20 520" {...crackStroke(1.3, 0.35)} />
+                <path d="M20 660 L45 685 L35 694" {...crackStroke(1.3, 0.35)} />
+            </svg>
+            <span style={{ display: 'inline-block', transform: 'rotate(-14deg)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 104, color: '#EAF6FF', textShadow: '0 0 20px rgba(127,216,255,.7), 0 4px 12px rgba(0,0,0,.7)', lineHeight: 1 }}>
+                {remaining}
+            </span>
+        </div>
+    );
+}
+
+function QuizHeader({ courseName }: { courseName: string }) {
+    // 2026-10-03: タイマー表示はヘッダーの小さなバッジから、選手カードの右側に並ぶ
+    // 大きなリングゲージ(TimerPanel)へ移設した。Cowork Design側(ThirdRound10UpDown.dc.html
+    // 等)がこの形に更新されたため、それに合わせている。ヘッダーはタイトルのみに戻す。
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
+            <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>{courseName}</div>
+        </div>
+    );
+}
+
+/**
+ * 残り時間のリング表示。Cowork Design の ThirdRound10UpDown.dc.html / Freeze10 / Swedish10 /
+ * 10by10(2026-10-03更新版、4コースとも同一仕様)にある大きなリングゲージをそのまま移植した。
+ * 半径200pxの円を残り秒数の割合で塗り分け、中央にmm:ss表示を重ねる。残り2分以下で
+ * 警告色(#FF3B5C)に変わり点滅する(アーティファクトのtimerUrgent/timerPulseと同じ基準)。
+ *
+ * 開始アニメーション(0 → その時点の残り秒数まで850msでカウントアップし、ゲージも連動して
+ * 充填される)もアーティファクトのanimateTimerFill()と同じイージング(1-(1-t)^3)・時間で
+ * 移植している。カードの「開扉」演出がexpandingフェーズに入る瞬間(useCardIntroPhaseの
+ * isExpanding)に合わせて1回だけ再生する(アーティファクトのplayIntro()がちょうどこの
+ * タイミングでanimateTimerFill()を呼んでいるのと同じ)。再生が終わったあとは、ずっと
+ * 実際のremaining(サーバから配信される本当の残り時間)をそのまま表示する。
+ */
+function TimerPanel({ remaining, playFillIntro }: { remaining: number; playFillIntro: boolean }) {
+    const TOTAL = COURSE_TIME_LIMIT_SECONDS;
+    const R = 200;
+    const C = 2 * Math.PI * R;
+
+    const [introSeconds, setIntroSeconds] = useState(0);
+    const [introDone, setIntroDone] = useState(false);
+    // 開始時点のremainingを演出の目標値として固定する(アニメーション中にremainingが
+    // 1秒進んでも、目標が動いてカクつかないようにするため)。レンダー中にrefへ書き込むのは
+    // 禁止されているので、専用のeffectで毎レンダー後に同期する。
+    const remainingRef = useRef(remaining);
+    useEffect(() => {
+        remainingRef.current = remaining;
+    });
+
+    // 再生中のアニメーションのハンドル。演出の開始条件（playFillIntro）が false に戻っても
+    // 途中で止めないよう、effect の cleanup ではなくアンマウント時だけ止める。
+    //
+    // 2026-10-11 修正: 以前は playFillIntro の effect の cleanup で cancelAnimationFrame
+    // していた。playFillIntro（= カードの開扉演出の expanding 段階）は 850ms で false に
+    // 戻り、充填演出も 850ms かかるため、演出が終わる直前に毎回キャンセルされて
+    // introDone が true にならなかった。その結果、表示が演出の最終値のまま固まり、
+    // Admin でタイマーを操作しても Main の残り時間が変わらなかった。
+    const rafRef = useRef(0);
+    useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+    useEffect(() => {
+        if (!playFillIntro) return;
+        const target = remainingRef.current;
+        const duration = 850;
+        const startTime = Date.now();
+        // コースの切り替え(QuizViewの再マウント)ごとに1回だけ発生する初期化なので、
+        // 連鎖的な再レンダーを招く心配はない(アーティファクトのplayIntro()が毎回
+        // setState({timerDisplaySeconds:0})から始めるのと同じ)。
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setIntroDone(false);
+        setIntroSeconds(0);
+        cancelAnimationFrame(rafRef.current);
+        const tick = () => {
+            const elapsed = Date.now() - startTime;
+            const t = Math.min(1, elapsed / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            setIntroSeconds(Math.round(eased * target));
+            if (t < 1) {
+                rafRef.current = requestAnimationFrame(tick);
+            } else {
+                setIntroDone(true);
+            }
+        };
+        rafRef.current = requestAnimationFrame(tick);
+    }, [playFillIntro]);
+
+    const shownSeconds = introDone ? remaining : introSeconds;
+    const frac = Math.max(0, Math.min(1, shownSeconds / TOTAL));
+    const filled = frac * C;
+    // 警告判定は演出中の値ではなく本来の残り時間で行う(充填序盤にゲージがほぼ空の
+    // 状態で誤って赤く点滅しないようにする。アーティファクトのtimerUrgentと同じ考え方)。
+    const urgent = remaining <= 120;
+    const ringColor = urgent ? '#FF3B5C' : '#4FD8FF';
+    const glow = urgent ? 'rgba(255,59,92,.65)' : 'rgba(79,216,255,.55)';
+
+    return (
+        <div style={{ width: 520, flexShrink: 0, height: 660, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+            <div className={urgent ? 'animate-pulse' : undefined} style={{ position: 'relative', width: 460, height: 460 }}>
+                <svg width={460} height={460} viewBox="0 0 460 460" style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx={230} cy={230} r={R} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth={24} />
+                    <circle
+                        cx={230} cy={230} r={R} fill="none" stroke={ringColor} strokeWidth={24} strokeLinecap="round"
+                        strokeDasharray={`${filled.toFixed(1)} ${(C - filled).toFixed(1)}`}
+                        style={{ filter: `drop-shadow(0 0 10px ${glow})` }}
+                    />
+                </svg>
+                <div style={{
+                    position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 104, letterSpacing: 2,
+                    fontVariantNumeric: 'tabular-nums', color: '#FFFFFF', textShadow: `0 0 18px ${glow}`,
+                }}>
+                    {formatTime(shownSeconds)}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+type QuizViewProps = {
+    quizCourse: Course;
+    quizPlayers: Player[];
+    remaining: number;
+}
+
+function QuizView({ quizCourse, quizPlayers, remaining }: QuizViewProps) {
+    const phase = useCardIntroPhase();
+    return (
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+            <QuizHeader courseName={quizCourse.name} />
+            <div style={{ height: 2, marginTop: 26, background: '#FFC93C', boxShadow: '0 0 12px rgba(255,201,60,.45)', flexShrink: 0 }} />
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56 }}>
+                    {quizPlayers.map(p => (
+                        <QuizPlayerCard key={p.id} player={p} courseName={quizCourse.name as ThirdRoundCourseName} phase={phase} />
+                    ))}
+                </div>
+                <TimerPanel remaining={remaining} playFillIntro={phase.isExpanding} />
+            </div>
+        </div>
+    );
+}
+
+/** below表示(枠下の大きな数字+補助表示)の共通の「見出し数字」部分 */
+function BelowNumber({ text, color }: { text: React.ReactNode; color: string }) {
+    return (
+        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color }}>
+            {text}
+        </div>
+    );
+}
+
+function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; courseName: ThirdRoundCourseName; phase: CardIntroPhase }) {
+    const eliminated = p.thirdRoundRank < 0;
+    const winner = p.thirdRoundRank > 0;
+    // 勝ち抜け・失格の場合は枠下の表示を結果(順位/LOST)に差し替える。4コースとも共通の規則
+    // (Design アーティファクトのbelowText/belowColor算出をそのまま踏襲)。
+    const resultColor = eliminated ? '#8A93A3' : winner ? '#FFE28A' : '#EAF6FF';
+    const resultText: React.ReactNode | null = eliminated ? 'LOST' : winner ? toOrdinal(p.thirdRoundRank) : null;
+
+    let pct = 0;
+    let belowContent: React.ReactNode;
+    let extraOverlay: React.ReactNode;
+
+    if (courseName === THIRD_ROUND_COURSES.UP_DOWN) {
+        pct = Math.min(100, (p.thirdRoundUpDownPoint / 10) * 100);
+        const wrongCount = Math.min(2, p.thirdRoundWrongCount);
+        belowContent = (
+            <>
+                <BelowNumber text={resultText ?? p.thirdRoundUpDownPoint} color={resultColor} />
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, height: 70, alignItems: 'center' }}>
+                    {Array.from({ length: wrongCount }).map((_, i) => (
+                        <span key={`x${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
+                    ))}
+                    {Array.from({ length: Math.max(0, 2 - wrongCount) }).map((_, i) => (
+                        <span key={`d${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
+                    ))}
+                </div>
+            </>
+        );
+    } else if (courseName === THIRD_ROUND_COURSES.FREEZE) {
+        pct = Math.min(100, (p.thirdRoundCorrectCount / 10) * 100);
+        const isFrozen = p.thirdRoundFreezeRest > 0 && !eliminated && !winner;
+        belowContent = (
+            <>
+                <BelowNumber text={resultText ?? p.thirdRoundCorrectCount} color={resultColor} />
+                {/* Freeze 10には「2回で失格」のような固定の誤答上限が無いため、通算誤答回数を
+                    そのまま数字で示す(10 up-downの×マーク+残り枠ドットとは異なる表現)。
+                    2026-10-03 ユーザー指摘: アーティファクト自体がこの数字にfont-familyを
+                    指定しておらず(ルートのRajdhaniを継承)、Orbitronで出している正解数(上の
+                    BelowNumber)より小さく見えてしまっていた。見た目を正解数と揃えるため、
+                    BelowNumberと同じ書体・サイズに統一する(アーティファクトからの意図的な変更。
+                    その後BelowNumber自体が2nd Round側の58pxに揃えられたため、本表示も追従)。 */}
+                <div style={{ marginTop: 4, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
+                        {p.thirdRoundWrongCount}×
+                    </span>
+                </div>
+            </>
+        );
+        if (isFrozen) {
+            extraOverlay = <FreezeOverlay remaining={p.thirdRoundFreezeRest} opacity={phase.revealOpacity} transition={phase.REVEAL_TRANSITION} />;
+        }
+    } else if (courseName === THIRD_ROUND_COURSES.SWEDISH) {
+        pct = Math.min(100, (p.thirdRoundCorrectCount / 10) * 100);
+        // 通算×の合計(crossCount、最大10)を2行5列のグリッドで示す。埋まっている分は赤い×、
+        // 残りは薄暗い・のプレースホルダー(Design アーティファクトの構成をそのまま移植)。
+        const filledCrosses = Math.min(10, p.thirdRoundSwedishCross);
+        belowContent = (
+            <>
+                <BelowNumber text={resultText ?? p.thirdRoundCorrectCount} color={resultColor} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', rowGap: 0, marginTop: 2, width: 172, boxSizing: 'border-box', overflow: 'hidden' }}>
+                    {Array.from({ length: 10 }).map((_, i) => {
+                        const filled = i < filledCrosses;
                         return (
-                            <div
-                                key={p.id}
-                                className={`relative backdrop-blur-md rounded-2xl p-3 shadow-lg transition-all duration-500 flex flex-col items-center justify-between min-h-[300px] ${isJustAssigned
-                                    ? "bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-500 dark:border-purple-500 scale-105 shadow-2xl shadow-purple-500/20 z-20"
-                                    : isAssignedElsewhere
-                                        ? "bg-zinc-100/70 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 opacity-50"
-                                        : "bg-white/80 dark:bg-zinc-800/80 border border-zinc-200/50 dark:border-zinc-700/50"
-                                    }`}
-                            >
-                                {/* 左上のエントリーNo、右上の2R順位 */}
-                                <div className="w-full flex justify-between items-center text-[9px] font-mono font-bold opacity-60 mb-2">
-                                    <span>No.{p.entryNo}</span>
-                                    <span className="text-amber-600 dark:text-amber-400">👑 {p.secondRoundRank}位</span>
-                                </div>
-
-                                {/* 選手名（縦書き）と学校名・学年（縦書き） */}
-                                <div className="flex justify-center items-stretch flex-grow my-3 gap-2">
-                                    <div
-                                        className="text-lg font-black tracking-widest leading-none text-zinc-900 dark:text-white select-none"
-                                        style={{ writingMode: 'vertical-rl' }}
-                                    >
-                                        {p.name}
-                                    </div>
-                                    <div
-                                        className="flex flex-col items-center text-zinc-500 dark:text-zinc-400 text-[9px] font-bold tracking-wider leading-none select-none"
-                                        style={{ writingMode: 'vertical-rl' }}
-                                    >
-                                        <span className="truncate max-h-[110px]">{p.school || "未登録"}</span>
-                                        <span className="text-zinc-400 mt-2">{p.grade || "-"}</span>
-                                    </div>
-                                </div>
-
-                                {/* 下部のステータス */}
-                                <div className="w-full mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-700/50 flex flex-col items-center gap-1.5">
-                                    <span className="text-[9px] font-mono text-zinc-400 dark:text-zinc-500">
-                                        Paper: {p.paperRank}位
-                                    </span>
-                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black truncate w-full text-center ${isJustAssigned
-                                        ? "bg-purple-500 text-white"
-                                        : p.thirdRoundCourseName
-                                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                            : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
-                                        }`}>
-                                        {p.thirdRoundCourseName || "未選択"}
-                                    </span>
-                                </div>
-                            </div>
+                            <span key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', height: 38, fontSize: 44, lineHeight: 1, fontWeight: 700, color: filled ? '#FF4D6D' : '#3A5170' }}>
+                                {filled ? '×' : '・'}
+                            </span>
                         );
                     })}
+                </div>
+            </>
+        );
+    } else {
+        // 10 by 10: 総合ポイント(正解pt × 誤答pt の積)が枠下の大きな数字。内訳を小さく併記し、
+        // 通算6回誤答で失格となるため6マスの×/・グリッドを添える。
+        const total = getTenByTenTotal(p);
+        const wrongPoints = getTenByTenWrongPoint(p);
+        pct = Math.min(100, (total / 100) * 100);
+        belowContent = (
+            <>
+                <BelowNumber text={resultText ?? total} color={resultColor} />
+                {/* 2026-10-03 ユーザー指摘: 内訳(正解pt×誤答pt)のサイズ変更は一旦取り消し、
+                    改めてアーティファクト(ThirdRound10by10.dc.html)のstyleFormula系を確認して
+                    忠実に再現する。34px・fontWeight 800・letterSpacing .5pxで、正解ptは淡い赤
+                    (#FF9E9E)、区切りの「×」は淡い青(#7FA8D9)、誤答ptは淡い水色(#8FD4FF)と
+                    3色に分かれている。 */}
+                <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 34, letterSpacing: 0.5 }}>
+                    <span style={{ color: '#FF9E9E' }}>{p.thirdRoundCorrectCount}</span>
+                    <span style={{ color: '#7FA8D9' }}> × </span>
+                    <span style={{ color: '#8FD4FF' }}>{wrongPoints}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', marginTop: 6, width: 172, boxSizing: 'border-box', overflow: 'hidden' }}>
+                    {Array.from({ length: 6 }).map((_, i) => {
+                        const filled = i < Math.min(6, p.thirdRoundWrongCount);
+                        return (
+                            <span key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', height: 34, fontSize: 26, lineHeight: 1, fontWeight: 700, color: filled ? '#FF4D6D' : '#3A5170' }}>
+                                {filled ? '×' : '・'}
+                            </span>
+                        );
+                    })}
+                </div>
+            </>
+        );
+    }
+
+    return (
+        <PlayerCardFrame
+            phase={phase}
+            paperRank={p.paperRank}
+            eliminated={eliminated}
+            winner={winner}
+            name={p.name}
+            school={p.school}
+            grade={p.grade}
+            pct={pct}
+            // 勝ち抜けたら 2nd Round と同じくバーをオレンジにする（2026-10-11、ユーザー指示）
+            barColor={winner ? WINNER_BAR_COLOR : undefined}
+            extraOverlay={extraOverlay}
+            belowContent={belowContent}
+        />
+    );
+}
+
+// ============================================================================
+// 早押しプレーオフ（Main）
+// ============================================================================
+
+type PlayoffViewProps = {
+    quizCourse: Course | null;
+    quizPlayers: Player[];
+}
+
+/**
+ * Cowork Design アーティファクトにこの画面のモックアップが無かったため、クイズ実施
+ * フェーズで作った PlayerCardFrame とティア配色をそのまま流用して自分でデザインした
+ * (ユーザー判断、2026-10-03)。見出し下の横線は 2026-10-11 のユーザー指示で、
+ * コース本体と同じ黄色(#FFC93C)にしている。
+ */
+function PlayoffView({ quizCourse, quizPlayers }: PlayoffViewProps) {
+    const phase = useCardIntroPhase();
+    return (
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
+                    <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>サドンデス{quizCourse ? `（${quizCourse.name}）` : ''}</div>
+                </div>
+            </div>
+
+            {/* 見出し下の横線は通常のクイズ画面と同じ黄色にする（2026-10-11 ユーザー指示） */}
+            <div style={{ height: 2, marginTop: 26, background: '#FFC93C', boxShadow: '0 0 12px rgba(255,201,60,.45)', flexShrink: 0 }} />
+
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {quizPlayers.map(p => {
+                        // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0
+                        const eliminated = p.thirdRoundRank < 0;
+                        const winner = p.thirdRoundRank > 0;
+                        const belowContent = winner
+                            ? <BelowNumber text={toOrdinal(p.thirdRoundRank)} color="#FFE28A" />
+                            : eliminated
+                                ? <BelowNumber text="LOST" color="#8A93A3" />
+                                : null;
+                        // プレーオフは進捗バーの概念が無いコースなので pct は常に0(=非表示)にする
+                        return (
+                            <PlayerCardFrame
+                                key={p.id}
+                                phase={phase}
+                                paperRank={p.paperRank}
+                                eliminated={eliminated}
+                                winner={winner}
+                                name={p.name}
+                                school={p.school}
+                                grade={p.grade}
+                                pct={0}
+                                belowContent={belowContent}
+                            />
+                        );
+                    })}
+                    {quizPlayers.length === 0 && (
+                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 24, color: '#5C7EA6' }}>
+                            サドンデスの対象者がいません。
+                        </span>
+                    )}
                 </div>
             </div>
         </div>

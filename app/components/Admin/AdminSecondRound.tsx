@@ -124,7 +124,7 @@ export default function AdminSecondRound(props: Props) {
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
             } else if (data.error) {
-                alert('Undoできません: ' + data.error);
+                alert(data.error || 'Undo に失敗しました');
             }
         } catch (error) {
             console.error('Undo scores failed', error);
@@ -177,11 +177,11 @@ export default function AdminSecondRound(props: Props) {
     if (secondRoundState.view === 'turnOver') {
         if (turnOverTransitioning) {
             // 収縮+ペーパー順位再表示アニメーションの最中は、進行ボタンを一時的に無効化する。
-            primaryLabel = '切替中…';
+            primaryLabel = '切替中...';
             primaryAction = null;
         } else if (secondRoundState.turnOverStep > TURN_OVER_STEP_LABELS.length - 1) {
             // 最終ステップの収縮アニメーションが完了し、Main側の帯が全て消えた状態
-            primaryLabel = 'クイズ開始 ▶';
+            primaryLabel = 'クイズへ ▶';
             primaryAction = () => handleStateChange({ view: 'quiz' });
         } else if (secondRoundState.turnOverPhase === 'collapsed') {
             // 4組目の最終ステップだけ、実際に発表されるのは48位を除いた7〜11位の5人
@@ -194,7 +194,7 @@ export default function AdminSecondRound(props: Props) {
         } else if (awaitingFinalReveal) {
             // 4組目の最終ステップだけ、28〜44位の5人はすでに展開済みで、48位だけが
             // まだ順位のみのまま。ここで48位単独の発表操作を挟む。
-            primaryLabel = '12位(48位)を発表 ▶';
+            primaryLabel = '48位を発表 ▶';
             primaryAction = () => handleStateChange({ turnOverFinalRevealed: true });
         } else {
             primaryLabel = '次へ ▶';
@@ -221,10 +221,10 @@ export default function AdminSecondRound(props: Props) {
         }
     } else {
         if (!allResolved) {
-            primaryLabel = '全員の正誤が確定すると次へ進めます';
+            primaryLabel = '進行中...';
         } else if (secondRoundState.group < 4) {
             const nextGroup = secondRoundState.group + 1;
-            primaryLabel = `${nextGroup}組目へ進む ▶`;
+            primaryLabel = `${nextGroup}組目へ ▶`;
             // 次の組の発表(turnOver)は必ず1位からやり直すので、ここで turnOverStep/turnOverPhase をリセットする
             primaryAction = () => handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
         } else {
@@ -254,7 +254,7 @@ export default function AdminSecondRound(props: Props) {
                 データ操作としての承認は不要（AGENTS.md の UI 変更の範囲内）。 */}
             <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
                 <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
-                    第{secondRoundState.group}組目 / {secondRoundState.view === 'turnOver' ? '選手紹介' : 'クイズ'}
+                    2ND ROUND · {secondRoundState.group}組目 · {secondRoundState.view === 'turnOver' ? 'ターンオーバー' : 'クイズ画面'}
                 </div>
                 <button onClick={() => primaryAction?.()} disabled={!primaryAction} style={primaryButtonStyle}>
                     {primaryLabel}
@@ -287,7 +287,7 @@ export default function AdminSecondRound(props: Props) {
                     {/* 組の選択・表示画面の選択 */}
                     <div className="flex gap-[18px]">
                         <div style={manualPanelStyle(true, 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>組の選択</div>
+                            <div style={MANUAL_LABEL_STYLE}>組</div>
                             <div className="flex flex-wrap gap-[10px]">
                                 {[1, 2, 3, 4].map((g) => (
                                     <button key={g} onClick={() => handleStateChange({ group: g })} style={manualBtnStyle(secondRoundState.group === g)}>
@@ -298,13 +298,13 @@ export default function AdminSecondRound(props: Props) {
                         </div>
 
                         <div style={manualPanelStyle(true, 1)}>
-                            <div style={MANUAL_LABEL_STYLE}>表示画面の選択</div>
+                            <div style={MANUAL_LABEL_STYLE}>Main 表示</div>
                             <div className="flex gap-[10px]">
                                 <button onClick={() => handleStateChange({ view: 'turnOver' })} style={manualBtnStyle(secondRoundState.view === 'turnOver')}>
-                                    <span style={manualBtnTextStyle(secondRoundState.view === 'turnOver')}>Turn Over</span>
+                                    <span style={manualBtnTextStyle(secondRoundState.view === 'turnOver')}>ターンオーバー</span>
                                 </button>
                                 <button onClick={() => handleStateChange({ view: 'quiz' })} style={manualBtnStyle(secondRoundState.view === 'quiz')}>
-                                    <span style={manualBtnTextStyle(secondRoundState.view === 'quiz')}>Quiz View</span>
+                                    <span style={manualBtnTextStyle(secondRoundState.view === 'quiz')}>クイズ画面</span>
                                 </button>
                             </div>
                         </div>
@@ -313,7 +313,7 @@ export default function AdminSecondRound(props: Props) {
                     {/* 発表ステップの選択・データ操作: 表示中の画面に応じて片方を不活性化する */}
                     <div className="flex gap-[18px]">
                         <div style={manualPanelStyle(turnOverStepsActive, 2)}>
-                            <div style={MANUAL_LABEL_STYLE}>発表ステップの選択</div>
+                            <div style={MANUAL_LABEL_STYLE}>発表ステップ（組内順位）</div>
                             <div className="flex flex-wrap items-center gap-[10px]">
                                 {TURN_OVER_STEP_LABELS.map((label, step) => (
                                     <button
@@ -332,7 +332,7 @@ export default function AdminSecondRound(props: Props) {
                                     style={manualBtnStyle(false)}
                                 >
                                     <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 14, letterSpacing: 0.5, color: '#9FB4D6', whiteSpace: 'nowrap' }}>
-                                        {secondRoundState.turnOverPhase === 'collapsed' ? 'Turn Over' : 'Hide'}
+                                        {secondRoundState.turnOverPhase === 'collapsed' ? '発表' : '隠す'}
                                     </span>
                                 </button>
                             </div>
@@ -343,14 +343,14 @@ export default function AdminSecondRound(props: Props) {
                             <div className="flex gap-[10px]">
                                 <button
                                     onClick={() => {
-                                        if (window.confirm(`現在の 第 ${secondRoundState.group} 組のスコアを本当にリセットしますか？`)) {
+                                        if (window.confirm(`${secondRoundState.group}組目の結果をリセットしますか？（元に戻せません）`)) {
                                             handleGroupReset(secondRoundState);
                                         }
                                     }}
                                     disabled={!dataOpsActive}
                                     style={{ padding: '9px 18px', background: 'rgba(255,59,92,.10)', border: '1.5px solid #FF3B5C', clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)', cursor: 'pointer' }}
                                 >
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>Reset</span>
+                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>リセット（{secondRoundState.group}組目）</span>
                                 </button>
                                 <button
                                     onClick={() => handleGroupUndo(secondRoundState)}
@@ -366,7 +366,7 @@ export default function AdminSecondRound(props: Props) {
                     <div className="flex items-center gap-[10px]">
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
-                            通常運用ではこのパネルは閉じたまま。進行は画面上部の1本道ボタンだけで完結する。
+                            通常は閉じたまま。進行は上のボタンで完結します
                         </span>
                     </div>
                 </div>
@@ -374,51 +374,58 @@ export default function AdminSecondRound(props: Props) {
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
-            {/* 結果発表 (選手紹介) 画面用の管理者ビュー */}
+            {/* ターンオーバー画面用の管理者ビュー。2026-10-11 のユーザー指示で、列を
+                「1st Round順位・選手名・学校名・学年」の4つにし、クイズ画面の操作パネルと
+                同じサイバーパンク調（黒背景＋シアン枠）にそろえた。 */}
             {secondRoundState.view === 'turnOver' && (
-                <div className="flex flex-col gap-4">
-                    <div className="flex justify-between items-center">
-                        <label className="text-lg font-bold text-zinc-800 dark:text-zinc-200">
-                            2nd Round 第 {secondRoundState.group} 組 選手紹介リスト
+                <div className="flex flex-col gap-4 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
+                    <div className="flex items-center justify-between">
+                        <label className="text-lg font-bold" style={{ color: '#F3FAFF', fontFamily: '"Noto Sans JP",sans-serif' }}>
+                            {secondRoundState.group}組目 ターンオーバー
                         </label>
-                        <span className="text-sm text-zinc-500 dark:text-zinc-400">計 {filteredPlayers.length} 名</span>
+                        <span className="text-sm font-mono" style={{ color: '#5C7EA6' }}>{filteredPlayers.length}名</span>
                     </div>
-                    <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-700 rounded-xl">
-                        <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700 text-left text-sm text-zinc-800 dark:text-zinc-200">
-                            <thead className="bg-zinc-50 dark:bg-zinc-900/50 font-bold">
-                                <tr>
-                                    <th className="px-6 py-3">No</th>
-                                    <th className="px-6 py-3">ペーパー順位</th>
-                                    <th className="px-6 py-3">エントリーNo</th>
-                                    <th className="px-6 py-3">氏名</th>
-                                    <th className="px-6 py-3">学校・学年</th>
+                    <div style={{ border: '1px solid rgba(79,216,255,.22)', background: 'rgba(12,22,40,.75)' }}>
+                        <table className="w-full text-left" style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 15, color: '#DFF7FF' }}>
+                            <thead>
+                                <tr style={{ color: '#5C7EA6', fontSize: 12, letterSpacing: 2 }}>
+                                    <th className="px-4 py-3 w-40">1st Round順位</th>
+                                    <th className="px-4 py-3">選手名</th>
+                                    <th className="px-4 py-3">学校名</th>
+                                    <th className="px-4 py-3 w-32">学年</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700 bg-white dark:bg-zinc-800">
+                            <tbody>
                                 {(() => {
-                                    // いま画面(Main)で公開中の帯にいる選手だけ、行を薄く強調する
+                                    // いま画面(Main)で公開中の帯にいる選手だけ、行を強調する
                                     const currentStepIds = new Set(
                                         getTurnOverStepSlice(filteredPlayers, secondRoundState.turnOverStep).map(p => p.id)
                                     );
-                                    return filteredPlayers.map((p, idx) => (
-                                        <tr
-                                            key={p.id}
-                                            className={currentStepIds.has(p.id)
-                                                ? "bg-blue-50 dark:bg-blue-950/30"
-                                                : "hover:bg-zinc-50 dark:hover:bg-zinc-700/30"}
-                                        >
-                                            <td className="px-6 py-4 font-mono">{idx + 1}</td>
-                                            <td className="px-6 py-4 font-mono">{p.paperRank}位</td>
-                                            <td className="px-6 py-4 font-mono">No.{p.entryNo}</td>
-                                            <td className="px-6 py-4 font-bold">{p.name}</td>
-                                            <td className="px-6 py-4">{p.school || "未登録"} ({p.grade || "-"})</td>
-                                        </tr>
-                                    ));
+                                    return filteredPlayers.map(p => {
+                                        const isCurrent = currentStepIds.has(p.id);
+                                        return (
+                                            <tr
+                                                key={p.id}
+                                                style={{
+                                                    borderTop: '1px solid rgba(79,216,255,.12)',
+                                                    background: isCurrent ? 'rgba(79,216,255,.10)' : undefined,
+                                                    boxShadow: isCurrent ? 'inset 3px 0 0 #4FD8FF' : undefined,
+                                                }}
+                                            >
+                                                <td className="px-4 py-3" style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, color: tierOf(p.paperRank, ACCENT).color }}>
+                                                    {toOrdinal(p.paperRank)}
+                                                </td>
+                                                <td className="px-4 py-3 font-bold" style={{ color: '#F3FAFF' }}>{p.name}</td>
+                                                <td className="px-4 py-3" style={{ color: '#9FB4D6' }}>{p.school || '-'}</td>
+                                                <td className="px-4 py-3" style={{ color: '#9FB4D6' }}>{p.grade || '-'}</td>
+                                            </tr>
+                                        );
+                                    });
                                 })()}
                                 {filteredPlayers.length === 0 && (
-                                    <tr>
-                                        <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">
-                                            選手データがありません。CSVから1st Round結果を登録してください。
+                                    <tr style={{ borderTop: '1px solid rgba(79,216,255,.12)' }}>
+                                        <td colSpan={4} className="px-4 py-8 text-center" style={{ color: '#5C7EA6' }}>
+                                            出場者が未確定です
                                         </td>
                                     </tr>
                                 )}
@@ -435,7 +442,7 @@ export default function AdminSecondRound(props: Props) {
                 <div className="flex flex-col gap-4 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
                     <div className="flex items-center justify-between">
                         <label className="text-lg font-bold" style={{ color: '#F3FAFF', fontFamily: '"Noto Sans JP",sans-serif' }}>
-                            2nd Round 第 {secondRoundState.group} 組 クイズ正誤判定
+                            {secondRoundState.group}組目 正誤判定
                         </label>
                         <span className="text-sm font-mono" style={{ color: '#5C7EA6' }}>
                             残り {filteredPlayers.filter(p => p.secondRoundRank === 0).length} / {filteredPlayers.length}
@@ -549,7 +556,7 @@ export default function AdminSecondRound(props: Props) {
                         })}
                         {filteredPlayers.length === 0 && (
                             <div className="col-span-12 py-8 text-center" style={{ color: '#5C7EA6' }}>
-                                選手データがありません。
+                                選手データがありません
                             </div>
                         )}
                     </div>

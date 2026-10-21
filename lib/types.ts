@@ -10,7 +10,15 @@
 // Player は全列が Int / String / Boolean で DateTime を持たないため、
 // API のレスポンス（JSON）を経由しても型がずれない。
 // DateTime 列を足すと JSON では string になり、ここでの再定義が必要になる。
-export type { Player, ThirdRoundCourse, ExtraRoundQuestion } from '@prisma/client';
+export type { Player, ThirdRoundCourse } from '@prisma/client';
+
+// Extra Round の問題。別解・正誤判定基準（altAnswer）はマイグレーション
+// 20261006120000_add_extra_round_question_alt_answer で追加した列。Prisma クライアントを
+// 再生成する（npx prisma generate / migrate dev）までは生成型に載らないため、列の存在を
+// ここで明示している。再生成後は生成型と同じ内容になるだけで、害はない。
+import type { ExtraRoundQuestion as PrismaExtraRoundQuestion } from '@prisma/client';
+import type { SemifinalPlayoff } from './semifinalPlayoff';
+export type ExtraRoundQuestion = PrismaExtraRoundQuestion & { altAnswer: string };
 
 /**
  * 2nd Round の進行状態。
@@ -19,7 +27,7 @@ export type { Player, ThirdRoundCourse, ExtraRoundQuestion } from '@prisma/clien
 export type SecondRoundState = {
     /** 何組目か（1〜4） */
     group: number;
-    /** turnOver = 選手紹介、quiz = 正誤判定 */
+    /** turnOver = ターンオーバー（選手紹介）、quiz = 正誤判定 */
     view: 'turnOver' | 'quiz';
     /**
      * turnOver 画面の発表ステップ（0〜3）。0=1位のみ、1=2・3位、2=4〜6位、3=7〜12位。
@@ -70,42 +78,100 @@ export type ThirdRoundTimer = {
  * Extra Round の進行状態。
  * server/ExtraRoundHandler.js がメモリに保持し、update_extra_round_state で配信する。
  *
- * フェーズ（フェーズ1 / フェーズ2 / サバイバル）は questionNumber から導出できるので
- * 持たない。残り人数も、First Step の採点がシステム外なので持たない。
+ * 持つのは「どの段階か（stage）」「First Step のどこまで進んだか（cursor）」
+ * 「いまのステップの中身（問題文 / 解答）を Main に出したか（revealed）」の3つだけ。
+ * 問題番号・出題/解答発表・フェーズ・進出者決定ボタンを出す位置は、cursor から
+ * lib/extraRound.ts の関数で導出する（別々に持つと食い違うため持たない）。
  *
- * First Step は「1〜10問を出題だけ進める1周目」→「1〜10問をもう一度、解答表示ありで
- * 進める2周目」という流れになる。この2周構成はシステムが管理せず、Admin が
- * mode を手動で切り替えることで表現する（asking の間は解答を表示する手段自体を
- * 出さない。revealing に切り替えたあとも、1問ずつ解答表示ボタンを押して進める）。
+ * stage の流れ（Main の表示）:
+ *   setup         … 問題CSVの取込（Main は「準備中」）
+ *   firstStep     … 筆記クイズ。問題→解答の順に表示
+ *   entrantSelect … 2nd Step 進出者の選択（Main は「準備中」）
+ *   secondStep    … 進出者による早押し。勝ち抜けは準決勝5番席へ
  */
+export type ExtraRoundStage = 'setup' | 'firstStep' | 'entrantSelect' | 'secondStep';
+
 export type ExtraRoundState = {
-    /** firstStep = 筆記クイズ、secondStep = 通過者最大12名の早押し */
-    step: 'firstStep' | 'secondStep';
-    /** 現在の問題番号 1〜20。Admin が手動で前後させる */
-    questionNumber: number;
-    /** 現在の問題の解答を表示しているか */
-    answerRevealed: boolean;
-    /** asking = 出題のみの周（解答表示ボタンを出さない）、revealing = 解答表示ができる周 */
-    mode: 'asking' | 'revealing';
+    stage: ExtraRoundStage;
+    /** First Step の進行位置 0〜39（lib/extraRound.ts の FIRST_STEP_SEQUENCE の添字） */
+    cursor: number;
+    /**
+     * いまのステップの中身を Main に出したか。
+     *   問題のステップ … 問題文（false の間、Main は問題番号と枠だけ）
+     *   解答のステップ … 解答（false の間、Main は問題文だけ）
+     * false → true になった瞬間だけ、Main は文字を徐々に表示するアニメーションを流す。
+     * cursor / stage が変わると（明示しない限り）false に戻る。詳細は server/ExtraRoundHandler.js。
+     */
+    revealed: boolean;
+};
+
+/** ExtraRoundState の初期値。server/ExtraRoundHandler.js の初期値と同じ */
+export const DEFAULT_EXTRA_ROUND_STATE: ExtraRoundState = {
+    stage: 'setup',
+    cursor: 0,
+    revealed: false,
 };
 
 /**
  * 準決勝（Nine Hundred）の進行状態。
  * server/SemifinalHandler.js がメモリに保持し、update_semifinal_state で配信する。
+ * 勝ち抜け・失格・ポイントは DB（Player）が持ち、ここには持たない。
  *
- * タイムレース形式は「セット中は結果を出さず、セット終了後にまとめて確認する」進行
- * のため、Main の表示を view で切り替える（quiz = 何も出さない、results = ポイントのみ）。
- * Admin は採点のため常にポイントが見える必要があるので、view の影響を受けない。
+ * 準決勝の始まり（2026-10-15 追加。docs/semifinal-design.md 7章）:
+ *   standby（準備中。Admin で写真・二つ名を登録）→ intro（進出者紹介）→ lineup（選手カード表示）→ 第1セットの quiz
+ *
+ * 1セットの流れ（設計メモ 6.2、2026-10-17 に 8章の流れへ変更）:
+ *   quiz（クイズ中。Main はポイントを出さない。タイムアップ後に Admin で振り返る問題の番号を入力）
+ *   → review（問題の振り返り。Main に問題と解答を3問ずつ）
+ *   → tally（得点集計。Admin で各選手のそのセットの得点を入力。Main は得点を空欄にしたカード）
+ *   → results（点数発表。announceSeq が増えた瞬間に Main でポイントバーの演出）
+ *   → 勝ち抜け判定 → 敗退判定（それぞれ同点なら playoff＝サドンデス）→ 次のセットの quiz
  */
+export type SemifinalView = 'standby' | 'intro' | 'lineup' | 'quiz' | 'review' | 'tally' | 'results' | 'playoff';
+
+/**
+ * 進出者紹介の段階（2026-10-15 追加）。1人につき「二つ名」→「写真・学校名・学年・名前（profile）」。
+ * 二つ名が未登録の選手は nickname を飛ばして profile から始める（Admin が判断する）
+ */
+export type SemifinalIntroStep = 'nickname' | 'profile';
+
+export type SemifinalReviewRange = { from: number; to: number };
+
 export type SemifinalState = {
     /** 現在のセット 1〜3 */
     set: number;
-    /** quiz = 通常の採点、playoff = 境界の同点を早押しプレーオフで決める */
-    phase: 'quiz' | 'playoff';
-    /** Main の表示切り替え。quiz = クイズ中（非表示）、results = セット終了後の点数発表 */
-    view: 'quiz' | 'results';
-    /** セット終了処理（勝ち抜け/失格の確定）を走らせたセット番号。未実行なら null */
-    finishedSet: number | null;
+    /** Main の表示 */
+    view: SemifinalView;
+    /** セットごとの振り返り範囲（通し番号）。キーはセット番号 */
+    reviewRanges: Record<number, SemifinalReviewRange>;
+    /** 振り返りのページ（0始まり、1ページ3問） */
+    reviewPage: number;
+    /** このセットの得点を入力済みか（二重入力を防ぐ） */
+    pointsEntered: boolean;
+    /** 点数発表の回数。増えた瞬間に Main が演出を再生する（サーバが増やす） */
+    announceSeq: number;
+    /** サドンデス（コード上の名前は playoff）の進行。行っていなければ null（lib/semifinalPlayoff.ts） */
+    playoff: SemifinalPlayoff | null;
+    /** 進出者紹介で表示中の選手（紹介順 lib/semifinalProfile.ts の getIntroOrder の何番目か。0始まり） */
+    introIndex: number;
+    /** 進出者紹介で表示中の段階 */
+    introStep: SemifinalIntroStep;
+    /** 選手カード表示を始めた回数。増えた瞬間に Main がカードを1枚ずつ出す演出を再生する（サーバが増やす） */
+    lineupSeq: number;
+};
+
+/** SemifinalState の初期値。server/SemifinalHandler.js の初期値と同じ */
+export const DEFAULT_SEMIFINAL_STATE: SemifinalState = {
+    set: 1,
+    view: 'standby',
+    reviewRanges: {},
+    reviewPage: 0,
+    pointsEntered: false,
+    announceSeq: 0,
+    playoff: null,
+    introIndex: 0,
+    introStep: 'nickname',
+    lineupSeq: 0,
 };
 
 /**
@@ -130,4 +196,22 @@ export type SemifinalTimer = {
 export type FinalState = {
     /** 現在のセット番号。上限は設けない（3勝先取で終わるため） */
     set: number;
+    /** Main の表示（2026-10-17 追加。docs/final-design.md 8章） */
+    view: FinalView;
+    /** 選手紹介で表示中の選手（準決勝の勝ち抜け順の何番目か。0〜2） */
+    introIndex: number;
+    /** 最終成績を表示中の順位（1〜3）。表示していなければ 0 */
+    resultRank: number;
 };
+
+/**
+ * 決勝の Main の表示（2026-10-17 追加）。
+ *   standby … 待機（何も表示しない）
+ *   intro   … 選手紹介（写真・二つ名・プロフィール・それまでのラウンドの成績）。準決勝の勝ち抜け順に1人ずつ
+ *   quiz    … クイズ（3名のカード）
+ *   result  … 最終成績（選手紹介に Final の成績を足したもの）。優勝決定後に Admin で順位を選んで出す
+ */
+export type FinalView = 'standby' | 'intro' | 'quiz' | 'result';
+
+/** サーバから届くまでの初期値（server/FinalHandler.js の初期値と同じ） */
+export const DEFAULT_FINAL_STATE: FinalState = { set: 1, view: 'standby', introIndex: 0, resultRank: 0 };

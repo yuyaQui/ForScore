@@ -19,7 +19,7 @@ export type SemifinalSeatAssignment = {
  * （course.playOrder）→ コース内の順位（thirdRoundRank、1か2）の順でソートする。
  * 通過順位そのものは列として持たず、ここで都度導出する。
  */
-function getThirdRoundPassOrder(players: Player[], courses: ThirdRoundCourse[]): Player[] {
+export function getThirdRoundPassOrder(players: Player[], courses: ThirdRoundCourse[]): Player[] {
     const playOrderByCourseName = new Map(courses.map(c => [c.name, c.playOrder]));
 
     return players

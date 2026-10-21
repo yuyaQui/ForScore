@@ -66,7 +66,10 @@ export default function MainPage() {
   const backgroundClass =
     currentMode === "1stRound" ||
     currentMode === "1stRoundResult" ||
-    currentMode === "secondRound"
+    currentMode === "secondRound" ||
+    currentMode === "extraRound" ||
+    currentMode === "semifinal" ||
+    currentMode === "final"
       ? "bg-black"
       : "bg-zinc-50 dark:bg-zinc-900";
 
@@ -74,7 +77,7 @@ export default function MainPage() {
     <div className={`flex flex-col items-center justify-center min-h-screen p-[3vw] ${backgroundClass} relative`}>
       {currentMode === "1stRound" && <MainFirstRound socket={socket} />}
       {currentMode === "1stRoundResult"
-        && (<MainText text="1st Round 結果集計中..." variant="cyberpunk" />)}
+        && (<MainText text="集計中..." variant="cyberpunk" />)}
       {currentMode === "secondRound" && <MainSecondRound players={players} socket={socket} setPlayers={setPlayers} />}
       {currentMode === "thirdRound" && <MainThirdRound players={players} socket={socket} setPlayers={setPlayers} />}
       {currentMode === "extraRound" && <MainExtraRound socket={socket} />}

@@ -8,6 +8,71 @@
 
 ---
 
+## 0. 実装済みの仕様（2026-10-06）— 3.4・3.5・6章より優先
+
+実装時にユーザーと詰めた内容。**以下は 3.4（進行状態）・3.5（Main の表示）・6章（画面構成）の旧案を置き換える。** 旧案の記述は経緯として残している。
+
+### 進行状態（`server/ExtraRoundHandler.js`、メモリ保持）
+
+```js
+{ stage: "setup" | "firstStep" | "entrantSelect" | "secondStep", cursor: 0..39, revealed: boolean }
+```
+
+- `cursor` は First Step の「いま何を出しているか」。40ステップの並びは `lib/extraRound.ts` の `FIRST_STEP_SEQUENCE`。問題番号・出題/解答・フェーズ・進出者決定ボタンを出す位置はすべて `cursor` から導出する（別々に持たない）
+- 並び順: 問題1〜10 → 解答1〜10 → 問題11〜15 → 解答11〜15 → 問題16〜20 → 解答16〜20
+- Admin から届く値はサーバ側で検証する（未知の `stage` は無視、`cursor` は整数で 0〜39 に丸める）
+- `revealed`（2026-10-07 追加）: 「いまのステップの問題文／解答を Main に出したか」。`false` のとき Main は枠だけ表示し、Admin が「問題を表示する」「解答を表示」を押すと `true` になり、Main で問題文・解答とも全体が一度に現れる（下の「表示アニメーション」参照）
+- サーバ再起動で `stage: "setup"` に戻る。Admin の「手動操作」から段階を選び直せる（登録済みの問題は DB にあるので「登録済みの問題を使う」で再開できる）
+
+### 画面の流れ
+
+| stage | Main | Admin |
+|---|---|---|
+| `setup` | 「準備中」 | 問題CSVの取込（登録済みの問題を使うボタンあり）。取込成功で `firstStep` へ |
+| `firstStep` | 問題 → 解答の順に1つずつ（解答のときは問題文と解答を同時表示）。ステップが変わった直後は枠だけで、Admin の表示ボタンで文字が現れる | 「問題を表示する ▶」→「次へ」（解答ステップは「解答を表示 ▶」）の1本道ボタン。解答10・15・20 の地点では「2nd Step 進出者決定」を出し、解答10・15では「次のフェーズに進む」も出す（解答20の後は問題が無いので出さない） |
+| `entrantSelect` | 「準備中」 | 通過者の選択（検索＋チェック、最大12名）。「2nd Step に進む」で確定 |
+| `secondStep` | 2nd / 3rd Round と同じ縦長カード（`PlayerCardFrame`）。サブタイトルは `Second Step 5○1×`。正解数は数字のみ（○・の並びは出さない） | 「進行中...」表示（勝者確定後は完了表示）。選手名ボックスは最長の名前に合わせて全員同じ高さ。採点（正解・誤答）。Undo と結果リセットは「手動操作」 |
+
+### 表示アニメーション（問題文・解答の段階表示）
+
+- Main の見出しは `QUESTION N` のみ（「第○問：」「第 N〜M 問」は出さない）。右上は `Phase N` だけ
+- Socket.IO: Admin → サーバ `reveal_extra_round_step` `{ cursor }`、サーバ → 全員 `update_extra_round_state`（既存）。`change_extra_round_state` で `cursor`／`stage` が変わると、`revealed` を明示しない限り **`false` に戻る**（誤って答えを先に出さないための安全側の既定）
+- `reveal_extra_round_step` は「`stage === firstStep` かつ `cursor` が現在値と一致 かつ まだ `revealed === false`」のときだけ有効。古い Admin 画面の押し間違い・二重送信は無視される
+- 「戻る」は `revealed: true` で送る（一度見せた内容を再アニメーションせず即表示）。次へ／ジャンプ／フェーズ移動／最初・最後へ／CSV取込直後は `revealed: false`
+- Admin の「次へ」「表示」ボタンは 800ms のクリックガード付き（同じ位置で表示ボタン→次へボタンに入れ替わるため、ダブルクリックで1問飛ばすのを防ぐ。`CLICK_GUARD_MS`）
+- 旧サーバ（`revealed` を送らない）対策として、Main/Admin は `normalizeExtraRoundState` で `revealed` 欠落時を `true`（表示済み）として扱う
+- Main は「マウント中に `false → true` を観測したときだけ」アニメーションする。途中で開いた／リロードした Main は、表示済みなら即座に全文表示する（`app/components/Main/RevealText.tsx`）
+- 1文字ずつの `span`（opacity／blur／位置）で描画し、禁則処理・折り返しを保つ。未表示中は `visibility:hidden` の同一テキストで枠サイズを固定（表示の瞬間にレイアウトが動かない）。文字分割は `Intl.Segmenter`（絵文字・結合文字を1文字として扱う）。速度は文字数で自動調整（問題文は最大 1文字75ms／全体4秒、解答は最大 1文字140ms／全体2.5秒。`lib/revealText.ts`）
+- 2026-10-11 のユーザー指示で、問題文・解答・別解はすべて全体が一度に現れる（`RevealWhole`。ぼかし＋少し下からせり上がり、0.7秒。文字色は変えない）。解答と別解は同時に現れる
+- Admin の MAIN カードに「問題文はまだ出していません」「問題文のみ表示中・解答はまだ出していません」を表示。表示前は次ステップの「〇〇を表示する」ボタンを押せない状態で見せる
+
+### 問題CSV
+
+- 列: 1列目 問題番号 / 2列目 問題文 / 3列目 模範解答 / 4列目 別解・正誤判定基準（空でも可）。見出し行・BOM・CRLF・引用符つきセル（カンマ・改行入り）に対応（`lib/extraRoundCsv.ts`）
+- 1〜20問がすべて揃っていないと取り込めない（欠け・重複・範囲外・空の問題文／解答はエラー表示）。画面と API の両方で同じ検証をする
+- 別解・正誤判定基準は Admin に加え、2026-10-11 のユーザー指示で Main の解答ステップにも出す（解答と同時に全体一度に現れる。空なら出さない）。Main 用の取得（`GET /api/extraRound/questions?public=1`）にも含める
+- DB: `ExtraRoundQuestion.altAnswer`（マイグレーション `20261006120000_add_extra_round_question_alt_answer`）
+
+### 進出者の確定（`POST /api/extraRound/secondStepEntrants`）
+
+- 1〜12名。3rd Round 通過者・存在しない選手・13名以上・0名は 400
+- 選択画面の候補一覧と選択済みの並びは**ペーパー順位（`paperRank`）の昇順**（2026-10-10、ユーザー指定）。順位未設定は末尾、同順位はエントリーナンバー順
+- **1名だけ選んだ場合は Second Step を飛ばし、その1名を敗者復活（`extraRoundRank = 1`）として確定**（確認ダイアログあり）。準決勝5番席には `extraRoundRank === 1` から自動で入る
+- すでに Second Step の採点結果・履歴があるときに選び直すと 409。画面の確認後に `confirmReset: true` で再送すると、Extra Round の結果と履歴を初期化して登録する（準決勝が始まっている場合は確認文を強める）
+
+### Second Step の採点（`POST /api/extraRound/secondStep/updateScore`）
+
+- 出場者以外・結果確定済みの選手・勝ち抜け者が決まった後の操作は 400（何も変わらない履歴が積まれて Undo がずれるのを防ぐ）
+- ルールは `lib/extraRoundScoring.ts`（5問正解で勝ち抜け／誤答は即失格／残り1名で自動勝ち抜け）
+
+### デザイン
+
+- Main: `FixedStage`（1920×1080）。カードは `app/components/Main/PlayerCardFrame.tsx`（3rd Round から切り出した共通部品）。勝者は「WIN」、失格は「LOST」
+- Admin: 3rd Round Admin と同じ構成（上部の1本道ボタン＋折りたたみの「手動操作」＋黒い本体パネル）。共通スタイルは `app/components/Admin/adminCyberStyles.ts`
+- Design アーティファクトに Main 4枚（準備中／問題／解答／Second Step）と Admin 4枚（取込／First Step／進出者選択／Second Step）を追加済み（実画面を取り込んだもの）
+
+---
+
 ## 1. 前提: 参加者は約200名
 
 Extra Round は「準決勝進出の8名を除いた、これまでの敗退者全員」で行う。**1st Round で48位に入らなかった人も含む**ので、対象は約200名になる。
@@ -288,3 +353,7 @@ Second Step は5問正解するまで続くので、進行時間はそれなり�
 3. **実装の順序。** 200名対応（1章）を先に済ませる前提でよいか。これは 2nd Round に触る改修なので、Extra Round より影響範囲が広い
 4. **サバイバルフェーズの操作**。1問ずつ「出題 → 解答発表」を繰り返すが、Admin のボタン構成をどうするか
 5. **200名を配信することの実測**。`loadPlayers` のペイロードが4倍になる
+
+## テスト用サンプル問題
+
+プロジェクト直下の `test_extra_round_questions.csv`（20問・UTF-8 BOM付き・見出し行あり・4列）を、Admin の Extra Round 準備画面からそのままアップロードして動作確認に使える。4列目（別解・正誤判定基準）は16問に入れ、4問は空欄にしてある。

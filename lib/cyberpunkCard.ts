@@ -57,7 +57,9 @@ export function shade(hex: string, amt: number): string {
 /**
  * ペーパー順位からその帯の色を返す。2〜12位帯だけは accent(見出し下線の色)と
  * 常に同じ色になるようにしていて、accent を変えると自動で連動する。
- * 1〜4位: 赤 / 5〜12位: accent / 13〜24位: 黄 / 25位〜: 緑
+ * 1〜4位: 赤 / 5〜12位: accent / 13〜24位: 黄 / 25〜48位: 緑 / 49位〜: 紫
+ * （49位以下＝2nd Round に進めず Extra Round から出る選手。2026-10-11 のユーザー指示で紫を追加。
+ *  Extra Round の Main の見出し下線も同じ紫 TIER_PURPLE にそろえている）
  */
 export function tierOf(rank: number, accent: string): Tier {
     if (rank <= 4) return { color: "#FF3B5C", glowA: "rgba(255,59,92,.55)", glowB: "rgba(255,59,92,.28)" };
@@ -66,8 +68,12 @@ export function tierOf(rank: number, accent: string): Tier {
         return { color: accent, glowA: `rgba(${ac.r},${ac.g},${ac.b},.55)`, glowB: `rgba(${ac.r},${ac.g},${ac.b},.28)` };
     }
     if (rank <= 24) return { color: "#FFC93C", glowA: "rgba(255,201,60,.55)", glowB: "rgba(255,201,60,.28)" };
-    return { color: "#35FFA0", glowA: "rgba(53,255,160,.5)", glowB: "rgba(53,255,160,.25)" };
+    if (rank <= 48) return { color: "#35FFA0", glowA: "rgba(53,255,160,.5)", glowB: "rgba(53,255,160,.25)" };
+    return { color: TIER_PURPLE, glowA: "rgba(185,139,255,.55)", glowB: "rgba(185,139,255,.28)" };
 }
+
+/** 49位以下の順位帯の色（Extra Round の見出し下線にも使う） */
+export const TIER_PURPLE = "#B98BFF";
 
 /**
  * CJK文字向けの「本当の輪郭線」用 text-shadow を作る。同じ色のコピーを円状に w px

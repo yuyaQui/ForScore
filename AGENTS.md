@@ -29,8 +29,10 @@ npx prisma db seed   # test_players.csv から48名を投入
 |---|---|
 | 1st Round | 完成（共有タイマー、CSV取込） |
 | 2nd Round | 完成（連答つき5○2×、アドバンテージ、Undo、組リセット） |
-| 3rd Round | コース選択と4コースの採点が完成。15分経過時の順位決定とプレーオフが未着手 |
-| Extra Round / 準決勝 / 決勝 | 未着手 |
+| 3rd Round | コース選択・4コースの採点・通過順位と準決勝席順（工程9）が完成。工程8（15分経過時の同着判定・早押しプレーオフ）はシステム化せず実施者が手動で判断する方針にした |
+| Extra Round | 完成（2026-10-06。2026-10-07 に問題文・解答の段階表示を追加。仕様は `docs/extra-round-design.md` の0章。要 `npx prisma migrate dev` ＋サーバ再起動） |
+| 準決勝 | 機能を実装（2026-10-10。進行・判定・サドンデス・点数発表の演出。仕様は `docs/semifinal-design.md` 6章）。進出者紹介（二つ名・写真を DB に登録）と新しい選手カード・タイマーを実装（2026-10-15、同 7章）。セットの操作フロー（タイマー開始〜得点集計〜判定の2段階化）と結果リセットを実装（2026-10-17、同 8章） |
+| 決勝 | 最終順位の自動確定を実装（2026-10-10、`docs/final-design.md` 6章）。Main をサイバーパンクのデザインに作り直した（2026-10-15、同 7章）。待機・選手紹介（成績つき）・最終成績の表示を実装（2026-10-17、同 8章）。Admin の採点部分の見た目は従来のまま |
 
 デザインの作り込みは、各ラウンドの機能実装が終わった直後に順次行う方針（2026-09-25 に変更。経緯と全体の流れは `docs/roadmap.md`）。
 
@@ -45,18 +47,23 @@ npx prisma db seed   # test_players.csv から48名を投入
 工程7-4  10 by 10                                 … 完了
 工程7-5  Swedish 10                               … 完了
 工程7-6  Freeze 10                                … 完了
-工程8    15分経過時の順位決定、同着検出、早押しプレーオフ  ← ここから
-工程9    通過順位と準決勝の席順
+工程8    15分経過時の順位決定、同着検出、早押しプレーオフ  … スキップ（システム化せず、実施者が手動で判断する方針にした）
+工程9    通過順位と準決勝の席順                         … 完了（lib/semifinal.ts に実装済み。Extra Round/準決勝の土台追加時に先行して用意されていた）
+工程10   3rd Round の見た目デザイン                     … 完了（2026-10-10 に完了扱いと決定）
+準決勝 / 決勝 の機能仕上げ → デザイン                  ← ここから（準決勝の見た目・進出者紹介と決勝 Main は 2026-10-15 に実装。決定事項は semifinal-design 7章・final-design 7章。残りは決勝 Admin の見た目）
 工程6    ルーレット演出（デザインフェーズに回してよい）
 工程0-2  socket の所有構造を直す（set-state-in-effect の保留分）
 ```
 
 各コースのルールと判定基準は `docs/3rd-round-design.md` の3章にある。
 
-**当初の計画から動いた点が2つある。**
+**当初の計画から動いた点が4つある。**
 
 1. **工程7-3.5 を新設した。** `AGENTS.md` は終了判定を共通部分として工程7-2 に置いていたが、終了判定は「勝ち抜け」「失格」が存在しないと書けず、その条件はコースごとに違う。最初の1コース（10 up-down）を実装したあとに回した
 2. **終了条件2（3名失格）の順位を席順で決着させることにした。** 設計メモ 4.3 は「3名失格 or 15分経過」の両方でプレーオフとしていたが、前者は残った全員がどのみち勝ち抜けるため順位の付け方だけの問題で、後者は誰が通過するかが決まる。重みが違うので扱いを分けた。詳細は `docs/3rd-round-design.md` 4.3 の「プレーオフを行うのは15分経過のときだけ（改訂）」
+
+3. **工程8（早押しプレーオフ）をシステム化しない方針にした（2026-10-03）。** 15分経過時に同着が出た場合の決着は、実施者（スタッフ）が手動で判断する。同着検出・プレーオフ専用モードの実装は行わない
+4. **工程9（通過順位と準決勝の席順）は、3rd Round 本体の実装順を待たずに完了していたことが判明した（2026-10-03）。** `lib/semifinal.ts` の `getSemifinalSeats` が、Extra Round/準決勝の土台追加時（2026-09-27）にすでに実装・結線されていた
 
 ### 3rd Round 採点の構造
 
@@ -86,7 +93,7 @@ npx prisma db seed   # test_players.csv から48名を投入
 
 ### API の約束
 
-`updateScores` と `undo` が書き込むフィールドは**6項目で一致していなければならない。** 新しい列を触るようになったとき、片方だけ足して忘れると「Undo したのに一部だけ戻らない」バグになる。次の grep で確認できる。
+`updateScores` と `undo`（と、2026-10-11 追加の `resetScores` が0に戻すフィールド）は**6項目で一致していなければならない。** 新しい列を触るようになったとき、片方だけ足して忘れると「Undo したのに一部だけ戻らない」バグになる。次の grep で確認できる。
 
 ```bash
 for f in app/api/thirdRound/updateScores/route.ts app/api/thirdRound/undo/route.ts; do
@@ -223,8 +230,17 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `change_mode` | mode: string | `ModeHandler` |
 | `change_2nd_round_state` | `{ group, view }` | `ModeHandler` |
 | `change_3rd_round_state` | `Partial<ThirdRoundState>` | `ThirdRoundHandler` |
+| `change_semifinal_state` | `SemifinalState` の一部（`reviewRange` で振り返り範囲） | `SemifinalHandler`（項目ごとに検証） |
+| `announce_semifinal_results` | `{ set }` | `SemifinalHandler`（振り返り中・得点入力済みのときだけ） |
+| `change_semifinal_timer` | `{ action, seconds? }` | `SemifinalHandler` |
+| `start_semifinal_lineup` | なし | `SemifinalHandler`（選手カード表示を始める） |
+| `reset_semifinal_progress` | なし | `SemifinalHandler`（結果リセットに合わせて第1セット・タイマー 5:00 に戻す） |
+| `change_final_state` | `FinalState` の一部（`set`・`view`・`introIndex`・`resultRank`） | `FinalHandler`（項目ごとに検証） |
+| `semifinal_profiles_changed` | なし | `SemifinalHandler`（写真・二つ名の保存を全員に知らせる） |
+| `request_semifinal_sync` / `request_final_sync` | なし | `SemifinalHandler` / `FinalHandler`（開いた画面にだけ現在の状態を返す） |
 | `broadcast_scores` | `Player[]` | `server.js` |
 | `broadcast_third_round_courses` | `ThirdRoundCourse[]` | `ThirdRoundHandler` |
+| `reset_third_round_progress` | なし | `ThirdRoundHandler`（選手 CSV の取り込み後に、進行状態・タイマーを初期値に戻す） |
 | `update_text` | text: string | `TextHandler` |
 | `1R_start_timer` / `1R_stop_timer` / `1R_reset_timer` | なし | `FirstRoundHandler` |
 | `1R_edit_timer` | seconds: number | `FirstRoundHandler` |
@@ -237,6 +253,10 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `update_second_round_state` | `{ group, view }` |
 | `update_third_round_state` | `{ phase, step, quizOrder }` |
 | `update_third_round_courses` | `ThirdRoundCourse[]` |
+| `update_semifinal_state` | `SemifinalState` |
+| `update_semifinal_timer` | `SemifinalTimer` |
+| `update_semifinal_profiles` | なし（受け取ったら `/api/semifinal/profiles` を取り直す） |
+| `update_final_state` | `FinalState` |
 | `update_players` | `Player[]` |
 | `text_updated` | text: string |
 | `1R_update_timer` | seconds: number |
@@ -330,6 +350,7 @@ const snapshot = JSON.stringify(groupPlayers);   // 書き換わる前に固め�
 
 ## その他の約束
 
+0. **Admin 画面の説明文・ボタン文言は短く、ラウンド間で揃える（2026-10-10 ユーザー指示）。** 同じ機能には同じ文言を使う（例: 「手動操作」「Undo」「残り時間を手動で変更」「この時間にする」「キャンセル」、待ち状態は「〜中...」、1本道ボタンは「〜 ▶」）。新しい文言を足す前に、他ラウンドの Admin に同じ機能の文言がないか確認する
 1. **1工程ずつ区切る。** 複数の機能をまとめて実装しない
 2. **各コミットが単体でビルドが通る状態にする。** 「意味のまとまり」よりこちらを優先する
 3. 初出の文法・ライブラリの書き方には、コードにコメントで説明を残す

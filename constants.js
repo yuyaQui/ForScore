@@ -11,8 +11,29 @@ const THIRD_ROUND_TIME_LIMIT = 15 * 60;
 /** 準決勝 各セットの制限時間（秒）= 5分 */
 const SEMIFINAL_SET_TIME_LIMIT = 5 * 60;
 
+/** Extra Round First Step の問題数（1〜20問） */
+const EXTRA_ROUND_QUESTION_COUNT = 20;
+
+/**
+ * Extra Round First Step の進行ステップ数。
+ * 「問題を出す」「解答を出す」を1ステップずつ数え、(1〜10問)(11〜15問)(16〜20問)の
+ * ブロックごとに「問題N…→解答N…」の順に進むので、全部で 問題数 × 2 = 40 ステップ。
+ * 並び順そのものは lib/extraRound.ts の FIRST_STEP_SEQUENCE が組み立てる。
+ */
+const EXTRA_ROUND_FIRST_STEP_LENGTH = EXTRA_ROUND_QUESTION_COUNT * 2;
+
+/** Extra Round Second Step の出場者の上限（First Step 通過者は最大12名） */
+const EXTRA_ROUND_MAX_ENTRANTS = 12;
+
+/** Extra Round の段階（server/ExtraRoundHandler.js が保持する進行状態の stage） */
+const EXTRA_ROUND_STAGES = ['setup', 'firstStep', 'entrantSelect', 'secondStep'];
+
 module.exports = {
     DEFAULT_COUNTDOWN,
     THIRD_ROUND_TIME_LIMIT,
-    SEMIFINAL_SET_TIME_LIMIT
+    SEMIFINAL_SET_TIME_LIMIT,
+    EXTRA_ROUND_QUESTION_COUNT,
+    EXTRA_ROUND_FIRST_STEP_LENGTH,
+    EXTRA_ROUND_MAX_ENTRANTS,
+    EXTRA_ROUND_STAGES
 };

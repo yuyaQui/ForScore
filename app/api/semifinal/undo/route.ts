@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
 import type { Player } from '@/lib/types';
 
 /**
@@ -18,10 +19,16 @@ export async function POST() {
         });
 
         if (!latest) {
-            return NextResponse.json({ error: '戻せる操作がありません' }, { status: 400 });
+            return NextResponse.json({ error: NO_HISTORY_MESSAGE }, { status: 400 });
         }
 
         const playersToRestore: Player[] = JSON.parse(latest.snapshot);
+
+        // 選手名簿の取り込み直しなどで、履歴が参照する選手がもう存在しない場合は、
+        // 復元しようとして落ちる前に中止する（履歴行は消さない）。
+        if (!(await allSnapshotPlayersExist(playersToRestore.map((p: { id: number }) => p.id)))) {
+            return NextResponse.json({ error: NO_HISTORY_MESSAGE }, { status: 400 });
+        }
 
         // 復元と履歴行の削除は同じトランザクションで行う。
         // 片方だけ成功すると、同じ履歴で二重に戻せる状態になる。

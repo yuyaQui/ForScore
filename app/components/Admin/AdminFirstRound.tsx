@@ -70,37 +70,35 @@ export default function AdminFirstRound(props: Props) {
 
     // ボタンは機能別の色（緑=開始/黄=停止/青=編集/赤=リセット）は維持しつつ、
     // 角を完全な四角にしてホバー時にネオングロー(box-shadow)を出すサイバーパンク調の共通クラス
-    const neonButtonBase = "flex-1 rounded-none text-[#FBFCF6] font-bold transition-shadow";
+    const neonButtonBase = "flex-1 rounded-none text-[#F3FAFF] font-bold transition-shadow";
 
     return (
-        < div className="flex flex-col gap-[2vh] bg-black border border-[#A2D7DD] rounded-none p-[2vw] shadow-[0_0_30px_rgba(162,215,221,0.25)] w-[90%]" >
-            <label className="text-[clamp(0.8rem,1vw,1rem)] font-bold text-[#FBFCF6] tracking-widest uppercase">
+        < div className="flex flex-col gap-[2vh] bg-black border border-[#2F7BFF] rounded-none p-[2vw] shadow-[0_0_30px_rgba(47,123,255,0.25)] w-[90%]" >
+            <label className="text-[clamp(0.8rem,1vw,1rem)] font-bold text-[#F3FAFF] tracking-widest uppercase">
                 1st Round
             </label>
             {/* タイマー表示 */}
             {isEditing ? (
-                <div className="flex items-center justify-center gap-[1vw] py-[1.5vh] rounded-none bg-black border border-[#A2D7DD]">
+                <div className="flex items-center justify-center gap-[1vw] py-[1.5vh]">
                     <input
                         type="number"
                         value={editMinutes}
                         onChange={(e) => setEditMinutes(Number(e.target.value))}
-                        className="w-[16vw] text-center text-[clamp(1.6rem,3.5vw,3rem)] font-mono p-[1vw] rounded-none bg-black text-[#FBFCF6] border border-[#A2D7DD] focus:outline-none focus:shadow-[0_0_10px_#A2D7DD]"
+                        className="w-[16vw] text-center text-[clamp(1.6rem,3.5vw,3rem)] font-mono p-[1vw] rounded-none bg-black text-[#F3FAFF] border border-[#2F7BFF] focus:outline-none focus:shadow-[0_0_10px_#2F7BFF]"
                         min="0"
                     />
-                    <span className="text-[clamp(1.6rem,3.5vw,3rem)] font-bold text-[#FBFCF6]">:</span>
+                    <span className="text-[clamp(1.6rem,3.5vw,3rem)] font-bold text-[#F3FAFF]">:</span>
                     <input
                         type="number"
                         value={editSeconds}
                         onChange={(e) => setEditSeconds(Number(e.target.value))}
-                        className="w-[16vw] text-center text-[clamp(1.6rem,3.5vw,3rem)] font-mono p-[1vw] rounded-none bg-black text-[#FBFCF6] border border-[#A2D7DD] focus:outline-none focus:shadow-[0_0_10px_#A2D7DD]"
+                        className="w-[16vw] text-center text-[clamp(1.6rem,3.5vw,3rem)] font-mono p-[1vw] rounded-none bg-black text-[#F3FAFF] border border-[#2F7BFF] focus:outline-none focus:shadow-[0_0_10px_#2F7BFF]"
                         min="0" max="59"
                     />
                 </div>
             ) : (
-                // 塗りは指定色(#A2D7DD)を暗くした#205359。色相・彩度は変えず明度だけ下げて、
-                // #FBFCF6の文字が読みやすいようにしている（Main側のタイマー枠と同じ考え方）
-                // Time up時の赤文字も、暗い背景で沈まないようMain側と同じ薄めのred-200にする
-                <div className={`text-[clamp(2.4rem,6vw,4.5rem)] font-mono font-bold text-center py-[2vh] rounded-none bg-[#205359] ${isFinished ? 'text-red-200' : 'text-[#FBFCF6]'}`}>
+                // 色は 2nd Round 以降と同じ配色（地: #0C1628、枠: ACCENT #2F7BFF、文字: #F3FAFF、Time up は赤 #FF4D6D）。Main 側のタイマー枠と同じ
+                <div className={`text-[clamp(2.4rem,6vw,4.5rem)] font-mono font-bold text-center py-[2vh] rounded-none bg-[#0C1628] ${isFinished ? 'text-[#FF4D6D]' : 'text-[#F3FAFF]'}`}>
                     {isFinished ? "Time up !" : remainTime}
                 </div>
             )}
@@ -110,13 +108,13 @@ export default function AdminFirstRound(props: Props) {
                     <>
                         <button
                             onClick={handleSaveEdit}
-                            className={`${neonButtonBase} bg-blue-500 hover:bg-blue-600 hover:shadow-[0_0_20px_rgba(59,130,246,0.7)] py-[1.2vh] px-[1.5vw]`}
+                            className={`${neonButtonBase} bg-[#2F7BFF] hover:bg-[#4A8CFF] hover:shadow-[0_0_20px_rgba(47,123,255,0.7)] py-[1.2vh] px-[1.5vw]`}
                         >
                             SAVE
                         </button>
                         <button
                             onClick={handleCancelEdit}
-                            className={`${neonButtonBase} bg-zinc-500 hover:bg-zinc-600 hover:shadow-[0_0_20px_rgba(113,113,122,0.6)] py-[1.2vh] px-[1.5vw]`}
+                            className={`${neonButtonBase} bg-[#3A4B63] hover:bg-[#4A5F7F] hover:shadow-[0_0_20px_rgba(58,75,99,0.7)] py-[1.2vh] px-[1.5vw]`}
                         >
                             CANCEL
                         </button>
@@ -125,25 +123,25 @@ export default function AdminFirstRound(props: Props) {
                     <>
                         <button
                             onClick={handleStartTimer}
-                            className={`${neonButtonBase} bg-emerald-500 hover:bg-emerald-600 hover:shadow-[0_0_20px_rgba(16,185,129,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
+                            className={`${neonButtonBase} bg-[#33C6FF] hover:bg-[#5AD3FF] hover:shadow-[0_0_20px_rgba(51,198,255,0.7)] !text-black py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
                         >
                             START
                         </button>
                         <button
                             onClick={handleStopTimer}
-                            className={`${neonButtonBase} bg-yellow-500 hover:bg-yellow-600 hover:shadow-[0_0_20px_rgba(234,179,8,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
+                            className={`${neonButtonBase} bg-[#FFC93C] hover:bg-[#FFD866] hover:shadow-[0_0_20px_rgba(255,201,60,0.7)] !text-black py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
                         >
                             STOP
                         </button>
                         <button
                             onClick={handleEditClick}
-                            className={`${neonButtonBase} bg-blue-500 hover:bg-blue-600 hover:shadow-[0_0_20px_rgba(59,130,246,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
+                            className={`${neonButtonBase} bg-[#2F7BFF] hover:bg-[#4A8CFF] hover:shadow-[0_0_20px_rgba(47,123,255,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
                         >
                             EDIT
                         </button>
                         <button
                             onClick={handleResetTimer}
-                            className={`${neonButtonBase} bg-red-500 hover:bg-red-600 hover:shadow-[0_0_20px_rgba(239,68,68,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
+                            className={`${neonButtonBase} bg-[#FF3B5C] hover:bg-[#FF5C78] hover:shadow-[0_0_20px_rgba(255,59,92,0.7)] py-[1.2vh] px-[1.5vw] text-[clamp(0.7rem,1vw,0.9rem)]`}
                         >
                             RESET
                         </button>
@@ -153,9 +151,9 @@ export default function AdminFirstRound(props: Props) {
             {isFinished && (
                 <button
                     onClick={onGoToResult} // mode を 1stRoundResult に変更する
-                    className="w-full bg-blue-600 hover:bg-blue-700 hover:shadow-[0_0_20px_rgba(37,99,235,0.7)] text-[#FBFCF6] font-bold py-[1.2vh] rounded-none transition-shadow mt-[1vh]"
+                    className="w-full bg-[#2F7BFF] hover:bg-[#4A8CFF] hover:shadow-[0_0_20px_rgba(47,123,255,0.7)] text-[#F3FAFF] font-bold py-[1.2vh] rounded-none transition-shadow mt-[1vh]"
                 >
-                    1st Round 結果入力画面へ
+                    集計結果を入力する
                 </button>
             )}
         </div >

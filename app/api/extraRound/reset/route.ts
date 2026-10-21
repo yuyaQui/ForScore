@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
  * ExtraRoundHistory（Undo用の履歴）も一緒に削除する。履歴を残したままだと、
  * リセット後に古い履歴でUndoしてしまい、矛盾した状態に戻る事故につながるため。
  *
- * 進行状態（server/ExtraRoundHandler.js が持つ questionNumber・mode 等）は
+ * 進行状態（server/ExtraRoundHandler.js が持つ stage・cursor）は
  * ここでは触らない。あくまで選手データのリセットに限定する。
  */
 export async function POST() {

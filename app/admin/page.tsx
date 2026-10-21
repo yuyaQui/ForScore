@@ -8,7 +8,6 @@ import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
 import AdminThirdRound from "../components/Admin/AdminThirdRound";
 import AdminExtraRound from "../components/Admin/AdminExtraRound";
-import AdminExtraRoundUpload from "../components/Admin/AdminExtraRoundUpload";
 import AdminSemifinal from "../components/Admin/AdminSemifinal";
 import AdminFinal from "../components/Admin/AdminFinal";
 import type { SecondRoundState } from "@/lib/types";
@@ -67,22 +66,21 @@ export default function AdminPage() {
       : "bg-zinc-50 dark:bg-zinc-900";
 
   // Design アーティファクト(Admin.dc.html)左サイドバーの「SELECT ROUND」見た目をそのまま
-  // 移植したナビゲーション項目。ラベルは既存の短縮表記(待機画面/1R/2R/…)を維持し、見た目だけ
-  // 揃える(2026-09-25、ユーザー指示)。
+  // 移植したナビゲーション項目。ラベルは 2026-10-11 のユーザー指示で
+  // 「1ST ROUND」「2ND ROUND」「3RD ROUND」「EXTRA ROUND」「SEMI-FINAL」「FINAL」に変更した。
   const ROUND_NAV: { mode: string; label: string }[] = [
     { mode: "waiting", label: "待機画面" },
-    { mode: "1stRound", label: "1R" },
-    { mode: "secondRound", label: "2R" },
-    { mode: "thirdRound", label: "3R" },
-    { mode: "extraRound", label: "Ex" },
-    { mode: "semifinal", label: "SF" },
-    { mode: "final", label: "F" },
+    { mode: "1stRound", label: "1ST ROUND" },
+    { mode: "secondRound", label: "2ND ROUND" },
+    { mode: "thirdRound", label: "3RD ROUND" },
+    { mode: "extraRound", label: "EXTRA ROUND" },
+    { mode: "semifinal", label: "SEMI-FINAL" },
+    { mode: "final", label: "FINAL" },
   ];
-  // 「1stRoundResult」「extraRoundQuestionUpload」はそれぞれ 1R・Ex のサブ画面なので、
-  // サイドバー上はそれぞれの親ラウンドをアクティブ表示にする。
+  // 「1stRoundResult」は 1R のサブ画面なので、サイドバー上は親ラウンドをアクティブ表示にする。
+  // （Extra Round の問題取込は、AdminExtraRound 内の最初の段階（setup）に組み込んだ）
   const isRoundActive = (mode: string) => {
     if (mode === "1stRound") return currentMode === "1stRound" || currentMode === "1stRoundResult";
-    if (mode === "extraRound") return currentMode === "extraRound" || currentMode === "extraRoundQuestionUpload";
     return currentMode === mode;
   };
 
@@ -170,7 +168,7 @@ export default function AdminPage() {
       )}
 
       {currentMode === "1stRoundResult" && (
-        <AdminFirstRoundUpload />
+        <AdminFirstRoundUpload socket={socket} />
       )}
 
       {currentMode === "waiting" && (
@@ -186,21 +184,7 @@ export default function AdminPage() {
       )}
 
       {currentMode === "extraRound" && (
-        <>
-          <AdminExtraRound socket={socket} />
-          {/* Extra Round 問題の取込は進行モードとは別枠。会場配信（Main）には影響しないローカル操作なので
-              change_mode を送らず、この画面だけのタブ切り替えにする */}
-          <button
-            onClick={() => setCurrentMode("extraRoundQuestionUpload")}
-            className="text-sm font-bold text-orange-600 dark:text-orange-400 hover:underline"
-          >
-            Extra Round 問題取込を開く
-          </button>
-        </>
-      )}
-
-      {currentMode === "extraRoundQuestionUpload" && (
-        <AdminExtraRoundUpload />
+        <AdminExtraRound socket={socket} />
       )}
 
       {currentMode === "semifinal" && (

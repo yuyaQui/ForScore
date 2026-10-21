@@ -26,6 +26,9 @@ export const SECOND_ROUND_PLAYER_COUNT = 48;
 /** 2nd Round の組の数 */
 export const SECOND_ROUND_GROUP_COUNT = 4;
 
+/** 1組あたりの勝ち抜け人数（app/api/secondRound/updateScores と同じ値） */
+export const SECOND_ROUND_WINNERS_PER_GROUP = 5;
+
 /**
  * 1st Round 順位から 2nd Round の組番号（1〜4）を返す。
  * 2nd Round に出ない選手（49位以降）は null。

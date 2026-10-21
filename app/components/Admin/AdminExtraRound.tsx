@@ -1,45 +1,107 @@
 import { Socket } from "socket.io-client";
-import { useState, useEffect } from "react";
-import type { ExtraRoundState, ExtraRoundQuestion } from "@/lib/types";
-import { getExtraRoundPhase, getExtraRoundPhaseLabel, getExtraRoundPhaseRange } from "@/lib/extraRound";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { ExtraRoundState, ExtraRoundQuestion, ExtraRoundStage, Player } from "@/lib/types";
+import { DEFAULT_EXTRA_ROUND_STATE } from "@/lib/types";
+import {
+    FIRST_STEP_SEQUENCE,
+    FIRST_STEP_LAST_CURSOR,
+    clampCursor,
+    getFirstStepItem,
+    getFirstStepItemLabel,
+    getNextPhaseCursor,
+    isPhaseEndAnswer,
+    normalizeExtraRoundState,
+} from "@/lib/extraRound";
+import AdminExtraRoundUpload from "./AdminExtraRoundUpload";
+import AdminExtraRoundFirstStep from "./AdminExtraRoundFirstStep";
 import AdminExtraRoundEntrants from "./AdminExtraRoundEntrants";
 import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
+import {
+    MANUAL_LABEL_STYLE,
+    DANGER_BTN_TEXT,
+    NEUTRAL_BTN_TEXT,
+    dangerBtnStyle,
+    manualBtnStyle,
+    manualBtnTextStyle,
+    manualPanelStyle,
+    neutralBtnStyle,
+    primaryButtonStyle,
+    secondaryActionStyle,
+} from "./adminCyberStyles";
 
 type Props = {
     socket: Socket | null;
 }
 
+// 進行ボタンは、状態が変わった直後のこの時間（ms）は押しても無視する。
+// 「問題を表示する」を素早く2回押す（ダブルクリック）と、1回目で表示済みになったあと、同じ位置に
+// 出てきた「次の問題へ」を2回目が押してしまい、問題を読み上げる前に先へ進む事故になるため。
+// 同じ理由で、「次へ」のダブルクリックが次の問題をすぐ表示してしまうのも防ぐ。
+// 本番の進行は問題を読み上げる間があるので、この時間で正規の操作を邪魔することはない。
+const CLICK_GUARD_MS = 800;
+
+const STAGE_LABELS: Record<ExtraRoundStage, string> = {
+    setup: '問題取込',
+    firstStep: 'First Step',
+    entrantSelect: '進出者選択',
+    secondStep: 'Second Step',
+};
+
 export default function AdminExtraRound(props: Props) {
     const { socket } = props;
 
     // 進行状態はサーバが持つ。ここは配信された値を映すだけ。
-    // 初期値は配信が届くまでの仮置き。
-    const [extraRoundState, setExtraRoundState] = useState<ExtraRoundState>({
-        step: "firstStep",
-        questionNumber: 1,
-        answerRevealed: false,
-        mode: "asking"
-    });
+    // 初期値は配信が届くまでの仮置き（接続直後にサーバから現在値が届く）。
+    const [state, setState] = useState<ExtraRoundState>(DEFAULT_EXTRA_ROUND_STATE);
 
-    // 問題文・解答は取込済みのものを一度取得しておく（進行中に変わらない前提）
+    // 問題文・解答・別解（Admin 用なので別解を含む）
     const [questions, setQuestions] = useState<ExtraRoundQuestion[]>([]);
-    const [isResetting, setIsResetting] = useState(false);
+    const [players, setPlayers] = useState<Player[] | null>(null);
+    const [isBusy, setIsBusy] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
 
+    // 進行状態（段階・位置・表示済みか）が最後に変わった時刻。進行ボタンの連打よけに使う
+    const lastStateChangeAt = useRef(0);
     useEffect(() => {
+        lastStateChangeAt.current = Date.now();
+    }, [state.stage, state.cursor, state.revealed]);
+    // クリック時にだけ呼ぶ（描画中には呼ばない）。直前に状態が変わっていたら何もしない
+    const runGuarded = useCallback((action: (() => void) | null) => {
+        if (!action) return;
+        if (Date.now() - lastStateChangeAt.current < CLICK_GUARD_MS) return;
+        action();
+    }, []);
+
+    const loadQuestions = useCallback(() => {
         fetch('/api/extraRound/questions').then(res => res.json()).then(data => {
             if (data.success) setQuestions(data.questions);
-        });
+        }).catch(err => console.error('Failed to load extra round questions', err));
+    }, []);
+
+    useEffect(() => {
+        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
+            if (data.success) setPlayers(data.allPlayers);
+        }).catch(err => console.error('Failed to load players', err));
 
         if (socket) {
-            const handleStateUpdate = (state: ExtraRoundState) => setExtraRoundState(state);
+            const handleStateUpdate = (next: ExtraRoundState) => setState(normalizeExtraRoundState(next));
+            const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
 
-            socket.on("update_extra_round_state", handleStateUpdate);
+            socket.on('update_extra_round_state', handleStateUpdate);
+            socket.on('update_players', handlePlayersUpdate);
 
             return () => {
-                socket.off("update_extra_round_state", handleStateUpdate);
+                socket.off('update_extra_round_state', handleStateUpdate);
+                socket.off('update_players', handlePlayersUpdate);
             };
         }
     }, [socket]);
+
+    // First Step に入るたびに問題を取り直す（取込直後の最新の内容を確実に映すため）
+    const isFirstStep = state.stage === 'firstStep';
+    useEffect(() => {
+        if (isFirstStep) loadQuestions();
+    }, [isFirstStep, loadQuestions]);
 
     // 進行状態の変更。部分更新できるので、変えたい項目だけを送る。
     // 自分の画面も配信（update_extra_round_state）経由で更新される。
@@ -47,239 +109,280 @@ export default function AdminExtraRound(props: Props) {
         if (socket) socket.emit('change_extra_round_state', updates);
     };
 
-    // 現在の問題番号に対応する問題文・解答を探す
-    const currentQuestion = questions.find(q => q.number === extraRoundState.questionNumber);
-    const [phaseStart, phaseEnd] = getExtraRoundPhaseRange(extraRoundState.questionNumber);
-
-    // 前の問題へ。解答表示は新しい問題に引き継がない
-    const goToPrevQuestion = () => {
-        const prev = Math.max(1, extraRoundState.questionNumber - 1);
-        changeState({ questionNumber: prev, answerRevealed: false });
+    // 「問題を表示する」「解答を表示」。いまの位置を添えて送り、サーバ側で位置が一致するときだけ
+    // 表示済みにする（別の Admin 画面で先に進んでいたとき、次の問題が出てしまうのを防ぐ）。
+    const revealStep = () => {
+        if (socket) socket.emit('reveal_extra_round_step', { cursor: state.cursor });
     };
 
-    // 次の問題へ。解答表示は新しい問題に引き継がない
-    const goToNextQuestion = () => {
-        const next = Math.min(20, extraRoundState.questionNumber + 1);
-        changeState({ questionNumber: next, answerRevealed: false });
-    };
+    const entrants = (players ?? []).filter(p => p.extraRoundSecondStep);
+    const winner = entrants.find(p => p.extraRoundRank > 0) ?? null;
 
-    // Phase1・Phase2 の最後の問題まで解答表示が済んでいるか。
-    // このときだけ「次の問題へ」を「次のフェーズの出題へ」に差し替える
-    const phase = getExtraRoundPhase(extraRoundState.questionNumber);
-    const isPhaseEndRevealed =
-        (phase === 'phase1' || phase === 'phase2') &&
-        extraRoundState.questionNumber === phaseEnd &&
-        extraRoundState.answerRevealed;
-
-    // 次のフェーズの最初の問題へ。出題（asking）から始める
-    const goToNextPhase = () => {
-        changeState({ questionNumber: phaseEnd + 1, mode: 'asking', answerRevealed: false });
-    };
-
-    // Phase1・Phase2 の最後の問題まで出題が進んでいるか（まだ解答表示はしていない）。
-    // このときだけ「次の問題へ」を「解答確認へ」に差し替える
-    const isPhaseEndAsking =
-        (phase === 'phase1' || phase === 'phase2') &&
-        extraRoundState.questionNumber === phaseEnd &&
-        extraRoundState.mode === 'asking';
-
-    // このフェーズの最初の問題に戻り、解答表示ができる周（revealing）に切り替える
-    const goToPhaseRevealing = () => {
-        changeState({ questionNumber: phaseStart, mode: 'revealing', answerRevealed: false });
-    };
-
-    // Extra Round の結果（extraRoundRank・extraRoundCorrectCount・
-    // extraRoundSecondStep）を全選手ぶんリセットする。テストデータの矛盾を直す、
-    // または大会本番前にやり直すための操作。進行状態（問題番号など）は変えない。
-    const handleReset = async () => {
-        if (!window.confirm('Extra Round の結果を全選手分リセットしますか？（元に戻せません）')) return;
-
-        setIsResetting(true);
+    const handleScore = async (playerId: number, action: 'correct' | 'wrong') => {
+        setErrorMessage('');
+        setIsBusy(true);
         try {
-            const res = await fetch('/api/extraRound/reset', { method: 'POST' });
+            const res = await fetch('/api/extraRound/secondStep/updateScore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playerId, action })
+            });
             const data = await res.json();
-
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-                alert('Extra Round の結果をリセットしました');
+            if (res.ok && data.success) {
+                if (socket) socket.emit('broadcast_scores', data.allPlayers);
             } else {
-                alert(data.error || 'リセットに失敗しました');
+                setErrorMessage(data.error || '更新に失敗しました');
             }
         } catch (error) {
-            console.error('Extra Round reset failed', error);
-            alert('通信に失敗しました');
+            console.error('Extra Round Second Step score update failed', error);
+            setErrorMessage('通信に失敗しました');
         } finally {
-            setIsResetting(false);
+            setIsBusy(false);
         }
     };
 
+    const handleUndo = async () => {
+        setErrorMessage('');
+        setIsBusy(true);
+        try {
+            const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (socket) socket.emit('broadcast_scores', data.allPlayers);
+            } else {
+                setErrorMessage(data.error || 'Undo に失敗しました');
+            }
+        } catch (error) {
+            console.error('Extra Round Second Step undo failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    // Extra Round の結果（extraRoundRank・extraRoundCorrectCount・extraRoundSecondStep）を
+    // 全選手ぶんリセットする。テストデータの矛盾を直す、または本番前にやり直すための操作。
+    // 進行状態（段階・First Step の位置）は変えない。
+    const handleReset = async () => {
+        if (!window.confirm('Extra Round の結果をリセットしますか？（元に戻せません）')) return;
+
+        setErrorMessage('');
+        setIsBusy(true);
+        try {
+            const res = await fetch('/api/extraRound/reset', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (socket) socket.emit('broadcast_scores', data.allPlayers);
+            } else {
+                setErrorMessage(data.error || 'リセットに失敗しました');
+            }
+        } catch (error) {
+            console.error('Extra Round reset failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    // ---- いま押すべき操作（画面上部の大きなボタン）----
+    let statusLabel: string;
+    let primaryLabel: string;
+    let primaryAction: (() => void) | null = null;
+    let secondaryLabel: string | null = null;
+    let secondaryAction: (() => void) | null = null;
+    // 表示前に出す、押せない「次へ」。押す順番（表示 → 次へ）を見せるためのもの
+    let waitingNextLabel: string | null = null;
+    let primaryDoneColor: string | undefined;
+
+    if (state.stage === 'setup') {
+        statusLabel = 'EXTRA ROUND · 問題取込';
+        primaryLabel = '問題CSVを取り込んでください';
+    } else if (state.stage === 'firstStep') {
+        const atDecision = isPhaseEndAnswer(state.cursor);
+        statusLabel = `EXTRA ROUND · FIRST STEP · ${getFirstStepItemLabel(state.cursor)}（${state.cursor + 1} / ${FIRST_STEP_SEQUENCE.length}）`;
+        if (!state.revealed) {
+            // 中身（問題文 / 解答）をまだ Main に出していない。出すまでは先に進めない
+            primaryLabel = getFirstStepItem(state.cursor).view === 'question' ? '問題を表示 ▶' : '解答を表示 ▶';
+            primaryAction = revealStep;
+            if (!atDecision) waitingNextLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}） ▶`;
+        } else if (atDecision) {
+            // フェーズ最後の解答発表。進出者を決める（途中で1st Stepを終える場合もここ）か、次のフェーズへ
+            primaryLabel = 'Second Step 進出者決定 ▶';
+            primaryAction = () => changeState({ stage: 'entrantSelect' });
+            const nextCursor = getNextPhaseCursor(state.cursor);
+            if (nextCursor !== null) {
+                secondaryLabel = '次のフェーズへ ▶';
+                secondaryAction = () => changeState({ cursor: nextCursor, revealed: false });
+            }
+        } else {
+            primaryLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}） ▶`;
+            primaryAction = () => changeState({ cursor: clampCursor(state.cursor + 1), revealed: false });
+        }
+    } else if (state.stage === 'entrantSelect') {
+        statusLabel = 'EXTRA ROUND · 進出者選択';
+        primaryLabel = '進出者を選んでください';
+    } else {
+        statusLabel = 'EXTRA ROUND · SECOND STEP';
+        if (winner) {
+            primaryLabel = 'Extra Round 終了';
+            primaryDoneColor = '#FFE28A';
+        } else {
+            primaryLabel = '進行中...';
+        }
+    }
+
+    const canGoBack = state.stage === 'firstStep' && state.cursor > 0;
+
     return (
-        <div className="flex flex-col gap-6 bg-white dark:bg-zinc-800 p-8 rounded-xl shadow-md w-full max-w-5xl">
-            <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-black text-zinc-900 dark:text-zinc-100">
-                    Extra Round
-                </h2>
-                <button
-                    onClick={handleReset}
-                    disabled={isResetting}
-                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-red-100 hover:bg-red-200 dark:bg-red-950/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 border border-red-200/50 dark:border-red-900/30 disabled:opacity-40 transition-colors"
-                >
-                    結果をリセット
-                </button>
-            </div>
+        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md w-full max-w-[1900px]">
+            <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 border-b pb-4 border-zinc-200 dark:border-zinc-700">
+                Extra Round 管理画面
+            </h2>
 
-            {/* Step の切り替え。Second Step へはどのタイミングでも切り替えられる
-                （スタッフが参加者の解答状況を見て判断するため、システム側に条件は持たせない） */}
-            <div className="flex gap-3">
-                <button
-                    onClick={() => changeState({ step: 'firstStep' })}
-                    className={`flex-1 px-5 py-3 rounded-lg font-bold transition-all ${extraRoundState.step === 'firstStep'
-                        ? "bg-purple-600 text-white ring-2 ring-purple-500/50"
-                        : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                        }`}
-                >
-                    First Step（脱落式筆記）
-                </button>
-                <button
-                    onClick={() => changeState({ step: 'secondStep' })}
-                    className={`flex-1 px-5 py-3 rounded-lg font-bold transition-all ${extraRoundState.step === 'secondStep'
-                        ? "bg-blue-600 text-white ring-2 ring-blue-500/50"
-                        : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                        }`}
-                >
-                    Second Step（早押し）
-                </button>
-            </div>
-
-            {extraRoundState.step === 'firstStep' && (
-                <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-                            {getExtraRoundPhaseLabel(extraRoundState.questionNumber)}
-                        </span>
-                        <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                            {getExtraRoundPhaseLabel(extraRoundState.questionNumber)}: {phaseStart}〜{phaseEnd}問
-                        </span>
-                    </div>
-
-                    {/* 出題のみの周／解答表示ができる周の切り替え。
-                        asking のときは「解答を表示」ボタン自体を出さない */}
-                    <div className="flex gap-3">
-                        <button
-                            onClick={() => changeState({ mode: 'asking', answerRevealed: false })}
-                            className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${extraRoundState.mode === 'asking'
-                                ? "bg-emerald-600 text-white ring-2 ring-zinc-500/50"
-                                : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                                }`}
-                        >
-                            出題
-                        </button>
-                        <button
-                            onClick={() => changeState({ mode: 'revealing', questionNumber: phaseStart, answerRevealed: false })}
-                            className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${extraRoundState.mode === 'revealing'
-                                ? "bg-emerald-600 text-white ring-2 ring-emerald-500/50"
-                                : "bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200"
-                                }`}
-                        >
-                            解答確認
-                        </button>
-                    </div>
-
-                    {/* 進行中の問題文・解答をスタッフ確認用に表示する。
-                        「問題だけ」と「問題＋解答」を別ブロックとして完全に分ける */}
-                    {!extraRoundState.answerRevealed && (
-                        <div className="p-6 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700">
-                            <div className="text-xs text-zinc-500 mb-2">第 {extraRoundState.questionNumber} 問</div>
-                            {currentQuestion ? (
-                                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{currentQuestion.text}</p>
-                            ) : (
-                                <p className="text-zinc-400 dark:text-zinc-500">
-                                    この番号の問題が登録されていません（Extra Round 問題取込を確認してください）
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {extraRoundState.answerRevealed && (
-                        <div className="p-6 rounded-xl bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30">
-                            <div className="text-xs text-zinc-500 mb-2">第 {extraRoundState.questionNumber} 問</div>
-                            {currentQuestion ? (
-                                <>
-                                    <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{currentQuestion.text}</p>
-                                    <p className="mt-3 text-lg font-bold text-yellow-600 dark:text-yellow-400">
-                                        解答: {currentQuestion.answer}
-                                    </p>
-                                </>
-                            ) : (
-                                <p className="text-zinc-400 dark:text-zinc-500">
-                                    この番号の問題が登録されていません（Extra Round 問題取込を確認してください）
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {/* 解答表示ボタンは revealing（2周目）のときだけ出す。
-                        asking（1周目）の間は、そもそも解答を出す手段を見せない。
-                        フェーズ先頭へ戻る操作は「解答確認」ボタンに統合済み */}
-                    {extraRoundState.mode === 'revealing' && (
-                        <button
-                            onClick={() => changeState({ answerRevealed: !extraRoundState.answerRevealed })}
-                            className={`px-5 py-3 rounded-lg font-bold transition-colors ${extraRoundState.answerRevealed
-                                ? "bg-yellow-500 hover:bg-yellow-600 text-white"
-                                : "bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300"
-                                }`}
-                        >
-                            {extraRoundState.answerRevealed ? "解答を隠す" : "解答を表示"}
-                        </button>
-                    )}
-
-                    {/* 問題の行き来 */}
-                    <div className="flex gap-3">
-                        <button
-                            onClick={goToPrevQuestion}
-                            disabled={extraRoundState.questionNumber <= 1}
-                            className="flex-1 px-5 py-3 rounded-lg font-bold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                            前の問題へ
-                        </button>
-                        {isPhaseEndRevealed ? (
-                            <button
-                                onClick={goToNextPhase}
-                                className="flex-1 px-5 py-3 rounded-lg font-bold bg-orange-500 hover:bg-orange-600 text-white transition-colors"
-                            >
-                                次のフェーズの出題へ
-                            </button>
-                        ) : isPhaseEndAsking ? (
-                            <button
-                                onClick={goToPhaseRevealing}
-                                className="flex-1 px-5 py-3 rounded-lg font-bold bg-orange-500 hover:bg-orange-600 text-white transition-colors"
-                            >
-                                解答確認へ
-                            </button>
-                        ) : (
-                            <button
-                                onClick={goToNextQuestion}
-                                disabled={
-                                    extraRoundState.questionNumber >= 20 ||
-                                    // revealing 中は、解答を表示するまで次の問題へ進めない
-                                    (extraRoundState.mode === 'revealing' && !extraRoundState.answerRevealed)
-                                }
-                                className="flex-1 px-5 py-3 rounded-lg font-bold bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/40 dark:hover:bg-purple-800/60 text-purple-700 dark:text-purple-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                                次の問題へ
-                            </button>
-                        )}
-                    </div>
+            {errorMessage && (
+                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-sm font-bold">
+                    {errorMessage}
                 </div>
             )}
 
-            {extraRoundState.step === 'secondStep' && (
-                <div className="flex flex-col gap-6">
-                    <AdminExtraRoundEntrants socket={socket} />
-                    <hr className="border-zinc-200 dark:border-zinc-700" />
-                    <AdminExtraRoundSecondStep socket={socket} />
+            {/* 進行フロー: 3rd Round の Admin と同じく、いま押すべき操作を大きく出す。
+                問題取込 → First Step → 進出者選択 → Second Step の1本道。 */}
+            <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
+                <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
+                    {statusLabel}
                 </div>
-            )}
+                <div className="flex flex-wrap items-center justify-center gap-4 px-4">
+                    {canGoBack && (
+                        <button onClick={() => runGuarded(() => changeState({ cursor: clampCursor(state.cursor - 1), revealed: true }))} style={{ ...neutralBtnStyle(), padding: '18px 28px' }}>
+                            <span style={{ ...NEUTRAL_BTN_TEXT, fontSize: 16 }}>◀ 戻る</span>
+                        </button>
+                    )}
+                    <button onClick={() => runGuarded(primaryAction)} disabled={!primaryAction || isBusy} style={primaryButtonStyle(!!primaryAction, primaryDoneColor)}>
+                        {primaryLabel}
+                    </button>
+                    {waitingNextLabel && (
+                        <button disabled style={{ ...primaryButtonStyle(false), opacity: 0.4, cursor: 'not-allowed' }}>
+                            {waitingNextLabel}
+                        </button>
+                    )}
+                    {secondaryLabel && (
+                        <button onClick={() => runGuarded(secondaryAction)} disabled={!secondaryAction || isBusy} style={secondaryActionStyle()}>
+                            {secondaryLabel}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* 手動操作: 通常運用では触らない退避ハッチ。段階・位置の直接切り替え、
+                Undo・結果リセットをここにまとめる。見た目は 2nd / 3rd Round と揃えている。 */}
+            <details className="group">
+                <summary
+                    className="flex cursor-pointer select-none items-center gap-[10px] bg-black px-5 py-4 [&::-webkit-details-marker]:hidden"
+                    style={{ listStyle: 'none' }}
+                >
+                    <span
+                        className="inline-block transition-transform duration-150 group-open:rotate-90"
+                        style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#7FA8D9' }}
+                    >
+                        ▸
+                    </span>
+                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 3, color: '#7FA8D9' }}>
+                        手動操作
+                    </span>
+                </summary>
+                <div className="flex flex-col gap-[22px] bg-black px-5 pb-6 pt-4">
+                    <div style={{ height: 1, background: 'rgba(79,216,255,.22)', flexShrink: 0 }} />
+
+                    <div className="flex flex-wrap gap-[18px]">
+                        <div style={manualPanelStyle(true, 1.4)}>
+                            <div style={MANUAL_LABEL_STYLE}>段階</div>
+                            <div className="flex flex-wrap gap-[10px]">
+                                {(Object.keys(STAGE_LABELS) as ExtraRoundStage[]).map(stage => (
+                                    <button key={stage} onClick={() => changeState({ stage })} style={manualBtnStyle(state.stage === stage)}>
+                                        <span style={manualBtnTextStyle(state.stage === stage)}>{STAGE_LABELS[stage]}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={manualPanelStyle(state.stage === 'firstStep', 1.4)}>
+                            <div style={MANUAL_LABEL_STYLE}>First Step の位置</div>
+                            <select
+                                value={state.cursor}
+                                onChange={e => changeState({ cursor: clampCursor(Number(e.target.value)), revealed: false })}
+                                className="px-3 py-2 bg-zinc-900 border border-zinc-600 text-white"
+                                style={{ fontFamily: '"Noto Sans JP",sans-serif' }}
+                            >
+                                {FIRST_STEP_SEQUENCE.map((_, i) => (
+                                    <option key={i} value={i}>
+                                        {i + 1}. {getFirstStepItemLabel(i)}{isPhaseEndAnswer(i) ? '（進出者決定）' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="flex flex-wrap gap-[10px]">
+                                <button onClick={() => changeState({ cursor: 0, revealed: false })} style={neutralBtnStyle()}>
+                                    <span style={NEUTRAL_BTN_TEXT}>最初（問題 1）へ</span>
+                                </button>
+                                <button onClick={() => changeState({ cursor: FIRST_STEP_LAST_CURSOR, revealed: false })} style={neutralBtnStyle()}>
+                                    <span style={NEUTRAL_BTN_TEXT}>最後（解答 20）へ</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={manualPanelStyle(true, 1.4)}>
+                            <div style={MANUAL_LABEL_STYLE}>データ操作</div>
+                            <div className="flex flex-wrap items-center gap-[10px]">
+                                <button onClick={handleUndo} disabled={isBusy || state.stage !== 'secondStep'} style={{ ...dangerBtnStyle(), opacity: state.stage === 'secondStep' ? 1 : 0.35 }}>
+                                    <span style={DANGER_BTN_TEXT}>Undo</span>
+                                </button>
+                                <button onClick={handleReset} disabled={isBusy} style={dangerBtnStyle()}>
+                                    <span style={DANGER_BTN_TEXT}>Extra Round の結果をリセット</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-[10px]">
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
+                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
+                            通常は閉じたまま。進行は上のボタンで完結します
+                        </span>
+                    </div>
+                </div>
+            </details>
+
+            <hr className="border-zinc-200 dark:border-zinc-700" />
+
+            <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
+                {state.stage === 'setup' && (
+                    <AdminExtraRoundUpload
+                        onReady={() => {
+                            loadQuestions();
+                            changeState({ stage: 'firstStep', cursor: 0, revealed: false });
+                        }}
+                    />
+                )}
+
+                {state.stage === 'firstStep' && (
+                    <AdminExtraRoundFirstStep cursor={state.cursor} revealed={state.revealed} questions={questions} />
+                )}
+
+                {state.stage === 'entrantSelect' && (
+                    players === null ? (
+                        <div className="py-10 text-center" style={{ color: '#5C7EA6' }}>読み込み中...</div>
+                    ) : (
+                        <AdminExtraRoundEntrants
+                            socket={socket}
+                            players={players}
+                            onConfirmed={() => changeState({ stage: 'secondStep' })}
+                        />
+                    )
+                )}
+
+                {state.stage === 'secondStep' && (
+                    <AdminExtraRoundSecondStep entrants={entrants} onScore={handleScore} busy={isBusy} />
+                )}
+            </div>
         </div>
     );
 }

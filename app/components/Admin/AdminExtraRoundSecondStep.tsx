@@ -1,126 +1,113 @@
-import { Socket } from "socket.io-client";
-import { useState, useEffect } from "react";
 import type { Player } from "@/lib/types";
+import { toOrdinal } from "@/lib/ordinal";
+import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
+import { STAT_CARD_STYLE, STAT_LABEL_STYLE, opBtnStyle, opBtnTextStyle } from "./adminCyberStyles";
 
 type Props = {
-    socket: Socket | null;
-}
+    /** Second Step 出場者（extraRoundSecondStep === true の選手） */
+    entrants: Player[];
+    onScore: (playerId: number, action: 'correct' | 'wrong') => void;
+    busy: boolean;
+};
 
-// Second Step（早押し）の採点画面。
-// 出場者は extraRoundSecondStep === true の選手（AdminExtraRoundEntrants で選ばれた最大12名）
-export default function AdminExtraRoundSecondStep(props: Props) {
-    const { socket } = props;
-    const [players, setPlayers] = useState<Player[]>([]);
+// Second Step で勝ち抜けに必要な正解数（lib/extraRoundScoring.ts と同じ値）
+const WIN_CORRECT_COUNT = 5;
 
-    useEffect(() => {
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        });
+// Second Step（早押し）の採点画面。Cowork Design の 3rd Round Admin（AdminQuizCard）と
+// 同じカード構成で、ルールの違い（5問正解で勝ち抜け・誤答は即失格）に合わせて内訳を変えている。
+export default function AdminExtraRoundSecondStep({ entrants, onScore, busy }: Props) {
+    const winner = entrants.find(p => p.extraRoundRank > 0) ?? null;
+    const activeCount = entrants.filter(p => p.extraRoundRank === 0).length;
 
-        if (socket) {
-            const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
-            socket.on("update_players", handlePlayersUpdate);
-            return () => {
-                socket.off("update_players", handlePlayersUpdate);
-            };
-        }
-    }, [socket]);
-
-    const handleScoreAction = async (playerId: number, action: 'correct' | 'wrong') => {
-        try {
-            const res = await fetch('/api/extraRound/secondStep/updateScore', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ playerId, action })
-            });
-            const data = await res.json();
-
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-            }
-        } catch (error) {
-            console.error('Extra Round Second Step score update failed', error);
-        }
-    };
-
-    const handleUndo = async () => {
-        try {
-            const res = await fetch('/api/extraRound/secondStep/undo', {
-                method: 'POST'
-            });
-            const data = await res.json();
-
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-            } else if (data.error) {
-                alert('Undoできません: ' + data.error);
-            }
-        } catch (error) {
-            console.error('Extra Round Second Step undo failed', error);
-        }
-    };
-
-    // 出場者だけを抜き出す
-    const entrants = players.filter(p => p.extraRoundSecondStep);
+    // 縦書きの選手名の枠は全員同じ高さにそろえる。名前の長さで枠が伸び縮みすると、その下の
+    // 正解数・ゲージ・ボタンの位置が選手ごとに上下してしまうため。いちばん長い名前が収まる高さ
+    // （1文字あたり約28px: 文字23px＋字間5px）を、全員に使う。
+    const longestName = entrants.reduce((max, p) => Math.max(max, Array.from(p.name).length), 0);
+    const nameBoxHeight = Math.max(130, longestName * 28 + 4);
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-                <label className="text-lg font-bold text-zinc-800 dark:text-zinc-200">
-                    Second Step
-                </label>
-                <button
-                    onClick={handleUndo}
-                    className="px-4 py-2 rounded-lg font-bold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-600 transition-colors"
-                >
-                    Undo
-                </button>
+        <div className="flex flex-col gap-5">
+            <div className="flex gap-4">
+                <div style={STAT_CARD_STYLE}>
+                    <div style={STAT_LABEL_STYLE}>出場者</div>
+                    <div style={{ marginTop: 6, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 34, color: '#EAF6FF' }}>{entrants.length}</div>
+                </div>
+                <div style={STAT_CARD_STYLE}>
+                    <div style={STAT_LABEL_STYLE}>残り</div>
+                    <div style={{ marginTop: 6, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 34, color: winner ? '#5C7EA6' : '#EAF6FF' }}>{winner ? 0 : activeCount}</div>
+                </div>
+                <div style={{ ...STAT_CARD_STYLE, flex: 2 }}>
+                    <div style={STAT_LABEL_STYLE}>敗者復活</div>
+                    <div style={{ marginTop: 10, fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 24, color: winner ? '#FFE28A' : '#5C7EA6' }}>
+                        {winner ? `${winner.name}（No.${winner.entryNo}）` : '未決定'}
+                    </div>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="flex flex-wrap gap-3 justify-center">
                 {entrants.map(p => {
-                    const isActive = p.extraRoundRank === 0;
+                    const tier = tierOf(p.paperRank, ACCENT);
+                    const isWinner = p.extraRoundRank > 0;
+                    const isEliminated = p.extraRoundRank < 0;
+                    // 勝ち抜け者が決まったら、残りの選手の操作も止める（API 側でも拒否される）
+                    const canOperate = p.extraRoundRank === 0 && !winner;
+                    const dotColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : '#35FFA0';
+                    const barColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : '#4FD8FF';
+                    const pct = Math.min(100, (p.extraRoundCorrectCount / WIN_CORRECT_COUNT) * 100);
+                    const statusStr = isEliminated ? 'LOST' : isWinner ? 'WIN' : '';
+
                     return (
-                        <div key={p.id} className={`p-4 border rounded-xl flex flex-col justify-between transition-all duration-300 ${isActive ? 'border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700/50' : 'border-transparent opacity-60 bg-zinc-200 dark:bg-zinc-900'}`}>
-                            <div>
-                                <div className="text-xs text-zinc-500 font-mono mb-1">No.{p.entryNo}</div>
-                                <div className="text-center font-black text-lg mb-2 truncate" title={p.name}>{p.name}</div>
+                        <div
+                            key={p.id}
+                            style={{
+                                flex: '1 1 0', minWidth: 120, maxWidth: 220, boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+                                alignItems: 'center', background: 'rgba(12,22,40,.75)', border: '1px solid rgba(79,216,255,.22)',
+                                borderTop: `3px solid ${tier.color}`, padding: '14px 8px 16px', gap: 12, overflow: 'hidden',
+                            }}
+                        >
+                            <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, letterSpacing: 1, color: tier.color }}>
+                                {toOrdinal(p.paperRank)}
                             </div>
-                            {isActive ? (
-                                <>
-                                    <div className="text-center mb-4 text-base font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                        {p.extraRoundCorrectCount} / 5
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => handleScoreAction(p.id, 'correct')}
-                                            className="flex-1 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:hover:bg-emerald-800/60 text-emerald-700 dark:text-emerald-300 font-bold py-2 rounded-lg transition-colors"
-                                        >
-                                            正解
-                                        </button>
-                                        <button
-                                            onClick={() => handleScoreAction(p.id, 'wrong')}
-                                            className="flex-1 bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-800/60 text-red-700 dark:text-red-300 font-bold py-2 rounded-lg transition-colors"
-                                        >
-                                            誤答
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="text-center font-bold mt-4 mb-2">
-                                    {p.extraRoundRank > 0 ? (
-                                        <span className="text-yellow-600 dark:text-yellow-400 font-black">🎉 敗者復活</span>
-                                    ) : (
-                                        <span className="text-zinc-500 dark:text-zinc-600 font-black">☠️ 失格</span>
-                                    )}
+                            <span style={{ display: 'block', width: 9, height: 9, borderRadius: '50%', background: dotColor, boxShadow: `0 0 8px ${dotColor}` }} />
+                            <div style={{
+                                writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700,
+                                fontSize: 23, letterSpacing: 5, color: isEliminated ? '#6E7685' : '#E9F3FF', height: nameBoxHeight, flexShrink: 0, display: 'flex',
+                                alignItems: 'flex-start', justifyContent: 'center', whiteSpace: 'nowrap',
+                            }}>
+                                {p.name}
+                            </div>
+                            <div style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <span style={{
+                                    fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1,
+                                    color: isEliminated ? '#8A93A3' : '#FFC93C',
+                                    textShadow: isEliminated ? 'none' : '0 0 6px rgba(255,201,60,.6)', whiteSpace: 'nowrap',
+                                }}>
+                                    {statusStr}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, color: '#EAF6FF' }}>
+                                    {p.extraRoundCorrectCount}
+                                </span>
+                                <div style={{ width: 11, height: 64, background: 'rgba(255,255,255,.06)', position: 'relative', overflow: 'hidden' }}>
+                                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${pct}%`, background: barColor, boxShadow: `0 0 8px ${barColor}` }} />
                                 </div>
-                            )}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', marginTop: 'auto' }}>
+                                <button onClick={() => onScore(p.id, 'correct')} disabled={busy || !canOperate} style={opBtnStyle('correct', canOperate)}>
+                                    <span style={opBtnTextStyle('correct')}>正解</span>
+                                </button>
+                                <button onClick={() => onScore(p.id, 'wrong')} disabled={busy || !canOperate} style={opBtnStyle('wrong', canOperate)}>
+                                    <span style={opBtnTextStyle('wrong')}>誤答</span>
+                                </button>
+                            </div>
                         </div>
                     );
                 })}
                 {entrants.length === 0 && (
-                    <div className="col-span-full py-8 text-center text-zinc-500">
-                        Second Step 出場者が選ばれていません。
+                    <div className="w-full py-10 text-center" style={{ fontFamily: '"Noto Sans JP",sans-serif', color: '#5C7EA6' }}>
+                        出場者が未選択です。手動操作から選び直してください
                     </div>
                 )}
             </div>
