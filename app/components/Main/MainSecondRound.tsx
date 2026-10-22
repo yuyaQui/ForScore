@@ -23,6 +23,7 @@ import {
 import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 import { WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
+import { RoundStage } from "@/app/components/Main/RoundStage";
 
 type Props = {
     players: Player[],
@@ -85,6 +86,7 @@ export default function MainSecondRound(props: Props) {
                     key={`quiz-${secondRoundState.group}`}
                     groupPlayers={groupPlayers}
                     groupNumber={secondRoundState.group}
+                    socket={socket}
                 />
             )}
         </FixedStage>
@@ -352,11 +354,14 @@ function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, 
 type QuizViewProps = {
     groupPlayers: Player[];
     groupNumber: number;
+    socket: Socket | null;
 };
 
 type DoorPhase = 'hidden' | 'collapsed' | 'expanding' | 'open';
 
 const FULL_CHASSIS_H = 694, FULL_OUTER_H = 680;
+/** カード（694）＋ 下の点数（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準 */
+const SECOND_ROUND_CONTENT_H = FULL_CHASSIS_H + 16 + 70 + 4 + 70;
 const COLLAPSED_CHASSIS_H = 144, COLLAPSED_OUTER_H = 130;
 const COLLAPSED_STRIP_H = 7;
 const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (FULL_OUTER_H / COLLAPSED_OUTER_H));
@@ -369,7 +374,7 @@ const FULL_BADGE_TOP = FULL_STRIP_H + 10;
 const CARD_OUTER_W = 168, CUT_PAD = 10;
 const NEUTRAL_FRAME = '#4A5568'; // 失格した選手の枠色（順位帯の色に関わらずこのグレーに固定）
 
-function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
+function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
     const [doorPhase, setDoorPhase] = useState<DoorPhase>('hidden');
     const [noTransition, setNoTransition] = useState(true);
 
@@ -417,8 +422,7 @@ function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
     // 横幅(1920 - 72px*2 = 1776px)を超えてしまい、両端のカードが画面外に見切れる
     // （2026-09-26 に実際の画面で発覚した不具合）。個々のカードの寸法・文字サイズは
     // アーティファクト通りに保ったまま、列全体をまとめて transform:scale() で縮小することで
-    // 収める。8名以下（人数が少ない組や表示テスト時）は scale=1 のまま、アーティファクトと
-    // 完全に同じ等倍表示になる。
+    // 収める。2026-10-22 から縮小は RoundStage が行う（横幅と高さの両方で収まる倍率）。
     const CARD_SLOT_W = 172;
     // カード同士の間隔。26px → 12px に詰めて、その分 rowScale（下記）が大きくなるように
     // している（間隔を削った分だけ縮小率が緩み、カード・カード内の文字とも少し大きく見える。
@@ -430,41 +434,39 @@ function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
     // だけでは限界があり、カード自体の基準サイズ(CARD_SLOT_W や各文字サイズ)を見直す
     // 必要がある。
     const CARD_GAP = 12;
-    const STAGE_CONTENT_W = 1920 - 72 * 2; // 1776px。padding分を引いた実際に使える横幅
     const naturalRowW = groupPlayers.length > 0
         ? groupPlayers.length * CARD_SLOT_W + (groupPlayers.length - 1) * CARD_GAP
         : 0;
-    const rowScale = naturalRowW > STAGE_CONTENT_W ? STAGE_CONTENT_W / naturalRowW : 1;
 
     // 右下の「残り参加者数 → 残り勝ち抜け枠数」（2026-10-11 ユーザー指示）。
     // 残り参加者 = まだ勝ち抜けも失格もしていない選手（secondRoundRank === 0）
     const activeCount = groupPlayers.filter(p => p.secondRoundRank === 0).length;
     const remainingSlots = Math.max(0, SECOND_ROUND_WINNERS_PER_GROUP - groupPlayers.filter(p => p.secondRoundRank > 0).length);
 
+    // 2026-10-22: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage）。
+    // カードの縮小は RoundStage が行う（12名の横幅と、カード＋下の点数・誤答の高さの両方で収まる倍率）
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
-            {/* 見出し。1行目は左「2nd Round」・右「○組目」を同じ大きさ・高さで並べ、
-                2行目は左にルール、右に「残り参加者数 → 残り勝ち抜け枠数」を出す（2026-10-11 ユーザー指示） */}
+        <RoundStage socket={socket} round="secondRound" ruleColor="#35FFA0" contentW={Math.max(naturalRowW, 1)} contentH={SECOND_ROUND_CONTENT_H}
+            header={
+            /* 見出し。1行目は左「2nd Round」・右「○組目」を同じ大きさ・高さで並べ、
+                2行目は左にルール、右に「残り参加者数 → 残り勝ち抜け枠数」を出す（2026-10-11 ユーザー指示） */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>2nd Round</div>
-                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>{groupNumber}組目</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2×</div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
-                        <span style={{ color: '#4FD8FF' }}>{activeCount}</span>
-                        <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
-                        <span style={{ color: '#FFC93C' }}>{remainingSlots}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>2nd Round</div>
+                        <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>{groupNumber}組目</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2×</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
+                            <span style={{ color: '#4FD8FF' }}>{activeCount}</span>
+                            <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
+                            <span style={{ color: '#FFC93C' }}>{remainingSlots}</span>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-            {/* 見出し下の横線は、選手枠の緑（25位以下の順位帯の色。lib/cyberpunkCard の tierOf と同じ値）にする（2026-10-11 ユーザー指示） */}
-            <div style={{ height: 2, marginTop: 26, background: '#35FFA0', boxShadow: '0 0 12px rgba(53,255,160,.45)', flexShrink: 0 }} />
-
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: CARD_GAP, transform: `scale(${rowScale})`, transformOrigin: 'center center' }}>
+            }>
+            {/* 見出し下の横線は、選手枠の緑（25位以下の順位帯の色。lib/cyberpunkCard の tierOf と同じ値。2026-10-11 ユーザー指示） */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: CARD_GAP }}>
                     {groupPlayers.map((p) => {
                         // DB平坦化に伴うステータスの動的判定
                         const tier = tierOf(p.paperRank, ACCENT);
@@ -619,7 +621,6 @@ function QuizView({ groupPlayers, groupNumber }: QuizViewProps) {
                         <div style={{ color: '#7FA8D9', fontSize: 28 }}>選手データがありません。</div>
                     )}
                 </div>
-            </div>
-        </div>
+        </RoundStage>
     );
 }

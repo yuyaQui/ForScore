@@ -9,6 +9,7 @@ import {
 } from "@/lib/extraRound";
 import { ACCENT, TIER_PURPLE } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
+import { RoundStage } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
 import { RevealWhole } from "@/app/components/Main/RevealText";
 
@@ -94,7 +95,7 @@ export default function MainExtraRound(props: Props) {
         const entrants = players.filter(p => p.extraRoundSecondStep);
         return (
             <FixedStage>
-                <SecondStepView entrants={entrants} />
+                <SecondStepView entrants={entrants} socket={socket} />
             </FixedStage>
         );
     }
@@ -287,27 +288,22 @@ function FirstStepView({ number, view, question, revealed }: {
 // Second Step（早押し）
 // ============================================================================
 
-function SecondStepView({ entrants }: { entrants: Player[] }) {
+function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Socket | null }) {
     const phase = useCardIntroPhase();
 
-    // 2nd Round と同じく、人数が多いときは列全体を transform:scale() で縮小して画面幅に収める。
-    // 少ないときは間隔を広げて見栄えを保つ。
+    // 人数が多いときは列全体を縮小して画面幅に収め、少ないときは間隔を広げて見栄えを保つ。
+    // 2026-10-22 から縮小は RoundStage が行う（見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる）
     const CARD_SLOT_W = 172;
-    const STAGE_CONTENT_W = 1920 - 72 * 2;
     const n = entrants.length;
     const gap = n <= 6 ? 56 : n <= 9 ? 28 : 12;
-    const naturalRowW = n > 0 ? n * CARD_SLOT_W + (n - 1) * gap : 0;
-    const rowScale = naturalRowW > STAGE_CONTENT_W ? STAGE_CONTENT_W / naturalRowW : 1;
+    const naturalRowW = n > 0 ? n * CARD_SLOT_W + (n - 1) * gap : 1;
 
     return (
-        <div style={STAGE_STYLE}>
-            {/* 右上の「敗者復活者が決定しました」は 2026-10-11 のユーザー指示で削除した */}
-            {/* 2026-10-11 のユーザー指示で、1行目を「Extra Round - Second Step」、2行目をルール（5○1×）にした */}
-            <Header step="Second Step" subtitle={`${SECOND_STEP_WIN_CORRECT_COUNT}○1×`} />
-            <Rule color={TIER_PURPLE} />
-
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap, transform: `scale(${rowScale})`, transformOrigin: 'center center' }}>
+        // 右上の「敗者復活者が決定しました」は 2026-10-11 のユーザー指示で削除した。
+        // 2026-10-11 のユーザー指示で、1行目を「Extra Round - Second Step」、2行目をルール（5○1×）にした
+        <RoundStage socket={socket} round="extraSecondStep" ruleColor={TIER_PURPLE} contentW={naturalRowW} contentH={EXTRA_SECOND_STEP_CONTENT_H}
+            header={<Header step="Second Step" subtitle={`${SECOND_STEP_WIN_CORRECT_COUNT}○1×`} />}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap }}>
                     {entrants.map(p => {
                         const isWinner = p.extraRoundRank > 0;
                         const eliminated = p.extraRoundRank < 0;
@@ -342,7 +338,9 @@ function SecondStepView({ entrants }: { entrants: Player[] }) {
                         </span>
                     )}
                 </div>
-            </div>
-        </div>
+        </RoundStage>
     );
 }
+
+/** 選手カード（694）＋ 下の数字（16＋70）。RoundStage の縮小の基準（2026-10-22） */
+const EXTRA_SECOND_STEP_CONTENT_H = 694 + 16 + 70;

@@ -139,6 +139,18 @@ model ExtraRoundQuestion {
   // number から導出できるため列にしない。
 }
 
+// 大会共通の問題群（2026-10-22 追加。docs/question-display-design.md）
+//
+// 2nd Round・3rd Round・Extra Round Second Step・準決勝・決勝で同じ問題群を使い、
+// 通し番号で問題を指定する。大会前に CSV でまとめて取り込む（全件入れ替え）。
+// 選手データとは関係を持たない独立した表。大会後のデータ削除の対象に含める。
+model QuestionPoolItem {
+  serial    Int    @id          // 通し番号（1〜）
+  text      String              // 問題文
+  answer    String              // 解答
+  altAnswer String @default("") // 別解・正誤判定基準（Admin だけが見る。空でもよい）
+}
+
 // Extra Round Second Step の履歴（スナップショット）保存モデル
 //
 // 2nd / 3rd Round と違い、Second Step は組やコースに分かれないので識別子を持たない。

@@ -16,6 +16,7 @@ import AdminExtraRoundUpload from "./AdminExtraRoundUpload";
 import AdminExtraRoundFirstStep from "./AdminExtraRoundFirstStep";
 import AdminExtraRoundEntrants from "./AdminExtraRoundEntrants";
 import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
+import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import {
     MANUAL_LABEL_STYLE,
     DANGER_BTN_TEXT,
@@ -118,6 +119,9 @@ export default function AdminExtraRound(props: Props) {
     const entrants = (players ?? []).filter(p => p.extraRoundSecondStep);
     const winner = entrants.find(p => p.extraRoundRank > 0) ?? null;
 
+    // 問題表示（2026-10-22。Second Step のみ）。採点が成功したら、その問題を Main に表示して次の問題に進める
+    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'extraSecondStep');
+
     const handleScore = async (playerId: number, action: 'correct' | 'wrong') => {
         setErrorMessage('');
         setIsBusy(true);
@@ -130,6 +134,7 @@ export default function AdminExtraRound(props: Props) {
             const data = await res.json();
             if (res.ok && data.success) {
                 if (socket) socket.emit('broadcast_scores', data.allPlayers);
+                finishQuestion();
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -380,7 +385,14 @@ export default function AdminExtraRound(props: Props) {
                 )}
 
                 {state.stage === 'secondStep' && (
-                    <AdminExtraRoundSecondStep entrants={entrants} onScore={handleScore} busy={isBusy} />
+                    <>
+                        <AdminExtraRoundSecondStep entrants={entrants} onScore={handleScore} busy={isBusy} />
+                        {/* スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22） */}
+                        <button onClick={finishQuestion} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
+                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
+                        </button>
+                        <AdminQuestionPanel socket={socket} round="extraSecondStep" state={questionState} />
+                    </>
                 )}
             </div>
         </div>

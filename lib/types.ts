@@ -215,3 +215,25 @@ export type FinalView = 'standby' | 'intro' | 'quiz' | 'result';
 
 /** サーバから届くまでの初期値（server/FinalHandler.js の初期値と同じ） */
 export const DEFAULT_FINAL_STATE: FinalState = { set: 1, view: 'standby', introIndex: 0, resultRank: 0 };
+
+/**
+ * 問題表示（2026-10-22 追加。docs/question-display-design.md 3.3）。
+ * 早押しの1問が終わるたびに、その問題の問題文と解答を Main の仕切り線の上に出す。
+ * server/QuestionHandler.js がメモリに保持し、update_question_display で配信する。
+ */
+export type QuestionRound = 'secondRound' | 'thirdRound' | 'extraSecondStep' | 'final';
+
+export type QuestionDisplayState = {
+    /** 表示中の問題がどのラウンドのものか。まだ何も出していなければ null */
+    round: QuestionRound | null;
+    /** 表示中の問題の通し番号 */
+    serial: number | null;
+    /** Main に出しているか（Admin の「隠す」で false） */
+    shown: boolean;
+    /** 表示する問題が変わった回数。Main はこれが増えた瞬間だけ現れる演出をする */
+    seq: number;
+    /** ラウンドごとの「次に読む問題」の通し番号。開始番号を決めていないラウンドは無い */
+    cursors: Partial<Record<QuestionRound, number>>;
+};
+
+export const DEFAULT_QUESTION_DISPLAY: QuestionDisplayState = { round: null, serial: null, shown: false, seq: 0, cursors: {} };

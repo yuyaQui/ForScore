@@ -23,6 +23,7 @@ import {
     outlineShadow,
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
+import { RoundStage } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
@@ -155,7 +156,7 @@ export default function MainThirdRound(props: Props) {
     if (thirdRoundState.phase === 'playoff') {
         return (
             <FixedStage>
-                <PlayoffView quizCourse={quizCourse ?? null} quizPlayers={quizPlayers} />
+                <PlayoffView quizCourse={quizCourse ?? null} quizPlayers={quizPlayers} socket={socket} />
             </FixedStage>
         );
     }
@@ -180,6 +181,7 @@ export default function MainThirdRound(props: Props) {
                         quizCourse={quizCourse}
                         quizPlayers={quizPlayers}
                         remaining={remaining}
+                        socket={socket}
                     />
                 ) : (
                     <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', fontFamily: "'Rajdhani',sans-serif" }}>
@@ -560,15 +562,21 @@ type QuizViewProps = {
     quizCourse: Course;
     quizPlayers: Player[];
     remaining: number;
+    socket: Socket | null;
 }
 
-function QuizView({ quizCourse, quizPlayers, remaining }: QuizViewProps) {
+/** 選手カード（694）＋ 下の数字（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準（2026-10-22） */
+const THIRD_ROUND_CONTENT_H = 694 + 16 + 70 + 4 + 70;
+/** サドンデスはカードの下が数字（勝ち抜け順位・LOST）だけ */
+const THIRD_ROUND_PLAYOFF_CONTENT_H = 694 + 16 + 70;
+
+function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps) {
     const phase = useCardIntroPhase();
+    // 2026-10-22: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage）
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
-            <QuizHeader courseName={quizCourse.name} />
-            <div style={{ height: 2, marginTop: 26, background: '#FFC93C', boxShadow: '0 0 12px rgba(255,201,60,.45)', flexShrink: 0 }} />
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <RoundStage socket={socket} round="thirdRound" ruleColor="#FFC93C" contentW={1776} contentH={THIRD_ROUND_CONTENT_H}
+            header={<QuizHeader courseName={quizCourse.name} />}>
+            <div style={{ width: 1776, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56 }}>
                     {quizPlayers.map(p => (
                         <QuizPlayerCard key={p.id} player={p} courseName={quizCourse.name as ThirdRoundCourseName} phase={phase} />
@@ -576,7 +584,7 @@ function QuizView({ quizCourse, quizPlayers, remaining }: QuizViewProps) {
                 </div>
                 <TimerPanel remaining={remaining} playFillIntro={phase.isExpanding} />
             </div>
-        </div>
+        </RoundStage>
     );
 }
 
@@ -718,6 +726,7 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
 type PlayoffViewProps = {
     quizCourse: Course | null;
     quizPlayers: Player[];
+    socket: Socket | null;
 }
 
 /**
@@ -726,10 +735,13 @@ type PlayoffViewProps = {
  * (ユーザー判断、2026-10-03)。見出し下の横線は 2026-10-11 のユーザー指示で、
  * コース本体と同じ黄色(#FFC93C)にしている。
  */
-function PlayoffView({ quizCourse, quizPlayers }: PlayoffViewProps) {
+function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
     const phase = useCardIntroPhase();
+    const rowW = Math.max(1, quizPlayers.length * 172 + Math.max(0, quizPlayers.length - 1) * 56);
+    // 2026-10-22: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage）。
+    // 見出し下の横線は通常のクイズ画面と同じ黄色にする（2026-10-11 ユーザー指示）
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+        <RoundStage socket={socket} round="thirdRound" ruleColor="#FFC93C" contentW={rowW} contentH={THIRD_ROUND_PLAYOFF_CONTENT_H} header={
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
@@ -737,11 +749,8 @@ function PlayoffView({ quizCourse, quizPlayers }: PlayoffViewProps) {
                 </div>
             </div>
 
-            {/* 見出し下の横線は通常のクイズ画面と同じ黄色にする（2026-10-11 ユーザー指示） */}
-            <div style={{ height: 2, marginTop: 26, background: '#FFC93C', boxShadow: '0 0 12px rgba(255,201,60,.45)', flexShrink: 0 }} />
-
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, flexWrap: 'wrap', justifyContent: 'center' }}>
+        }>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, justifyContent: 'center' }}>
                     {quizPlayers.map(p => {
                         // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0
                         const eliminated = p.thirdRoundRank < 0;
@@ -773,7 +782,6 @@ function PlayoffView({ quizCourse, quizPlayers }: PlayoffViewProps) {
                         </span>
                     )}
                 </div>
-            </div>
-        </div>
+        </RoundStage>
     );
 }

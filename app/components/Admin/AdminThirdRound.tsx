@@ -17,6 +17,7 @@ import {
 } from "@/lib/thirdRoundScoring";
 import { toOrdinal } from "@/lib/ordinal";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
+import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 
 type Props = {
     socket: Socket | null;
@@ -363,6 +364,10 @@ function AdminQuizCard({ player: p, courseName, onScore, busy }: {
 export default function AdminThirdRound(props: Props) {
     const { socket } = props;
 
+    // 問題表示（2026-10-22）。採点（正解・誤答・スルー）が成功したら、その問題を Main に表示して次の問題に進める。
+    // コースが変わっても通し番号は続きから（ラウンドで1本の番号）
+    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'thirdRound');
+
     const [thirdRoundState, setThirdRoundState] = useState<ThirdRoundState>({
         phase: "courseSelect",
         step: "entry",
@@ -512,6 +517,8 @@ export default function AdminThirdRound(props: Props) {
                 if (data.shouldStopTimer) {
                     socket.emit('change_third_round_timer', { action: 'stop' });
                 }
+                // 正解・誤答・スルーでその問題は終わる。コース終了処理（finish）は問題と関係しない
+                if (action !== 'finish') finishQuestion();
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -542,6 +549,8 @@ export default function AdminThirdRound(props: Props) {
             const data = await res.json()
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers)
+                // サドンデスも早押しの1問。Main に表示して次の問題へ
+                finishQuestion();
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -1249,14 +1258,14 @@ export default function AdminThirdRound(props: Props) {
                             )}
                         </div>
 
-                        {/* スルーを記録するのは Freeze 10 だけ。他の3コースでは何にも影響しないため
-                            ボタン自体を出さない(決定事項2)。選手に紐づかない「問題が1問終わった」
-                            というイベントで、休み中の選手の残り問数を減らす契機になる。
+                        {/* スルーを API に記録するのは Freeze 10 だけ（決定事項2。休み中の選手の残り問数を減らす契機）。
                             2026-10-11 のユーザー指示で、左右の端を選手枠の列（カード幅の上限
                             ADMIN_QUIZ_CARD_MAX_WIDTH × 人数＋間隔）とそろえている。 */}
-                        {quizCourse?.name === THIRD_ROUND_COURSES.FREEZE && quizPlayers.length > 0 && (
+                        {/* 2026-10-22: 問題表示のため、スルーは全コースで出す。Freeze 10 では従来どおり API に記録し
+                            （休み中の選手の残り問数を減らす）、他の3コースはスコアを変えずに問題だけ進める */}
+                        {quizPlayers.length > 0 && (
                             <button
-                                onClick={() => handleScore(null, 'through')}
+                                onClick={() => { if (quizCourse?.name === THIRD_ROUND_COURSES.FREEZE) void handleScore(null, 'through'); else finishQuestion(); }}
                                 disabled={isBusy}
                                 style={{
                                     width: `min(100%, ${quizPlayers.length * ADMIN_QUIZ_CARD_MAX_WIDTH + (quizPlayers.length - 1) * 10}px)`,
@@ -1267,6 +1276,7 @@ export default function AdminThirdRound(props: Props) {
                                 <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
                             </button>
                         )}
+                        <AdminQuestionPanel socket={socket} round="thirdRound" state={questionState} />
                     </div>
                 </div>
             )}
@@ -1322,6 +1332,7 @@ export default function AdminThirdRound(props: Props) {
                             </div>
                         )}
                     </div>
+                    <AdminQuestionPanel socket={socket} round="thirdRound" state={questionState} />
                 </div>
             )}
         </div>

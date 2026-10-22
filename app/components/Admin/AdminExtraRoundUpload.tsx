@@ -13,7 +13,7 @@ type Props = {
  * ファイルを文字列にする。Excel が出す CSV は Shift_JIS のことが多いので、
  * UTF-8 として読んで文字化け（置換文字 U+FFFD）が出たら Shift_JIS で読み直す。
  */
-async function readCsvText(file: File): Promise<string> {
+export async function readCsvText(file: File): Promise<string> {
     const buffer = await file.arrayBuffer();
     const utf8 = new TextDecoder('utf-8').decode(buffer);
     if (!utf8.includes('�')) return utf8;

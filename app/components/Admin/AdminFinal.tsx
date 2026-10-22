@@ -7,6 +7,7 @@ import { getFinalists, finalPlaceLabel } from "@/lib/finalProfile";
 import { photoUrl } from "@/lib/semifinalProfile";
 import { NoPhoto } from "@/app/components/Main/SemifinalCard";
 import { useSemifinalProfiles } from "./AdminSemifinalPrep";
+import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import {
     MANUAL_LABEL_STYLE, manualBtnStyle, manualBtnTextStyle, neutralBtnStyle, NEUTRAL_BTN_TEXT,
     primaryButtonStyle, secondaryActionStyle,
@@ -51,6 +52,8 @@ export default function AdminFinal(props: Props) {
     const [finalState, setFinalState] = useState<FinalState>(DEFAULT_FINAL_STATE);
     // 写真・二つ名（選手紹介の確認用）
     const { profiles } = useSemifinalProfiles(socket);
+    // 問題表示（2026-10-22）。採点が成功したら、その問題を Main に表示して次の問題に進める
+    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'final');
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
 
@@ -107,6 +110,7 @@ export default function AdminFinal(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
+                finishQuestion();
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -410,6 +414,14 @@ export default function AdminFinal(props: Props) {
                     </p>
                 </div>
             )}
+
+            {/* スルー（誰も解答しなかった）と問題パネル（2026-10-22）。スルーはスコアを変えず問題だけ進める */}
+            {view === 'quiz' && !isTournamentFinished && (
+                <button onClick={finishQuestion} disabled={isBusy} className="w-full bg-sky-600 hover:bg-sky-700 disabled:bg-zinc-300 text-white font-bold py-3 rounded-lg transition-colors">
+                    スルー
+                </button>
+            )}
+            <AdminQuestionPanel socket={socket} round="final" state={questionState} />
 
             <button
                 onClick={handleUndo}

@@ -2,10 +2,10 @@
  * 大会共通の問題群（通し番号つき）の解析と範囲選択
  *
  * 2nd Round 以降（2nd / 3rd Round・Extra Round Second Step・準決勝・決勝）は同じ問題群を使い、
- * 「通し番号」で問題を指定する（2026-10-10 ユーザー決定）。問題群をシステムに取り込む方法は
- * 未決（大会前にまとめて取り込む方向で検討中）のため、いまは検証用サンプル
- * `test_questions.csv` を `GET /api/questions` が直接読む。取込方法が決まったら
- * API の読み込み元だけを差し替え、ここ（解析・範囲選択）と画面側は変えない。
+ * 「通し番号」で問題を指定する（2026-10-10 ユーザー決定）。2026-10-22 から、問題群は大会前に
+ * Admin（待機画面）で CSV を取り込み、DB（QuestionPoolItem）に保存する（POST /api/questionPool）。
+ * このファイルは CSV の解析・範囲選択・登録状況のまとめ（API と画面の両方で使う純関数）。
+ * 検証用サンプル `test_questions.csv` は取込画面で読み込ませる見本として残している。
  *
  * CSV の列: 1列目 通し番号 / 2列目 問題文 / 3列目 解答 / 4列目 別解・正誤判定基準（空でもよい）
  */
@@ -99,4 +99,25 @@ export function selectQuestionRange(pool: PoolQuestion[], from: number, to: numb
         return { ok: false, error: `登録されていない通し番号があります（${shown}）` };
     }
     return { ok: true, questions };
+}
+
+/** 問題データの登録状況（GET /api/questionPool） */
+export type QuestionPoolSummary = {
+    count: number;
+    /** 最小・最大の通し番号。未登録なら null */
+    min: number | null;
+    max: number | null;
+    /** min〜max の間で抜けている通し番号（多すぎるときは先頭から20件まで） */
+    missing: number[];
+};
+
+/** 登録済みの通し番号（昇順）から登録状況をまとめる */
+export function summarizeQuestionPool(serials: number[]): QuestionPoolSummary {
+    if (serials.length === 0) return { count: 0, min: null, max: null, missing: [] };
+    const min = serials[0];
+    const max = serials[serials.length - 1];
+    const set = new Set(serials);
+    const missing: number[] = [];
+    for (let s = min; s <= max && missing.length < 20; s++) if (!set.has(s)) missing.push(s);
+    return { count: serials.length, min, max, missing };
 }

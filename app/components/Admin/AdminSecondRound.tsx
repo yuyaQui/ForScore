@@ -6,6 +6,7 @@ import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
 import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice } from "@/lib/secondRound";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
+import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 
 type Props = {
     socket: Socket | null;
@@ -78,6 +79,9 @@ export default function AdminSecondRound(props: Props) {
         }
     }, [socket])
 
+    // 問題表示（2026-10-22）。採点が成功したら、その問題を Main に表示して次の問題に進める
+    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'secondRound');
+
     const handleScoreAction = async (playerId: number, action: 'correct' | 'wrong') => {
         try {
             const res = await fetch('/api/secondRound/updateScores', {
@@ -89,6 +93,8 @@ export default function AdminSecondRound(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
+                // 正解・誤答でその問題は終わる（ルール）。Main に表示して次の問題へ
+                finishQuestion();
             }
         } catch (error) {
             console.error('Score update failed', error);
@@ -560,6 +566,11 @@ export default function AdminSecondRound(props: Props) {
                             </div>
                         )}
                     </div>
+                    {/* スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22） */}
+                    <button onClick={finishQuestion} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
+                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
+                    </button>
+                    <AdminQuestionPanel socket={socket} round="secondRound" state={questionState} />
                 </div>
             )}
         </div>

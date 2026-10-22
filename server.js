@@ -21,6 +21,7 @@ const ThirdRoundHandler = require("./server/ThirdRoundHandler");
 const ExtraRoundHandler = require("./server/ExtraRoundHandler");
 const SemifinalHandler = require("./server/SemifinalHandler");
 const FinalHandler = require("./server/FinalHandler");
+const QuestionHandler = require("./server/QuestionHandler"); // 問題表示（2026-10-22）
 
 // 4. アプリケーションの立ち上げ処理
 console.log("Next.jsを起動しています。しばらくお待ちください");
@@ -59,6 +60,7 @@ app.prepare().then(() => {
         ExtraRoundHandler(io, socket);
         SemifinalHandler(io, socket);
         FinalHandler(io, socket);
+        QuestionHandler(io, socket);
 
         socket.on('broadcast_scores', (allPlayers) => {
             io.emit('update_players', allPlayers);

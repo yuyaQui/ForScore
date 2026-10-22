@@ -241,6 +241,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `broadcast_scores` | `Player[]` | `server.js` |
 | `broadcast_third_round_courses` | `ThirdRoundCourse[]` | `ThirdRoundHandler` |
 | `reset_third_round_progress` | なし | `ThirdRoundHandler`（選手 CSV の取り込み後に、進行状態・タイマーを初期値に戻す） |
+| `set_question_cursor` / `finish_question` / `change_question_display` / `request_question_sync` | `{ round, serial }` / `{ round, serial }` / `{ shown }` / なし | `QuestionHandler`（問題表示。`docs/question-display-design.md`） |
 | `update_text` | text: string | `TextHandler` |
 | `1R_start_timer` / `1R_stop_timer` / `1R_reset_timer` | なし | `FirstRoundHandler` |
 | `1R_edit_timer` | seconds: number | `FirstRoundHandler` |
@@ -257,6 +258,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `update_semifinal_timer` | `SemifinalTimer` |
 | `update_semifinal_profiles` | なし（受け取ったら `/api/semifinal/profiles` を取り直す） |
 | `update_final_state` | `FinalState` |
+| `update_question_display` | `QuestionDisplayState` |
 | `update_players` | `Player[]` |
 | `text_updated` | text: string |
 | `1R_update_timer` | seconds: number |

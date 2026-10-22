@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { io, Socket } from "socket.io-client";
 import AdminText from "../components/Admin/AdminText";
+import AdminQuestionPoolUpload from "../components/Admin/AdminQuestionPoolUpload";
 import AdminFirstRound from "../components/Admin/AdminFirstRound";
 import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
@@ -172,7 +173,11 @@ export default function AdminPage() {
       )}
 
       {currentMode === "waiting" && (
-        <AdminText socket={socket} />
+        <>
+          <AdminText socket={socket} />
+          {/* 大会共通の問題データの取り込み（大会前に一度。2026-10-22） */}
+          <AdminQuestionPoolUpload />
+        </>
       )}
 
       {currentMode === "secondRound" && (

@@ -8,6 +8,7 @@ import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import { photoUrl, type SemifinalProfile } from "@/lib/semifinalProfile";
 import FixedStage from "@/app/components/FixedStage";
+import { RoundStage } from "./RoundStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { FinalCard } from "./FinalCard";
 
@@ -86,35 +87,13 @@ export default function MainFinal(props: Props) {
     const resultPlayer = finalPlayers.find(p => p.finalRank === finalState.resultRank) ?? null;
     const ruleColor = tierOf(1, ACCENT).color;
 
-    return (
-        <FixedStage>
-            <div style={{
-                width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000',
-                display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif",
-            }}>
-                {/* 待機中は何も表示しない（2026-10-17 ユーザー指示） */}
-                {view !== 'standby' && (<>
-                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>Final</div>
-                        <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>Triple Seven</div>
-                    </div>
-                    {view === 'quiz' && <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 40, letterSpacing: 3, color: ACCENT }}>SET {finalState.set}</span>}
-                </div>
-                {/* 見出し下の線は、1〜4位の順位帯の赤（選手枠の赤）にそろえる（2026-10-15 ユーザー指示） */}
-                <div style={{ height: 2, marginTop: 26, background: ruleColor, boxShadow: `0 0 12px ${ruleColor}73`, flexShrink: 0 }} />
-
-                </>)}
-                {view === 'intro' && introPlayer && (
-                    <FinalProfile key={`intro-${finalState.introIndex}`} player={introPlayer} index={finalState.introIndex}
-                        nickname={profileOf(introPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(introPlayer.id))} place={null} />
-                )}
-                {view === 'result' && resultPlayer && (
-                    <FinalProfile key={`result-${finalState.resultRank}`} player={resultPlayer} index={finalPlayers.indexOf(resultPlayer)}
-                        nickname={profileOf(resultPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(resultPlayer.id))} place={finalState.resultRank} />
-                )}
-                {view === 'quiz' && (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 54 }}>
+    // クイズ画面: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage。2026-10-22）
+    if (view === 'quiz') {
+        return (
+            <FixedStage>
+                <RoundStage socket={socket} round="final" ruleColor={ruleColor} contentW={1776} contentH={FINAL_CONTENT_H}
+                    header={<FinalHeader right={<span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 40, letterSpacing: 3, color: ACCENT }}>SET {finalState.set}</span>} />}>
+                <div style={{ width: 1776, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 54 }}>
                     {finalPlayers.map(player => {
                         const correct = player.finalCorrectCount;
                         const wrong = player.finalWrongCount;
@@ -154,8 +133,49 @@ export default function MainFinal(props: Props) {
                         </span>
                     )}
                 </div>
+                </RoundStage>
+            </FixedStage>
+        );
+    }
+
+    return (
+        <FixedStage>
+            <div style={{
+                width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000',
+                display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif",
+            }}>
+                {/* 待機中は何も表示しない（2026-10-17 ユーザー指示） */}
+                {view !== 'standby' && (<>
+                <FinalHeader />
+                {/* 見出し下の線は、1〜4位の順位帯の赤（選手枠の赤）にそろえる（2026-10-15 ユーザー指示） */}
+                <div style={{ height: 2, marginTop: 26, background: ruleColor, boxShadow: `0 0 12px ${ruleColor}73`, flexShrink: 0 }} />
+
+                </>)}
+                {view === 'intro' && introPlayer && (
+                    <FinalProfile key={`intro-${finalState.introIndex}`} player={introPlayer} index={finalState.introIndex}
+                        nickname={profileOf(introPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(introPlayer.id))} place={null} />
+                )}
+                {view === 'result' && resultPlayer && (
+                    <FinalProfile key={`result-${finalState.resultRank}`} player={resultPlayer} index={finalPlayers.indexOf(resultPlayer)}
+                        nickname={profileOf(resultPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(resultPlayer.id))} place={finalState.resultRank} />
                 )}
             </div>
         </FixedStage>
     );
 }
+
+/** 見出し「Final / Triple Seven」。right は右端に出すもの（クイズ中の SET 番号） */
+function FinalHeader({ right }: { right?: React.ReactNode }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>Final</div>
+                <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>Triple Seven</div>
+            </div>
+            {right}
+        </div>
+    );
+}
+
+/** カード（574）＋ 正解数（16＋70）＋ 誤答（4＋70）＋ 最終順位（6＋56）。RoundStage の縮小の基準（2026-10-22） */
+const FINAL_CONTENT_H = 574 + 16 + 70 + 4 + 70 + 6 + 56;

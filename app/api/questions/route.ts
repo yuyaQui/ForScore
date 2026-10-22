@@ -1,25 +1,33 @@
 import { NextResponse } from 'next/server';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { parseQuestionPoolCsv, selectQuestionRange } from '@/lib/questionPool';
+import { prisma } from '@/lib/prisma';
+import { selectQuestionRange } from '@/lib/questionPool';
+import { QUESTION_POOL_NOT_READY, isQuestionPoolClientReady, isTableMissingError } from '@/lib/questionPoolDb';
 
 // 大会共通の問題群から、通し番号の範囲で問題を返す。
 //   GET /api/questions?from=1&to=30          … Admin 用（別解・正誤判定基準を含む）
 //   GET /api/questions?from=1&to=30&public=1 … Main 用（問題文と解答だけ）
 //
-// 問題群の取り込み方法は未決（lib/questionPool.ts 冒頭）。いまは検証用サンプル
-// test_questions.csv をそのまま読む。取込方法が決まったら、この読み込み元だけを差し替える。
-const SAMPLE_FILE = path.join(process.cwd(), 'test_questions.csv');
-
+// 2026-10-22: 読み込み元を検証用 test_questions.csv から DB（QuestionPoolItem）に差し替えた。
+// 問題データは Admin の待機画面の「問題データ」で取り込む（POST /api/questionPool）。
 export async function GET(request: Request) {
     try {
+        // 問題データの表がまだ使えない（migrate 前）ときは、やることを書いたメッセージで返す
+        if (!isQuestionPoolClientReady()) return NextResponse.json({ error: QUESTION_POOL_NOT_READY }, { status: 503 });
         const params = new URL(request.url).searchParams;
         const from = Number(params.get('from'));
         const to = Number(params.get('to'));
 
-        const { questions: pool, errors } = parseQuestionPoolCsv(await readFile(SAMPLE_FILE, 'utf-8'));
-        if (errors.length > 0) {
-            return NextResponse.json({ error: '問題データに誤りがあります', details: errors }, { status: 500 });
+        // 範囲の検証（selectQuestionRange）が済むまでは DB を広く読まない
+        if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) {
+            const check = selectQuestionRange([], from, to);
+            return NextResponse.json({ error: check.ok ? '通し番号の範囲が不正です' : check.error }, { status: 400 });
+        }
+        const pool = await prisma.questionPoolItem.findMany({
+            where: { serial: { gte: from, lte: to } },
+            orderBy: { serial: 'asc' },
+        });
+        if (pool.length === 0 && (await prisma.questionPoolItem.count()) === 0) {
+            return NextResponse.json({ error: '問題データが登録されていません（待機画面の Admin で取り込んでください）' }, { status: 400 });
         }
 
         const result = selectQuestionRange(pool, from, to);
@@ -30,6 +38,7 @@ export async function GET(request: Request) {
             : result.questions;
         return NextResponse.json({ success: true, questions });
     } catch (error) {
+        if (isTableMissingError(error)) return NextResponse.json({ error: QUESTION_POOL_NOT_READY }, { status: 503 });
         console.error('Questions load error:', error);
         return NextResponse.json({ error: '問題データを読み込めません' }, { status: 500 });
     }
