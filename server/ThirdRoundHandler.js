@@ -38,12 +38,40 @@ const { isResetTarget, fromOf } = require("./roundOrder");
 //   - エントリータイマー      → 専用BGMで計測するため作らない
 //   - プレーオフの対象者      → そのコースで thirdRoundRank === 0 の選手。
 //                              コース終了処理で決着した人には順位が入るため導出できる
+//   - playoffIds（2026-10-29 追加）… サドンデスの参加者（始めた時点の未決着者）。Main・Admin はこの選手だけ並べる。
+//     選手データからは後で判断できない（参加者にも勝ち抜け・失格が付く）ので状態として持つ。
+//     サドンデス以外の画面へ移ったら消す。無いとき（再起動など）は画面がコースの5名全員を出す
 let thirdRoundState = {
     phase: "courseSelect",
     step: "entry",
     quizOrder: 1,
-    finishedOrder: null
+    finishedOrder: null,
+    playoffIds: null
 };
+
+const PLAYOFF_IDS_MAX = 5;   // 1コースの出場者数
+
+/** playoffIds として受け付けてよい値か（null、または5名以内の整数の配列） */
+function isValidPlayoffIds(v) {
+    if (v === null) return true;
+    return Array.isArray(v) && v.length <= PLAYOFF_IDS_MAX && v.every(id => Number.isInteger(id));
+}
+
+/** 部分更新を反映した次の状態。playoffIds を検証し、サドンデス以外・別のコースへ移ったら消す */
+function applyThirdRoundUpdate(prev, update) {
+    const patch = { ...(update && typeof update === 'object' ? update : {}) };
+    if (Object.prototype.hasOwnProperty.call(patch, 'playoffIds')) {
+        if (isValidPlayoffIds(patch.playoffIds)) {
+            patch.playoffIds = patch.playoffIds === null ? null : Array.from(new Set(patch.playoffIds));
+        } else {
+            delete patch.playoffIds;
+        }
+    }
+    const next = { ...prev, ...patch };
+    const given = Object.prototype.hasOwnProperty.call(patch, 'playoffIds');
+    if (next.phase !== 'playoff' || (!given && next.quizOrder !== prev.quizOrder)) next.playoffIds = null;
+    return next;
+}
 
 // 15分タイマー（コースごとに1本ずつ、計4本ぶんの残り秒数を持つ）
 //
@@ -90,7 +118,7 @@ module.exports = function ThirdRoundHandler(io, socket) {
     // 部分更新できるよう、受け取った内容を既存の状態にマージする。
     socket.on('change_3rd_round_state', (newState) => {
         const previous = thirdRoundState;
-        thirdRoundState = { ...thirdRoundState, ...newState };
+        thirdRoundState = applyThirdRoundUpdate(thirdRoundState, newState);
         console.log('3rd Round State:', thirdRoundState);
         io.emit('update_third_round_state', thirdRoundState);
 
@@ -115,7 +143,7 @@ module.exports = function ThirdRoundHandler(io, socket) {
         if (!from || !isResetTarget(from, "thirdRound")) return;
         stopTimer();
         for (const key of Object.keys(remainings)) delete remainings[key];
-        thirdRoundState = { phase: "courseSelect", step: "entry", quizOrder: 1, finishedOrder: null };
+        thirdRoundState = { phase: "courseSelect", step: "entry", quizOrder: 1, finishedOrder: null, playoffIds: null };
         io.emit('update_third_round_state', thirdRoundState);
         io.emit('update_third_round_timer', timerPayload());
     });
@@ -192,3 +220,6 @@ module.exports = function ThirdRoundHandler(io, socket) {
         socket.emit('update_third_round_timer', timerPayload());
     });
 };
+
+// テスト用（2026-10-29）
+module.exports.applyThirdRoundUpdate = applyThirdRoundUpdate;

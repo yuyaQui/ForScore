@@ -39,6 +39,8 @@ type ThirdRoundState = {
     // コース終了処理を走らせたコースの quizOrder。未実行なら null。
     // 「終了処理を走らせたか」はデータから導出できないため状態として持つ。
     finishedOrder: number | null;
+    // サドンデスの参加者（始めた時点の未決着者。2026-10-29 追加）。無ければコースの5名全員を出す
+    playoffIds?: number[] | null;
 }
 
 // 確定結果の内訳。掲げた／強制出場の区別を表示するためだけに使う。
@@ -698,6 +700,14 @@ export default function AdminThirdRound(props: Props) {
     // プレーオフの対象者。コース終了処理で決着した人には順位が入っているので、
     // rank === 0 で残った選手がそのまま対象になる。リストは保存しない。
     const playoffPlayers = quizPlayers.filter(p => p.thirdRoundRank === 0);
+
+    // サドンデスを始める。その時点の未決着者を参加者として記録し、Main・Admin はその選手だけ並べる（2026-10-29）
+    const startPlayoff = () => changeState({ phase: 'playoff', playoffIds: playoffPlayers.map(p => p.id) });
+    // サドンデスの画面に並べる選手（記録が無いとき＝サーバ再起動などは、従来どおりコースの5名全員）
+    const playoffShownIds = thirdRoundState.playoffIds;
+    const playoffShown = playoffShownIds && playoffShownIds.length > 0
+        ? quizPlayers.filter(p => playoffShownIds.includes(p.id))
+        : quizPlayers;
     const playoffSeats = 2 - finishState.winnersCount;
 
     // 終了処理を走らせたうえで、判定基準で決着しなかった選手が残っている状態。
@@ -870,7 +880,7 @@ export default function AdminThirdRound(props: Props) {
         statusLabel = `3RD ROUND · ${thirdRoundState.quizOrder}コース目${quizCourse ? ` · ${quizCourse.name}` : ''}`;
         if (needsPlayoff) {
             primaryLabel = `サドンデスへ（${playoffPlayers.length}名同点） ▶`;
-            primaryAction = () => changeState({ phase: 'playoff' });
+            primaryAction = startPlayoff;
         } else if (finishState.finished) {
             if (thirdRoundState.quizOrder < 4) {
                 primaryLabel = `${nextCourseLabel}へ ▶`;
@@ -972,7 +982,7 @@ export default function AdminThirdRound(props: Props) {
                                         <span style={manualBtnTextStyle(thirdRoundState.phase === 'quiz' && thirdRoundState.quizOrder === order)}>{drawnCourses.find(c => c.playOrder === order)?.name ?? `${order}コース目`}</span>
                                     </button>
                                 ))}
-                                <button onClick={() => changeState({ phase: 'playoff' })} style={manualBtnStyle(thirdRoundState.phase === 'playoff')}>
+                                <button onClick={startPlayoff} style={manualBtnStyle(thirdRoundState.phase === 'playoff')}>
                                     <span style={manualBtnTextStyle(thirdRoundState.phase === 'playoff')}>サドンデス</span>
                                 </button>
                             </div>
@@ -1300,7 +1310,7 @@ export default function AdminThirdRound(props: Props) {
                     </div>
 
                     <div className="flex gap-[10px]" style={{ background: 'rgba(8,15,28,.65)', border: '1px solid rgba(79,216,255,.18)', boxSizing: 'border-box', padding: 16 }}>
-                        {quizPlayers.map((p) => {
+                        {playoffShown.map((p) => {
                             const isWinner = p.thirdRoundRank > 0;
                             const isUndecided = p.thirdRoundRank === 0;
                             return (
@@ -1332,7 +1342,7 @@ export default function AdminThirdRound(props: Props) {
                                 </div>
                             );
                         })}
-                        {quizPlayers.length === 0 && (
+                        {playoffShown.length === 0 && (
                             <div className="w-full py-10 text-center" style={{ color: '#5C7EA6' }}>
                                 サドンデスの対象者がいません
                             </div>

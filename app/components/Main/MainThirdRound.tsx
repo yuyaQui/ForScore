@@ -48,6 +48,8 @@ type ThirdRoundState = {
     step: "entry" | "closed";
     quizOrder: number;
     finishedOrder: number | null;
+    // サドンデスの参加者（2026-10-29 追加。Admin と同じ）。無ければコースの5名全員を出す
+    playoffIds?: number[] | null;
 }
 
 export default function MainThirdRound(props: Props) {
@@ -160,7 +162,7 @@ export default function MainThirdRound(props: Props) {
     if (thirdRoundState.phase === 'playoff') {
         return (
             <FixedStage>
-                <PlayoffView quizCourse={quizCourse ?? null} quizPlayers={quizPlayers} socket={socket} />
+                <PlayoffView quizCourse={quizCourse ?? null} quizPlayers={quizPlayers} playoffIds={thirdRoundState.playoffIds ?? null} socket={socket} />
             </FixedStage>
         );
     }
@@ -767,6 +769,8 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
 type PlayoffViewProps = {
     quizCourse: Course | null;
     quizPlayers: Player[];
+    /** サドンデスの参加者。null（記録なし）ならコースの5名全員を並べる */
+    playoffIds: number[] | null;
     socket: Socket | null;
 }
 
@@ -776,9 +780,12 @@ type PlayoffViewProps = {
  * (ユーザー判断、2026-10-03)。見出し下の横線は 2026-10-11 のユーザー指示で、
  * コース本体と同じ黄色(#FFC93C)にしている。
  */
-function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
+function PlayoffView({ quizCourse, quizPlayers, playoffIds, socket }: PlayoffViewProps) {
+    // 並べるのはサドンデスの参加者だけ（2026-10-29 ユーザー指示）。右上の「残り参加者 → 残り枠」は
+    // 枠の計算にサドンデス前の勝ち抜け者も要るので、コースの5名全員から数える
+    const shown = playoffIds && playoffIds.length > 0 ? quizPlayers.filter(p => playoffIds.includes(p.id)) : quizPlayers;
     const phase = useCardIntroPhase();
-    const rowW = Math.max(1, quizPlayers.length * 172 + Math.max(0, quizPlayers.length - 1) * 56);
+    const rowW = Math.max(1, shown.length * 172 + Math.max(0, shown.length - 1) * 56);
     // 2026-10-22: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage）。
     // 見出し下の横線は通常のクイズ画面と同じ黄色にする（2026-10-11 ユーザー指示）
     return (
@@ -794,7 +801,7 @@ function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
 
         }>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, justifyContent: 'center' }}>
-                    {quizPlayers.map(p => {
+                    {shown.map(p => {
                         // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0。
                         // LOST はコースのルールで失格した選手だけ（2026-10-29 ユーザー指示。2nd Round と同じ）。
                         // サドンデスで勝ち抜けられなかった選手は LOST にしない
@@ -821,7 +828,7 @@ function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
                             />
                         );
                     })}
-                    {quizPlayers.length === 0 && (
+                    {shown.length === 0 && (
                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 24, color: '#5C7EA6' }}>
                             サドンデスの対象者がいません。
                         </span>
