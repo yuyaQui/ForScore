@@ -23,7 +23,7 @@ import {
 import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 import { WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
-import { RoundStage } from "@/app/components/Main/RoundStage";
+import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 
 type Props = {
     players: Player[],
@@ -457,11 +457,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2×</div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
-                            <span style={{ color: '#4FD8FF' }}>{activeCount}</span>
-                            <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
-                            <span style={{ color: '#FFC93C' }}>{remainingSlots}</span>
-                        </div>
+                        <RemainingSlots active={activeCount} slots={remainingSlots} />
                     </div>
                 </div>
             }>

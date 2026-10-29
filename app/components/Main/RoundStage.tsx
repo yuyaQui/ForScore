@@ -127,3 +127,17 @@ export function RoundStage({ header, ruleColor, socket, round, contentW, content
         </div>
     );
 }
+
+/**
+ * 見出しの2行目右の「残り参加者数 → 残り勝ち抜け枠数」（2nd Round は 2026-10-11、3rd Round は 2026-10-29 のユーザー指示）。
+ * 数え方は各ラウンドが決めて渡す
+ */
+export function RemainingSlots({ active, slots }: { active: number; slots: number }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
+            <span style={{ color: '#4FD8FF' }}>{active}</span>
+            <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
+            <span style={{ color: '#FFC93C' }}>{slots}</span>
+        </div>
+    );
+}

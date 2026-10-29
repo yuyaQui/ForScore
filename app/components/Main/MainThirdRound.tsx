@@ -7,6 +7,7 @@ import {
     COURSE_TIME_LIMIT_SECONDS,
     THIRD_ROUND_COURSE_NAMES,
     THIRD_ROUND_COURSES,
+    WINNERS_PER_COURSE,
     type ThirdRoundCourseName
 } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
@@ -25,7 +26,7 @@ import {
     outlineShadow,
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
-import { RoundStage } from "@/app/components/Main/RoundStage";
+import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
@@ -461,14 +462,29 @@ function FreezeOverlay({ remaining, opacity, transition }: { remaining: number; 
     );
 }
 
-function QuizHeader({ courseName }: { courseName: string }) {
+/**
+ * そのコースの「残り参加者数 → 残り勝ち抜け枠数」（2026-10-29 ユーザー指示。2nd Round と同じ表示）。
+ * 残り参加者 = 勝ち抜けも失格もしていない人数（サドンデス中はサドンデスの参加者）、残り枠 = 2 − 勝ち抜け人数
+ */
+function remainingOf(players: Player[]): { active: number; slots: number } {
+    const active = players.filter(p => p.thirdRoundRank === 0).length;
+    const slots = Math.max(0, WINNERS_PER_COURSE - players.filter(p => p.thirdRoundRank > 0).length);
+    return { active, slots };
+}
+
+function QuizHeader({ courseName, players }: { courseName: string; players: Player[] }) {
+    const { active, slots } = remainingOf(players);
     // 2026-10-03: タイマー表示はヘッダーの小さなバッジから、選手カードの右側に並ぶ
     // 大きなリングゲージ(TimerPanel)へ移設した。Cowork Design側(ThirdRound10UpDown.dc.html
     // 等)がこの形に更新されたため、それに合わせている。ヘッダーはタイトルのみに戻す。
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
-            <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>{courseName}</div>
+            {/* 2行目: 左にコース名、右に「残り参加者数 → 残り勝ち抜け枠数」（2nd Round と同じ配置） */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>{courseName}</div>
+                <RemainingSlots active={active} slots={slots} />
+            </div>
         </div>
     );
 }
@@ -587,7 +603,7 @@ function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps)
     // 2026-10-22: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage）
     return (
         <RoundStage socket={socket} round="thirdRound" ruleColor="#FFC93C" contentW={1776} contentH={THIRD_ROUND_CONTENT_H}
-            header={<QuizHeader courseName={quizCourse.name} />}>
+            header={<QuizHeader courseName={quizCourse.name} players={quizPlayers} />}>
             <div style={{ width: 1776, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56 }}>
                     {quizPlayers.map(p => (
@@ -757,10 +773,12 @@ function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
     // 見出し下の横線は通常のクイズ画面と同じ黄色にする（2026-10-11 ユーザー指示）
     return (
         <RoundStage socket={socket} round="thirdRound" ruleColor="#FFC93C" contentW={rowW} contentH={THIRD_ROUND_PLAYOFF_CONTENT_H} header={
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
+                {/* 2行目: 左に見出し、右に「残り参加者数 → 残り勝ち抜け枠数」（2026-10-29。クイズ画面と同じ） */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>サドンデス{quizCourse ? `（${quizCourse.name}）` : ''}</div>
+                    <RemainingSlots {...remainingOf(quizPlayers)} />
                 </div>
             </div>
 
