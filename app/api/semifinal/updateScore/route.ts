@@ -13,6 +13,7 @@ import {
     type SemifinalSetStage,
 } from '@/lib/semifinalScoring';
 import type { Player } from '@/lib/types';
+import { guardRound } from '@/lib/roundGuard';
 
 /**
  * 準決勝の得点入力と判定（設計メモ 6章）。
@@ -53,6 +54,10 @@ async function loadSemifinalPlayers() {
 export async function POST(request: Request) {
     try {
         const body = (await request.json()) as UpdateScoreBody;
+
+        // 前のラウンドが完了していなければ採点しない（2026-10-22 提案C。docs/linear-progress-design.md）
+        const blocked = await guardRound('semifinal');
+        if (blocked) return blocked;
         if (!body || typeof body !== 'object' || !(body.action in REQUIRED_STAGE)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });
         }

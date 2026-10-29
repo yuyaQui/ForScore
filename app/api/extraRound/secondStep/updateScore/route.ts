@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from '@/lib/prisma';
 import { applySecondStepScore } from '@/lib/extraRoundScoring';
+import { guardRound } from '@/lib/roundGuard';
 
 export async function POST(request: Request) {
   try {
     const { playerId, action } = await request.json();
+
+    // 前のラウンドが完了していなければ採点しない（2026-10-22 提案C。docs/linear-progress-design.md）
+    const blocked = await guardRound('extraRound');
+    if (blocked) return blocked;
 
     if (!playerId || (action !== 'correct' && action !== 'wrong')) {
       return NextResponse.json({ error: 'Missing playerId or action' }, { status: 400 });

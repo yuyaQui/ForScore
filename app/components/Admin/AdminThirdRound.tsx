@@ -18,6 +18,7 @@ import {
 import { toOrdinal } from "@/lib/ordinal";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
+import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -367,6 +368,8 @@ export default function AdminThirdRound(props: Props) {
     // 問題表示（2026-10-22）。採点（正解・誤答・スルー）が成功したら、その問題を Main に表示して次の問題に進める。
     // コースが変わっても通し番号は続きから（ラウンドで1本の番号）
     const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'thirdRound');
+    // 各ラウンドの状況（2026-10-22。「Extra Round へ ▶」・Undo の制限・リセットの確認文に使う）
+    const progress = useRoundProgress();
 
     const [thirdRoundState, setThirdRoundState] = useState<ThirdRoundState>({
         phase: "courseSelect",
@@ -566,6 +569,8 @@ export default function AdminThirdRound(props: Props) {
     // タイマーと出場者の割当は戻らない（別系統）。
     const handleScoreUndo = async () => {
         if (!quizCourse) return;
+        // Extra Round が始まっていたら Undo しない（提案B）
+        if (blockUndoIfLaterStarted(progress, 'thirdRound')) return;
 
         setIsBusy(true);
         setErrorMessage("");
@@ -597,7 +602,7 @@ export default function AdminThirdRound(props: Props) {
     // 所属コース・抽選結果・タイマーはそのまま。そのコースの Undo 履歴は消える。
     const handleScoreReset = async () => {
         if (!quizCourse) return;
-        if (!window.confirm(`${quizCourse.name} の結果をリセットしますか？（元に戻せません）`)) return;
+        if (!window.confirm(`${quizCourse.name} の結果をリセットしますか？（元に戻せません）${cascadeNotice(progress, 'extraRound', true)}`)) return;
 
         setIsBusy(true);
         setErrorMessage("");
@@ -610,7 +615,8 @@ export default function AdminThirdRound(props: Props) {
             const data = await res.json();
 
             if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
+                // Extra Round 以降も DB で初期化済み。選手を配り、Extra Round 以降の進行状態も戻す
+                broadcastAfterReset(socket, 'extraRound', data);
                 // コース終了の確定も無効になるので解除する（Undo と同じ扱い）
                 changeState({ finishedOrder: null });
             } else {
@@ -731,7 +737,7 @@ export default function AdminThirdRound(props: Props) {
     };
 
     const handleReset = async () => {
-        if (!window.confirm('抽選をリセットしますか？（元に戻せません）')) return;
+        if (!window.confirm(`抽選をリセットしますか？（元に戻せません）\n全コースの出場者と 3rd Round の結果もリセットされ、コース選択から始め直します。${cascadeNotice(progress, 'extraRound', true)}`)) return;
 
         setIsBusy(true);
         setErrorMessage("");
@@ -745,11 +751,9 @@ export default function AdminThirdRound(props: Props) {
             const data = await res.json();
 
             if (data.success && socket) {
-                // データ種別ごとに経路を分ける。
-                // リセットは実施順と所属コースの両方を消すので、両方を配信する必要がある。
-                socket.emit('broadcast_third_round_courses', data.courses);   // コース情報
-                socket.emit('broadcast_scores', data.allPlayers);             // 選手情報
-                changeState({ step: 'entry' });
+                // 3rd Round 全体と Extra Round 以降を DB で初期化済み。
+                // コース情報・選手情報を配り、3rd Round 以降の進行状態（コース選択・エントリー中・タイマー）も戻す
+                broadcastAfterReset(socket, 'thirdRound', data);
             } else {
                 setErrorMessage(data.error || 'リセットに失敗しました');
             }
@@ -801,7 +805,7 @@ export default function AdminThirdRound(props: Props) {
 
     const handleUnassign = async () => {
         if (!currentCourse) return;
-        if (!window.confirm(`${currentCourse.name} の出場者確定を取り消しますか？`)) return;
+        if (!window.confirm(`${currentCourse.name} の出場者確定を取り消しますか？\nこのコースの結果もリセットされます。${cascadeNotice(progress, 'extraRound', true)}`)) return;
 
         setIsBusy(true);
         setErrorMessage("");
@@ -816,7 +820,8 @@ export default function AdminThirdRound(props: Props) {
             if (data.success && socket) {
                 setLastAssigned([]);
                 setRaisedIds([]);
-                socket.emit('broadcast_scores', data.allPlayers);
+                // そのコースの結果と Extra Round 以降も DB で初期化済み
+                broadcastAfterReset(socket, 'extraRound', data);
                 // 締切前に戻して、エントリーからやり直せるようにする
                 changeState({ step: 'entry' });
             } else {
@@ -871,7 +876,8 @@ export default function AdminThirdRound(props: Props) {
                 primaryLabel = `${nextCourseLabel}へ ▶`;
                 primaryAction = () => changeState({ phase: 'quiz', quizOrder: thirdRoundState.quizOrder + 1 });
             } else {
-                primaryLabel = '3rd Round 終了';
+                // 4コース目まで終わった。8名の勝ち抜けが決まっていれば「Extra Round へ ▶」（提案A）
+                ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'thirdRound'));
             }
         } else if (quizPlayers.length > 0 && finishState.activeCount > 0 && remaining === 0) {
             primaryLabel = 'コース終了 ▶';
@@ -886,7 +892,7 @@ export default function AdminThirdRound(props: Props) {
                 primaryLabel = `${nextCourseLabel}へ ▶`;
                 primaryAction = () => changeState({ phase: 'quiz', quizOrder: thirdRoundState.quizOrder + 1 });
             } else {
-                primaryLabel = '3rd Round 終了';
+                ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'thirdRound'));
             }
         } else {
             primaryLabel = 'サドンデス中...';

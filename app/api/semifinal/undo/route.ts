@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
+import { guardUndo } from '@/lib/roundGuard';
 import type { Player } from '@/lib/types';
 
 /**
@@ -14,6 +15,10 @@ import type { Player } from '@/lib/types';
  */
 export async function POST() {
     try {
+        // 後のラウンドが始まっていたら Undo しない（2026-10-22 提案B）
+        const blocked = await guardUndo('semifinal');
+        if (blocked) return blocked;
+
         const latest = await prisma.semifinalHistory.findFirst({
             orderBy: { id: 'desc' }
         });

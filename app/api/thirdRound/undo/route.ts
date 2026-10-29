@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
+import { guardUndo } from '@/lib/roundGuard';
 import type { Player } from '@/lib/types';
 
 /** 全選手の最新状態を返す（Socket 配信でそのまま使う） */
@@ -23,6 +24,9 @@ async function loadAllPlayers() {
 export async function POST(request: Request) {
     try {
         const { courseName } = await request.json();
+        // 後のラウンドが始まっていたら Undo しない（2026-10-22 提案B）
+        const blocked = await guardUndo('thirdRound');
+        if (blocked) return blocked;
 
         if (!courseName) {
             return NextResponse.json({ error: 'コース名が指定されていません' }, { status: 400 });

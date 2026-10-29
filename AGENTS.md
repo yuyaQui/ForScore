@@ -140,7 +140,7 @@ TSX 側は `import { DEFAULT_COUNTDOWN } from "../../../constants.js"` で読む
 
 - 波及するのは `socket` を props で受けている7コンポーネント + ページ2つ = 9ファイル
 - 共有インスタンスになるため、アンマウント時の `disconnect()` を「listener だけ外す」へ設計し直す必要がある
-- `socket.off("イベント名")` をハンドラ指定なしで呼んでいる箇所があり、そのイベントの listener を全部消してしまう。あわせて整理する
+- ~~`socket.off("イベント名")` をハンドラ指定なしで呼んでいる箇所があり、そのイベントの listener を全部消してしまう~~（2026-10-22 に AdminSecondRound を修正済み。admin/page.tsx の進行状況も `update_players` を受けるため）
 
 ---
 
@@ -234,13 +234,13 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `announce_semifinal_results` | `{ set }` | `SemifinalHandler`（振り返り中・得点入力済みのときだけ） |
 | `change_semifinal_timer` | `{ action, seconds? }` | `SemifinalHandler` |
 | `start_semifinal_lineup` | なし | `SemifinalHandler`（選手カード表示を始める） |
-| `reset_semifinal_progress` | なし | `SemifinalHandler`（結果リセットに合わせて第1セット・タイマー 5:00 に戻す） |
 | `change_final_state` | `FinalState` の一部（`set`・`view`・`introIndex`・`resultRank`） | `FinalHandler`（項目ごとに検証） |
 | `semifinal_profiles_changed` | なし | `SemifinalHandler`（写真・二つ名の保存を全員に知らせる） |
 | `request_semifinal_sync` / `request_final_sync` | なし | `SemifinalHandler` / `FinalHandler`（開いた画面にだけ現在の状態を返す） |
 | `broadcast_scores` | `Player[]` | `server.js` |
 | `broadcast_third_round_courses` | `ThirdRoundCourse[]` | `ThirdRoundHandler` |
-| `reset_third_round_progress` | なし | `ThirdRoundHandler`（選手 CSV の取り込み後に、進行状態・タイマーを初期値に戻す） |
+| `reset_round_progress` | `{ from }`（`'all'` \| `'secondRound'` \| `'thirdRound'` \| `'extraRound'` \| `'semifinal'` \| `'final'`） | 各ラウンドのハンドラ・`QuestionHandler`（DB のリセット後に、from 以降のラウンドの進行状態・タイマー・問題番号を初期値に戻す。`server/roundOrder.js`・`docs/linear-progress-design.md`） |
+| `tournament_state_changed` | なし | `ModeHandler`（大会の状態（`TournamentState`）が変わったことを全員に知らせる） |
 | `set_question_cursor` / `finish_question` / `change_question_display` / `request_question_sync` | `{ round, serial }` / `{ round, serial }` / `{ shown }` / なし | `QuestionHandler`（問題表示。`docs/question-display-design.md`） |
 | `update_text` | text: string | `TextHandler` |
 | `1R_start_timer` / `1R_stop_timer` / `1R_reset_timer` | なし | `FirstRoundHandler` |
@@ -259,6 +259,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `update_semifinal_profiles` | なし（受け取ったら `/api/semifinal/profiles` を取り直す） |
 | `update_final_state` | `FinalState` |
 | `update_question_display` | `QuestionDisplayState` |
+| `update_tournament_state` | なし（受け取ったら `/api/tournamentState` を取り直す） |
 | `update_players` | `Player[]` |
 | `text_updated` | text: string |
 | `1R_update_timer` | seconds: number |

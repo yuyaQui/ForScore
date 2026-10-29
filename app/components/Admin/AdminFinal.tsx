@@ -10,8 +10,9 @@ import { useSemifinalProfiles } from "./AdminSemifinalPrep";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import {
     MANUAL_LABEL_STYLE, manualBtnStyle, manualBtnTextStyle, neutralBtnStyle, NEUTRAL_BTN_TEXT,
-    primaryButtonStyle, secondaryActionStyle,
+    primaryButtonStyle, secondaryActionStyle, dangerBtnStyle, DANGER_BTN_TEXT,
 } from "./adminCyberStyles";
+import { broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -170,6 +171,29 @@ export default function AdminFinal(props: Props) {
         }
     };
 
+    // 結果リセット（2026-10-22 新設。他のラウンドと同じ位置づけ）。
+    // DB（正解数・誤答数・獲得セット数・最終順位・Undo 履歴）を API で戻し、進行（待機・第1セット）をサーバで戻す。
+    // 二つ名・写真は消さない
+    const handleReset = async () => {
+        if (!window.confirm('Final の結果（正解数・誤答数・獲得セット数・最終順位）をリセットしますか？\n待機画面・第1セットに戻ります。（元に戻せません）')) return;
+        setIsBusy(true);
+        setErrorMessage("");
+        try {
+            const res = await fetch('/api/final/reset', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                broadcastAfterReset(socket, 'final', data);
+            } else {
+                setErrorMessage(data.error || 'リセットに失敗しました');
+            }
+        } catch (error) {
+            console.error('Final reset failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
     // ---- 1本道ボタン ----
     const view = finalState.view;
     const introIndex = finalState.introIndex;
@@ -301,6 +325,12 @@ export default function AdminFinal(props: Props) {
                                 </button>
                             );
                         })}
+                    </div>
+                    <div style={{ ...MANUAL_LABEL_STYLE, marginTop: 8 }}>データ操作</div>
+                    <div className="flex flex-wrap gap-[10px]">
+                        <button onClick={handleReset} disabled={isBusy} style={dangerBtnStyle()}>
+                            <span style={DANGER_BTN_TEXT}>Final の結果をリセット</span>
+                        </button>
                     </div>
                 </div>
             </details>

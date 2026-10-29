@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Socket } from "socket.io-client";
+import { broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -41,20 +42,17 @@ export default function AdminFirstRoundUpload({ socket }: Props) {
         if (res.status === 409) {
             const data = await res.json().catch(() => null);
             if (data?.needsConfirmation) {
-                if (!window.confirm('進行履歴（Undo 用）と 3rd Round の抽選結果を削除して登録しますか？')) return;
+                if (!window.confirm('全ラウンドの結果・進行履歴（Undo 用）・3rd Round の抽選結果・二つ名と写真を削除して登録しますか？')) return;
                 res = await post(true);
             }
         }
 
         if (res.ok) {
             // 取り込み後の状態を各画面に配る（2026-10-20）。
-            // 3rd Round の進行状態・タイマーを初期値に戻し、空になった抽選結果と新しい選手データを配信する
+            // 新しい選手データと空になった抽選結果を配信し、2026-10-22 からは全ラウンドの進行状態・タイマーを
+            // 初期値に戻す（reset_round_progress { from: 'all' }）
             const data = await res.json().catch(() => null);
-            if (socket) {
-                socket.emit('reset_third_round_progress');
-                if (data?.courses) socket.emit('broadcast_third_round_courses', data.courses);
-                if (data?.allPlayers) socket.emit('broadcast_scores', data.allPlayers);
-            }
+            broadcastAfterReset(socket, 'all', data ?? {});
             alert('登録しました');
             setCsvData([]); // 成功したら画面をクリアする
         } else {

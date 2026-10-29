@@ -18,12 +18,15 @@
 // あえて持たないもの:
 //   - 出場者が誰か        → DB の Player（semifinalRank > 0 から導出。準決勝の3名）
 //   - セットが決着したか  → lib/finalScoring.ts の isSetOver が選手データから都度判定する
-let finalState = {
+const { isResetTarget, fromOf } = require("./roundOrder");
+
+const INITIAL_FINAL_STATE = {
     set: 1,
     view: "standby",
     introIndex: 0,
     resultRank: 0
 };
+let finalState = { ...INITIAL_FINAL_STATE };
 
 const VIEWS = ["standby", "intro", "quiz", "result"];
 const FINALIST_COUNT = 3;
@@ -67,6 +70,14 @@ module.exports = function FinalHandler(io, socket) {
     // 読み取りだけで、状態は変えない（3rd Round の request_third_round_sync と同じ）
     socket.on('request_final_sync', () => {
         socket.emit('update_final_state', finalState);
+    });
+
+    // 進行状態のリセット（2026-10-22）。決勝以前のどのラウンドからのリセットでも、待機・第1セットに戻す
+    socket.on('reset_round_progress', (payload) => {
+        const from = fromOf(payload);
+        if (!from || !isResetTarget(from, "final")) return;
+        finalState = { ...INITIAL_FINAL_STATE };
+        io.emit('update_final_state', finalState);
     });
 
     // 接続直後、この1人にだけ現在の状態を渡す（io.emit ではなく socket.emit）

@@ -13,12 +13,16 @@ import AdminSemifinal from "../components/Admin/AdminSemifinal";
 import AdminFinal from "../components/Admin/AdminFinal";
 import type { SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
+import { RoundProgressProvider, useRoundProgressSource } from "../components/Admin/roundProgressContext";
+import { AdminRoundSidebar, AdminResumeBanner } from "../components/Admin/AdminRoundNav";
 
 export default function AdminPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [currentMode, setCurrentMode] = useState("secondRound");
   // 2nd Round の表示画面（Turn Over / Quiz View）。背景色の切り替え判定に使う
   const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
+  // 各ラウンドの状況（2026-10-22。サイドバーの鍵・各ラウンドの「○○へ ▶」・Undo の制限に使う）
+  const progress = useRoundProgressSource(socket);
 
   // サーバー接続時の処理（ここだけ socket が使えない）
   useEffect(() => {
@@ -66,96 +70,13 @@ export default function AdminPage() {
       ? "bg-black"
       : "bg-zinc-50 dark:bg-zinc-900";
 
-  // Design アーティファクト(Admin.dc.html)左サイドバーの「SELECT ROUND」見た目をそのまま
-  // 移植したナビゲーション項目。ラベルは 2026-10-11 のユーザー指示で
-  // 「1ST ROUND」「2ND ROUND」「3RD ROUND」「EXTRA ROUND」「SEMI-FINAL」「FINAL」に変更した。
-  const ROUND_NAV: { mode: string; label: string }[] = [
-    { mode: "waiting", label: "待機画面" },
-    { mode: "1stRound", label: "1ST ROUND" },
-    { mode: "secondRound", label: "2ND ROUND" },
-    { mode: "thirdRound", label: "3RD ROUND" },
-    { mode: "extraRound", label: "EXTRA ROUND" },
-    { mode: "semifinal", label: "SEMI-FINAL" },
-    { mode: "final", label: "FINAL" },
-  ];
-  // 「1stRoundResult」は 1R のサブ画面なので、サイドバー上は親ラウンドをアクティブ表示にする。
-  // （Extra Round の問題取込は、AdminExtraRound 内の最初の段階（setup）に組み込んだ）
-  const isRoundActive = (mode: string) => {
-    if (mode === "1stRound") return currentMode === "1stRound" || currentMode === "1stRoundResult";
-    return currentMode === mode;
-  };
-
   return (
+    <RoundProgressProvider value={progress}>
     <div className="flex min-h-screen bg-black">
 
-      {/* 左サイドバー: Select Round。Design アーティファクト(Admin.dc.html)の見た目を
-          そのまま移植。ラウンドをまたいで常にこの配色で固定表示する
-          (下段の各ラウンド画面自体の背景色とは独立させ、絶対に重ならないようにする) */}
-      <div
-        className="shrink-0 flex flex-col gap-[10px]"
-        style={{
-          width: 220,
-          minHeight: "100vh",
-          boxSizing: "border-box",
-          padding: "30px 18px",
-          background: "rgba(8,15,28,.7)",
-          borderRight: "1px solid rgba(79,216,255,.18)",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "Orbitron, sans-serif",
-            fontWeight: 800,
-            fontSize: 13,
-            letterSpacing: 5,
-            color: "#5C7EA6",
-            marginBottom: 10,
-          }}
-        >
-          SELECT ROUND
-        </div>
-        {ROUND_NAV.map((r) => {
-          const active = isRoundActive(r.mode);
-          return (
-            <button
-              key={r.mode}
-              onClick={() => changeMode(r.mode)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "12px 12px",
-                cursor: "pointer",
-                background: active ? "rgba(79,216,255,.10)" : "transparent",
-                border: "none",
-                textAlign: "left",
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 20,
-                  flexShrink: 0,
-                  background: active ? "#4FD8FF" : "transparent",
-                  boxShadow: active ? "0 0 8px #4FD8FF" : "none",
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: "Orbitron, sans-serif",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  letterSpacing: 2,
-                  color: active ? "#F3FAFF" : "#5C7EA6",
-                }}
-              >
-                {r.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* 左サイドバー: Select Round。Design アーティファクト(Admin.dc.html)の見た目を移植。
+          2026-10-22: 前のラウンドが未完了のラウンドは押せない・状態の印・戻るときの確認（AdminRoundNav.tsx） */}
+      <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
 
       {/* 右側: ラウンドごとの操作画面。サイドバーとは別領域なので絶対に重ならない */}
       <div className={`flex-1 flex flex-col items-center justify-center gap-[3vh] p-[3vw] overflow-y-auto ${backgroundClass}`}>
@@ -174,6 +95,8 @@ export default function AdminPage() {
 
       {currentMode === "waiting" && (
         <>
+          {/* DB の結果から見た、いま進めるべきラウンド（提案E。サーバ再起動で待機画面に戻ったとき用） */}
+          <AdminResumeBanner progress={progress} onChangeMode={changeMode} />
           <AdminText socket={socket} />
           {/* 大会共通の問題データの取り込み（大会前に一度。2026-10-22） */}
           <AdminQuestionPoolUpload />
@@ -202,5 +125,6 @@ export default function AdminPage() {
 
       </div>
     </div>
+    </RoundProgressProvider>
   );
 }

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
+import { guardUndo } from '@/lib/roundGuard';
 
 export async function POST(request: Request) {
   try {
     const { secondRoundState } = await request.json();
+    // 後のラウンドが始まっていたら Undo しない（2026-10-22 提案B）
+    const blocked = await guardUndo('secondRound');
+    if (blocked) return blocked;
     const group = secondRoundState?.group;
 
     if (!group) {

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { THIRD_ROUND_COURSE_NAMES } from '@/lib/thirdRoundCourses';
+import { resetRoundsFrom } from '@/lib/roundReset';
+import { guardRound } from '@/lib/roundGuard';
 
 const TOTAL_COURSES = THIRD_ROUND_COURSE_NAMES.length; // 4
 
@@ -26,6 +28,10 @@ async function loadCourses() {
  */
 export async function POST() {
     try {
+        // 2nd Round が完了していなければ抽選しない（提案C）
+        const blocked = await guardRound('thirdRound');
+        if (blocked) return blocked;
+
         const courses = await loadCourses();
 
         if (courses.length !== TOTAL_COURSES) {
@@ -91,13 +97,12 @@ export async function DELETE(request: Request) {
             );
         }
 
-        // 実施順のリセットと所属コースのクリアは必ず一緒に行う。
-        // 片方だけ残ると「実施順は未定なのに所属コースだけ決まっている」という
-        // 矛盾した状態になるため、トランザクションで囲む。
-        await prisma.$transaction([
-            prisma.thirdRoundCourse.updateMany({ data: { playOrder: null } }),
-            prisma.player.updateMany({ data: { thirdRoundCourseName: null } })
-        ]);
+        // 2026-10-22: 抽選のリセットは 3rd Round 全体（抽選結果・全員の所属コース・スコア・履歴）と、
+        // Extra Round 以降を丸ごと初期化する。Semi-Final 進出者が決まる前なので二つ名と写真も消す。
+        // 片方だけ残る矛盾を作らないよう、1つのトランザクションで行う。
+        await prisma.$transaction(async (tx) => {
+            await resetRoundsFrom(tx, 'thirdRound', { clearProfiles: true });
+        });
 
         const courses = await loadCourses();
         const allPlayers = await prisma.player.findMany({ orderBy: { paperRank: 'asc' } });

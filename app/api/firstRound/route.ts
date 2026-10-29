@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from '@/lib/prisma';
 import { getAdvantage } from '@/lib/advantage';
 import { getSecondRoundGroup } from '@/lib/secondRound';
+import { isTournamentStateClientReady, loadRoundStatuses } from '@/lib/roundGuard';
+import { ROUND_ORDER } from '@/lib/roundProgress';
 
 export async function POST(request: Request) {
   try {
@@ -24,8 +26,14 @@ export async function POST(request: Request) {
       (await prisma.semifinalHistory.count()) +
       (await prisma.finalHistory.count());
     const drawnCourseCount = await prisma.thirdRoundCourse.count({ where: { playOrder: { not: null } } });
+    // 2026-10-22: 履歴が無くても、2nd Round 以降の結果・二つ名・写真が残っていれば確認を取る
+    // （取り込み直すと選手ごと作り直すので、どれも消える）
+    const statuses = await loadRoundStatuses();
+    const hasResults = ROUND_ORDER.some(r => r !== 'firstRound' && statuses[r].started);
+    const profileCount =
+      (await prisma.player.count({ where: { nickname: { not: '' } } })) + (await prisma.playerPhoto.count());
 
-    if ((historyCount > 0 || drawnCourseCount > 0) && confirmClearHistory !== true) {
+    if ((historyCount > 0 || drawnCourseCount > 0 || hasResults || profileCount > 0) && confirmClearHistory !== true) {
       return NextResponse.json(
         { error: '既存の進行履歴または 3rd Round の抽選結果が残っています', needsConfirmation: true, historyCount, drawnCourseCount },
         { status: 409 }
@@ -62,6 +70,9 @@ export async function POST(request: Request) {
       await tx.finalHistory.deleteMany({});
       // 3rd Round の抽選結果も空に戻す（3rd Round 管理画面の「抽選をリセット」と同じ）
       await tx.thirdRoundCourse.updateMany({ data: { playOrder: null } });
+      // 2026-10-22: Extra Round の「敗者復活者なし」の確定も戻す（docs/linear-progress-design.md）
+      if (isTournamentStateClientReady(tx)) await tx.tournamentState.deleteMany({});
+      // 選手の削除で写真（PlayerPhoto）もカスケードで消える
       await tx.player.deleteMany({});
       // 1件ずつ create すると{player数}件で往復が{player数}回になる。createMany なら1回で済む
       await tx.player.createMany({ data: rows });

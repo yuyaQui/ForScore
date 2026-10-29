@@ -13,6 +13,7 @@ import {
     manualBtnTextStyle,
     primaryButtonStyle,
 } from "./adminCyberStyles";
+import { useRoundProgress, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -46,6 +47,8 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
         new Set(players.filter(p => p.extraRoundSecondStep && p.thirdRoundRank <= 0).map(p => p.entryNo))
     );
     const [saving, setSaving] = useState(false);
+    // 各ラウンドの状況（2026-10-22。選び直しの確認文に後のラウンドへの影響を書く）
+    const progress = useRoundProgress();
     const [errorMessage, setErrorMessage] = useState("");
 
     // 3rd Round 通過者（thirdRoundRank > 0）は候補から外す。すでに準決勝進出が決まっている
@@ -121,20 +124,26 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
         setSaving(true);
         try {
             let { res, data } = await post(false);
+            let didReset = false;
 
-            // 採点結果が残っている場合は、初期化してよいかを確認してからもう一度送る
+            // Extra Round の結果（または後のラウンドの結果）が残っている場合は、
+            // 初期化してよいかを確認してからもう一度送る（2026-10-22: Semi-Final 以降も初期化される）
             if (res.status === 409 && data.needsConfirmation) {
                 const ok = window.confirm(
-                    data.semifinalStarted
-                        ? 'Second Step の結果が消え、準決勝5番席の選手も変わります（準決勝は開始済み）。よろしいですか？'
-                        : 'Second Step の結果が消えます。よろしいですか？'
+                    `Extra Round の結果（Second Step・敗者復活者なしの確定）がリセットされます。よろしいですか？${cascadeNotice(progress, 'semifinal', true)}`
                 );
                 if (!ok) return;
                 ({ res, data } = await post(true));
+                didReset = true;
             }
 
             if (res.ok && data.success) {
-                if (socket) socket.emit('broadcast_scores', data.allPlayers);
+                if (didReset) {
+                    // Semi-Final 以降の進行状態も戻す（Extra Round 自身はこのまま Second Step へ進む）
+                    broadcastAfterReset(socket, 'semifinal', data);
+                } else if (socket) {
+                    socket.emit('broadcast_scores', data.allPlayers);
+                }
                 onConfirmed(!!data.singleWinner);
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');

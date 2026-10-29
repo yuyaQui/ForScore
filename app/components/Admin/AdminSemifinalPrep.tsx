@@ -432,7 +432,7 @@ export function FinishPanel({ lineupOrder }: { lineupOrder: Player[] }) {
     return (
         <>
             <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: '#9FB4D6' }}>
-                第3セットの判定が終わりました。決勝進出者を確認して「FINAL へ」を押すと、Admin・Main とも決勝の画面に切り替わります。
+                第3セットの判定が終わりました。決勝進出者を確認して「Final へ」を押すと、Admin・Main とも決勝の画面に切り替わります。
             </div>
             <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${Math.max(1, lineupOrder.length)}, minmax(0, 1fr))` }}>
                 {lineupOrder.map(p => {

@@ -7,6 +7,7 @@ import { toOrdinal } from "@/lib/ordinal";
 import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice } from "@/lib/secondRound";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
+import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -65,19 +66,22 @@ export default function AdminSecondRound(props: Props) {
 
         if (socket) {
             // プレイヤーデータ更新命令が来た時の処理
-            socket.on("update_players", (allPlayers: Player[]) => {
-                setPlayers(allPlayers);
-            });
+            const onPlayers = (allPlayers: Player[]) => setPlayers(allPlayers);
             // ラウンド状態更新命令が来た時の処理
-            socket.on("update_second_round_state", (state: SecondRoundState) => {
-                setSecondRoundState(state);
-            });
+            const onState = (state: SecondRoundState) => setSecondRoundState(state);
+            socket.on("update_players", onPlayers);
+            socket.on("update_second_round_state", onState);
+            // 外すのは自分の受け取り口だけ（2026-10-22。イベント名だけで off すると、
+            // admin/page.tsx など同じイベントを受けている他の受け取り口まで外れてしまう）
             return () => {
-                socket.off("update_players");
-                socket.off("update_second_round_state");
+                socket.off("update_players", onPlayers);
+                socket.off("update_second_round_state", onState);
             }
         }
     }, [socket])
+
+    // 各ラウンドの状況（2026-10-22。「3rd Round へ ▶」・Undo の制限・リセットの確認文に使う）
+    const progress = useRoundProgress();
 
     // 問題表示（2026-10-22）。採点が成功したら、その問題を Main に表示して次の問題に進める
     const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'secondRound');
@@ -110,8 +114,11 @@ export default function AdminSecondRound(props: Props) {
             });
             const data = await res.json();
 
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
+            if (data.success) {
+                // 3rd Round 以降も DB で初期化済み。選手・コースを配り、3rd Round 以降の進行状態も戻す
+                broadcastAfterReset(socket, 'thirdRound', data);
+            } else if (data.error) {
+                alert(data.error);
             }
         } catch (error) {
             console.error('Reset scores failed', error);
@@ -119,6 +126,8 @@ export default function AdminSecondRound(props: Props) {
     };
 
     const handleGroupUndo = async (secondRoundState: { group: number, view: string }) => {
+        // 3rd Round が始まっていたら Undo しない（提案B）
+        if (blockUndoIfLaterStarted(progress, 'secondRound')) return;
         try {
             const res = await fetch('/api/secondRound/undo', {
                 method: 'POST',
@@ -234,7 +243,8 @@ export default function AdminSecondRound(props: Props) {
             // 次の組の発表(turnOver)は必ず1位からやり直すので、ここで turnOverStep/turnOverPhase をリセットする
             primaryAction = () => handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
         } else {
-            primaryLabel = '2nd Round 終了';
+            // 4組目まで終わった。全20名の勝ち抜けが決まっていれば「3rd Round へ ▶」（提案A）
+            ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'secondRound'));
         }
     }
 
@@ -349,7 +359,7 @@ export default function AdminSecondRound(props: Props) {
                             <div className="flex gap-[10px]">
                                 <button
                                     onClick={() => {
-                                        if (window.confirm(`${secondRoundState.group}組目の結果をリセットしますか？（元に戻せません）`)) {
+                                        if (window.confirm(`${secondRoundState.group}組目の結果をリセットしますか？（元に戻せません）${cascadeNotice(progress, 'thirdRound', true)}`)) {
                                             handleGroupReset(secondRoundState);
                                         }
                                     }}

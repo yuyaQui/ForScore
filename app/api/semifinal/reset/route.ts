@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { resetRoundsFrom } from '@/lib/roundReset';
 
 /**
  * POST: 準決勝の結果を全選手ぶんリセットする（2026-10-17 ユーザー承認済み）
@@ -10,22 +11,16 @@ import { prisma } from '@/lib/prisma';
  * - SemifinalHistory（Undo 用の履歴）も一緒に削除する。残すと、リセット後の Undo で
  *   古い途中経過が戻ってしまうため（他のラウンドと同じ）。
  * - 二つ名・写真（Player.nickname・PlayerPhoto）は消さない。
- * - 決勝の成績には触れない（決勝の出場者は semifinalRank から決まるので、決勝の画面からは選手が消える）。
+ * - 2026-10-22: 決勝の成績も一緒に初期化する（一本道の前提。docs/linear-progress-design.md）。
  * - 進行状態（セット・表示・タイマー）はサーバのメモリにあるので、Admin が
- *   reset_semifinal_progress を送って戻す。
+ *   reset_round_progress { from: 'semifinal' } を送って戻す。
  */
 export async function POST() {
     try {
         // スコアの初期化と履歴の削除は同じトランザクションで行う（片方だけ成功すると Undo で古い状態に戻れてしまう）
-        await prisma.$transaction([
-            prisma.player.updateMany({
-                data: {
-                    semifinalPoint: 0,
-                    semifinalRank: 0,
-                }
-            }),
-            prisma.semifinalHistory.deleteMany({})
-        ]);
+        await prisma.$transaction(async (tx) => {
+            await resetRoundsFrom(tx, 'semifinal', { clearProfiles: false });
+        });
 
         const allPlayers = await prisma.player.findMany({ orderBy: { paperRank: 'asc' } });
 

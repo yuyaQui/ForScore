@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { resetRoundsFrom, THIRD_ROUND_SCORE_DEFAULTS } from '@/lib/roundReset';
 
 /**
  * POST: 3rd Round の1コース分のスコアを初期状態に戻す（2026-10-11 ユーザー承認済み）
@@ -12,6 +13,7 @@ import { prisma } from '@/lib/prisma';
  * - タイマーはサーバのメモリにあり DB に無いので、ここでは扱わない（RESET で戻す）。
  * - そのコースの Undo 履歴も削除する。リセット後に Undo で古い途中経過が
  *   復活しないようにするため（ユーザー確認済み）。
+ * - 2026-10-22: Extra Round 以降を丸ごと初期化する（二つ名と写真も消す。docs/linear-progress-design.md）。
  */
 export async function POST(request: Request) {
     try {
@@ -28,20 +30,14 @@ export async function POST(request: Request) {
 
         // スコアの初期化と履歴の削除は同じトランザクションで行う。
         // 片方だけ成功すると、Undo で古い途中経過が戻せる状態が残る。
-        await prisma.$transaction([
-            prisma.player.updateMany({
+        await prisma.$transaction(async (tx) => {
+            await tx.player.updateMany({
                 where: { thirdRoundCourseName: courseName },
-                data: {
-                    thirdRoundCorrectCount: 0,
-                    thirdRoundWrongCount: 0,
-                    thirdRoundUpDownPoint: 0,
-                    thirdRoundSwedishCross: 0,
-                    thirdRoundFreezeRest: 0,
-                    thirdRoundRank: 0,
-                }
-            }),
-            prisma.thirdRoundHistory.deleteMany({ where: { course: courseName } })
-        ]);
+                data: THIRD_ROUND_SCORE_DEFAULTS
+            });
+            await tx.thirdRoundHistory.deleteMany({ where: { course: courseName } });
+            await resetRoundsFrom(tx, 'extraRound', { clearProfiles: true });
+        });
 
         const allPlayers = await prisma.player.findMany({ orderBy: { paperRank: 'asc' } });
 

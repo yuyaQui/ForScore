@@ -46,6 +46,7 @@ const {
     EXTRA_ROUND_FIRST_STEP_LENGTH,
     EXTRA_ROUND_STAGES
 } = require("../constants.js");
+const { isResetTarget, fromOf } = require("./roundOrder");
 
 let extraRoundState = {
     stage: "setup",
@@ -105,6 +106,15 @@ module.exports = function ExtraRoundHandler(io, socket) {
         if (extraRoundState.revealed) return;
         extraRoundState = { ...extraRoundState, revealed: true };
         console.log('Extra Round State:', extraRoundState);
+        io.emit('update_extra_round_state', extraRoundState);
+    });
+
+    // 進行状態のリセット（2026-10-22）。Extra Round 以前からのリセットなら問題取込（setup）に戻す。
+    // 登録済みの問題は DB に残るので、「登録済みの問題を使う」で再開できる
+    socket.on('reset_round_progress', (payload) => {
+        const from = fromOf(payload);
+        if (!from || !isResetTarget(from, "extraRound")) return;
+        extraRoundState = { stage: "setup", cursor: 0, revealed: false };
         io.emit('update_extra_round_state', extraRoundState);
     });
 

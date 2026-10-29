@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from '@/lib/prisma';
 import { EXTRA_ROUND_MAX_ENTRANTS } from '@/lib/extraRound';
+import { resetRoundsFrom } from '@/lib/roundReset';
+import { guardRound, loadRoundStatuses, loadTournamentState } from '@/lib/roundGuard';
+import { ROUND_LABEL, type RoundKey } from '@/lib/roundProgress';
 
 /**
  * Second Step 出場者（First Step 通過者）の確定。
@@ -14,6 +17,11 @@ import { EXTRA_ROUND_MAX_ENTRANTS } from '@/lib/extraRound';
  * すでに Second Step の採点が進んでいる状態で出場者を選び直すと、旧い正解数や順位が
  * 新しい出場者に混ざってしまう。そのため採点済みの結果・履歴があるときは、画面側の
  * 確認（confirmReset）を得たうえで、Extra Round の結果をすべて初期化してから登録する。
+ *
+ * 2026-10-22（docs/linear-progress-design.md）:
+ * - 3rd Round が完了していなければ受け付けない（提案C）。
+ * - 初期化するときは「敗者復活者なし」の確定と Semi-Final 以降も丸ごと戻し、二つ名と写真も消す。
+ *   「敗者復活者なし」を確定済みのとき・Semi-Final 以降が始まっているときも、初期化の確認を求める。
  */
 export async function POST(request: Request) {
   try {
@@ -57,23 +65,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // ---- 採点済みかの確認 ----
-    const [scoredCount, historyCount, semifinalHistoryCount] = await Promise.all([
+    // ---- 順番の確認（3rd Round が完了しているか） ----
+    const blocked = await guardRound('extraRound');
+    if (blocked) return blocked;
+
+    // ---- 初期化が必要かの確認 ----
+    const [scoredCount, historyCount, statuses, state] = await Promise.all([
       prisma.player.count({
         where: { OR: [{ extraRoundRank: { not: 0 } }, { extraRoundCorrectCount: { gt: 0 } }] }
       }),
       prisma.extraRoundHistory.count(),
-      prisma.semifinalHistory.count()
+      loadRoundStatuses(),
+      loadTournamentState()
     ]);
-    const hasScoring = scoredCount > 0 || historyCount > 0;
+    // 始まっている後のラウンド（画面の確認文に出す）
+    const laterRounds = (['semifinal', 'final'] as RoundKey[]).filter(r => statuses[r].started);
+    const hasScoring =
+      scoredCount > 0 || historyCount > 0 || state.extraRoundNoRevival || laterRounds.length > 0;
 
     if (hasScoring && confirmReset !== true) {
       return NextResponse.json(
         {
-          error: 'Second Step の採点結果が残っています',
+          error: 'Extra Round の結果が残っています',
           needsConfirmation: true,
-          // 準決勝がすでに始まっている場合は、画面の確認文でその旨を強調する
-          semifinalStarted: semifinalHistoryCount > 0
+          laterRounds: laterRounds.map(r => ROUND_LABEL[r])
         },
         { status: 409 }
       );
@@ -83,10 +98,8 @@ export async function POST(request: Request) {
 
     await prisma.$transaction(async (tx) => {
       if (hasScoring) {
-        await tx.extraRoundHistory.deleteMany({});
-        await tx.player.updateMany({
-          data: { extraRoundRank: 0, extraRoundCorrectCount: 0 }
-        });
+        // Extra Round 全体と Semi-Final 以降を初期化（二つ名と写真も消す）
+        await resetRoundsFrom(tx, 'extraRound', { clearProfiles: true });
       }
       await tx.player.updateMany({
         where: { entryNo: { in: uniqueEntryNos } },

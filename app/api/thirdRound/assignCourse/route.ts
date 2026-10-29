@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { PLAYERS_PER_COURSE } from '@/lib/thirdRoundCourses';
 import { selectCourseParticipants, sortByCoursePriority } from '@/lib/courseAssignment';
+import { resetRoundsFrom, THIRD_ROUND_SCORE_DEFAULTS } from '@/lib/roundReset';
+import { guardRound } from '@/lib/roundGuard';
 
 /** 2nd Round を勝ち抜けた20名を取得する */
 async function loadWinners() {
@@ -32,6 +34,10 @@ export async function POST(request: Request) {
         if (!Array.isArray(raisedIds)) {
             return NextResponse.json({ error: 'raisedIds が配列ではありません' }, { status: 400 });
         }
+
+        // 2nd Round が完了していなければ出場者を確定しない（提案C）
+        const blocked = await guardRound('thirdRound');
+        if (blocked) return blocked;
 
         // コースが存在し、実施順が決まっているか
         const course = await prisma.thirdRoundCourse.findUnique({ where: { name: courseName } });
@@ -139,9 +145,16 @@ export async function DELETE(request: Request) {
             );
         }
 
-        const result = await prisma.player.updateMany({
-            where: { thirdRoundCourseName: courseName },
-            data: { thirdRoundCourseName: null }
+        // 2026-10-22: そのコースの所属に加えて、そのコースのスコアと Undo 履歴も戻し、
+        // Extra Round 以降を丸ごと初期化する（二つ名と写真も消す）。1つのトランザクションで行う
+        const result = await prisma.$transaction(async (tx) => {
+            const cleared = await tx.player.updateMany({
+                where: { thirdRoundCourseName: courseName },
+                data: { thirdRoundCourseName: null, ...THIRD_ROUND_SCORE_DEFAULTS }
+            });
+            await tx.thirdRoundHistory.deleteMany({ where: { course: courseName } });
+            await resetRoundsFrom(tx, 'extraRound', { clearProfiles: true });
+            return cleared;
         });
 
         const allPlayers = await loadAllPlayers();

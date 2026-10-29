@@ -17,6 +17,7 @@ import AdminExtraRoundFirstStep from "./AdminExtraRoundFirstStep";
 import AdminExtraRoundEntrants from "./AdminExtraRoundEntrants";
 import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
+import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import {
     MANUAL_LABEL_STYLE,
     DANGER_BTN_TEXT,
@@ -119,6 +120,10 @@ export default function AdminExtraRound(props: Props) {
     const entrants = (players ?? []).filter(p => p.extraRoundSecondStep);
     const winner = entrants.find(p => p.extraRoundRank > 0) ?? null;
 
+    // 各ラウンドの状況（2026-10-22。「Semi-Final へ ▶」・Undo の制限・リセットの確認文・敗者復活者なしに使う）
+    const progress = useRoundProgress();
+    const noRevival = progress?.extraRoundNoRevival ?? false;
+
     // 問題表示（2026-10-22。Second Step のみ）。採点が成功したら、その問題を Main に表示して次の問題に進める
     const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'extraSecondStep');
 
@@ -147,6 +152,8 @@ export default function AdminExtraRound(props: Props) {
     };
 
     const handleUndo = async () => {
+        // Semi-Final が始まっていたら Undo しない（提案B）
+        if (blockUndoIfLaterStarted(progress, 'extraRound')) return;
         setErrorMessage('');
         setIsBusy(true);
         try {
@@ -165,11 +172,11 @@ export default function AdminExtraRound(props: Props) {
         }
     };
 
-    // Extra Round の結果（extraRoundRank・extraRoundCorrectCount・extraRoundSecondStep）を
-    // 全選手ぶんリセットする。テストデータの矛盾を直す、または本番前にやり直すための操作。
-    // 進行状態（段階・First Step の位置）は変えない。
+    // Extra Round の結果（extraRoundRank・extraRoundCorrectCount・extraRoundSecondStep・敗者復活者なし）を
+    // 全選手ぶんリセットする。2026-10-22: Semi-Final 以降も初期化し、進行は問題取込（setup）に戻す
+    // （登録済みの問題は DB に残るので「登録済みの問題を使う」で再開できる）。
     const handleReset = async () => {
-        if (!window.confirm('Extra Round の結果をリセットしますか？（元に戻せません）')) return;
+        if (!window.confirm(`Extra Round の結果をリセットしますか？（元に戻せません）\n問題取込の画面に戻ります（登録済みの問題はそのまま使えます）。${cascadeNotice(progress, 'semifinal', true)}`)) return;
 
         setErrorMessage('');
         setIsBusy(true);
@@ -177,12 +184,42 @@ export default function AdminExtraRound(props: Props) {
             const res = await fetch('/api/extraRound/reset', { method: 'POST' });
             const data = await res.json();
             if (res.ok && data.success) {
-                if (socket) socket.emit('broadcast_scores', data.allPlayers);
+                // Extra Round 以降の進行状態も戻す（Extra Round は問題取込へ）
+                broadcastAfterReset(socket, 'extraRound', data);
             } else {
                 setErrorMessage(data.error || 'リセットに失敗しました');
             }
         } catch (error) {
             console.error('Extra Round reset failed', error);
+            setErrorMessage('通信に失敗しました');
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
+    // 「敗者復活者なし」の確定／取り消し（2026-10-22。First Step で全員が脱落した場合）。
+    // 確定すると Semi-Final に 3rd Round 通過の8名で進める
+    const handleNoRevival = async (value: boolean) => {
+        const message = value
+            ? '敗者復活者なしで確定しますか？\nSemi-Final は 3rd Round 通過の8名で行います。'
+            : '「敗者復活者なし」の確定を取り消しますか？';
+        if (!window.confirm(message)) return;
+        setErrorMessage('');
+        setIsBusy(true);
+        try {
+            const res = await fetch('/api/extraRound/noRevival', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (socket) socket.emit('tournament_state_changed');
+            } else {
+                setErrorMessage(data.error || '更新に失敗しました');
+            }
+        } catch (error) {
+            console.error('Extra Round no-revival failed', error);
             setErrorMessage('通信に失敗しました');
         } finally {
             setIsBusy(false);
@@ -197,7 +234,6 @@ export default function AdminExtraRound(props: Props) {
     let secondaryAction: (() => void) | null = null;
     // 表示前に出す、押せない「次へ」。押す順番（表示 → 次へ）を見せるためのもの
     let waitingNextLabel: string | null = null;
-    let primaryDoneColor: string | undefined;
 
     if (state.stage === 'setup') {
         statusLabel = 'EXTRA ROUND · 問題取込';
@@ -224,13 +260,24 @@ export default function AdminExtraRound(props: Props) {
             primaryAction = () => changeState({ cursor: clampCursor(state.cursor + 1), revealed: false });
         }
     } else if (state.stage === 'entrantSelect') {
-        statusLabel = 'EXTRA ROUND · 進出者選択';
-        primaryLabel = '進出者を選んでください';
+        if (noRevival) {
+            // 敗者復活者なしで確定済み。Semi-Final へ（提案A）
+            statusLabel = 'EXTRA ROUND · 敗者復活者なし';
+            ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'extraRound'));
+        } else {
+            statusLabel = 'EXTRA ROUND · 進出者選択';
+            primaryLabel = '進出者を選んでください';
+            // First Step で全員が脱落したとき用
+            if (!winner) {
+                secondaryLabel = '敗者復活者なしで確定';
+                secondaryAction = () => handleNoRevival(true);
+            }
+        }
     } else {
         statusLabel = 'EXTRA ROUND · SECOND STEP';
         if (winner) {
-            primaryLabel = 'Extra Round 終了';
-            primaryDoneColor = '#FFE28A';
+            // 敗者復活者が決まった。Semi-Final へ（提案A）
+            ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'extraRound'));
         } else {
             primaryLabel = '進行中...';
         }
@@ -262,7 +309,7 @@ export default function AdminExtraRound(props: Props) {
                             <span style={{ ...NEUTRAL_BTN_TEXT, fontSize: 16 }}>◀ 戻る</span>
                         </button>
                     )}
-                    <button onClick={() => runGuarded(primaryAction)} disabled={!primaryAction || isBusy} style={primaryButtonStyle(!!primaryAction, primaryDoneColor)}>
+                    <button onClick={() => runGuarded(primaryAction)} disabled={!primaryAction || isBusy} style={primaryButtonStyle(!!primaryAction)}>
                         {primaryLabel}
                     </button>
                     {waitingNextLabel && (
@@ -343,6 +390,11 @@ export default function AdminExtraRound(props: Props) {
                                 <button onClick={handleReset} disabled={isBusy} style={dangerBtnStyle()}>
                                     <span style={DANGER_BTN_TEXT}>Extra Round の結果をリセット</span>
                                 </button>
+                                {noRevival && (
+                                    <button onClick={() => handleNoRevival(false)} disabled={isBusy} style={neutralBtnStyle()}>
+                                        <span style={NEUTRAL_BTN_TEXT}>「敗者復活者なし」を取り消す</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -5,6 +5,7 @@
 // 2nd / 3rd Round と同じ割り切り。
 
 const { SEMIFINAL_SET_TIME_LIMIT } = require("../constants.js");
+const { isResetTarget, fromOf } = require("./roundOrder");
 
 // 進行状態（型と意味は lib/types.ts の SemifinalState。設計メモ 6.2）
 //
@@ -182,25 +183,33 @@ module.exports = function SemifinalHandler(io, socket) {
         io.emit('update_semifinal_state', semifinalState);
     });
 
-    // 結果リセットに合わせて進行を最初に戻す（2026-10-17 追加。DB のリセットは /api/semifinal/reset が行う）。
-    // 第1セットにし、3セット分のタイマー・振り返り範囲・得点入力済みの印・サドンデスを消す。
-    // 準備・紹介・カード表示の途中なら表示はそのまま、それ以外は第1セットのクイズ画面に戻す。
-    // 二つ名・写真と、紹介・カード表示・点数発表の回数は変えない（回数は増える一方にしておく）
-    socket.on('reset_semifinal_progress', () => {
+    // 結果リセットに合わせて進行を最初に戻す（2026-10-17 追加。2026-10-22 から reset_round_progress の1つとして受ける）。
+    // DB のリセットは API が行い済み。第1セットにし、3セット分のタイマー・振り返り範囲・得点入力済みの印・サドンデスを消す。
+    // - Semi-Final 自身のリセット（from: "semifinal"）: 準備・紹介・カード表示の途中なら表示はそのまま、
+    //   それ以外は第1セットのクイズ画面に戻す（出場者は変わらない）。
+    // - それより前のラウンドからのリセット: 出場者が変わり得るので準備（standby）に戻し、紹介も1人目からにする。
+    //   二つ名・写真は API が消し済みなので、各画面に読み直させる。
+    // 紹介・カード表示・点数発表の回数は変えない（回数は増える一方にしておく）
+    socket.on('reset_round_progress', (payload) => {
+        const from = fromOf(payload);
+        if (!from || !isResetTarget(from, "semifinal")) return;
         stopTimer();
         for (const key of Object.keys(remainings)) delete remainings[key];
-        const keepView = ["standby", "intro", "lineup"].includes(semifinalState.view);
+        const own = from === "semifinal";
+        const keepView = own && ["standby", "intro", "lineup"].includes(semifinalState.view);
         semifinalState = {
             ...semifinalState,
             set: 1,
-            view: keepView ? semifinalState.view : "quiz",
+            view: own ? (keepView ? semifinalState.view : "quiz") : "standby",
             reviewRanges: {},
             reviewPage: 0,
             pointsEntered: false,
-            playoff: null
+            playoff: null,
+            ...(own ? {} : { introIndex: 0, introStep: "nickname" })
         };
         io.emit('update_semifinal_state', semifinalState);
         io.emit('update_semifinal_timer', timerPayload());
+        if (!own) io.emit('update_semifinal_profiles');
     });
 
     // 選手カード表示を始める（2026-10-15 追加）。Main はこの回数が増えた瞬間にだけ、カードを

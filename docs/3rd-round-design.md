@@ -591,5 +591,5 @@ Admin は抽選直後から確定したコースを見られる。会場に伏�
 ## 選手 CSV の取り込み直しで 3rd Round の進行もリセットする（2026-10-20、ユーザー承認済み）
 
 - `POST /api/firstRound`（選手名簿の取り込み）は、選手の作り直しと同じトランザクションで `ThirdRoundCourse.playOrder`（抽選結果）を空に戻す。抽選結果が残っているときは、Undo 履歴と同じく確認（409 → `confirmClearHistory`）を取ってから実行する
-- 取り込みに成功したら、Admin（`AdminFirstRoundUpload`）が `reset_third_round_progress`（進行状態をコース選択・エントリー中・1コース目に戻し、タイマーを止めて4コースとも15分に戻す）・`broadcast_third_round_courses`・`broadcast_scores` を送り、開いている画面を再読み込みなしで初期状態にする
+- 取り込みに成功したら、Admin（`AdminFirstRoundUpload`）が `reset_round_progress { from: 'all' }`（2026-10-22 から。旧 `reset_third_round_progress`。進行状態をコース選択・エントリー中・1コース目に戻し、タイマーを止めて4コースとも15分に戻す）・`broadcast_third_round_courses`・`broadcast_scores` を送り、開いている画面を再読み込みなしで初期状態にする
 - 3rd Round 以外のラウンドの進行状態（サーバのメモリ）は対象外

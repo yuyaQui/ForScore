@@ -177,3 +177,14 @@ model FinalHistory {
   createdAt DateTime @default(now())
   snapshot  String   // 出場3名分のJSONスナップショットデータ
 }
+
+// 大会全体の状態（2026-10-22 追加。docs/linear-progress-design.md 6章）
+//
+// 選手データから導出できない「大会の進行に関わる決定」を1行だけ持つ（id は常に 1）。
+//   extraRoundNoRevival … Extra Round First Step で全員が脱落し、「敗者復活者なし」を
+//                         Admin が確定したか。true なら敗者復活者なしで Semi-Final に進める
+// Extra Round 以前のリセット（選手 CSV の取り込みを含む）で false に戻す。
+model TournamentState {
+  id                  Int     @id @default(1)
+  extraRoundNoRevival Boolean @default(false)
+}

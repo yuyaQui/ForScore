@@ -5,6 +5,7 @@
 // 2nd Round と同じ割り切り。
 
 const { THIRD_ROUND_TIME_LIMIT } = require("../constants.js");
+const { isResetTarget, fromOf } = require("./roundOrder");
 
 // 進行状態
 //
@@ -106,10 +107,12 @@ module.exports = function ThirdRoundHandler(io, socket) {
         }
     });
 
-    // 選手名簿（CSV）を取り込み直したときに、3rd Round の進行を最初に戻す（2026-10-20 追加・ユーザー承認済み）。
-    // 抽選結果（DB）は取り込みの API が空に戻し済み。ここではメモリの進行状態とタイマーを初期値に戻す:
+    // 3rd Round の進行を最初に戻す（2026-10-20 追加。2026-10-22 から reset_round_progress の1つとして受ける）。
+    // 選手 CSV の取り込み・2nd Round の組のリセット・3rd Round の抽選のリセットのとき（DB は API が戻し済み）。
     // コース選択・エントリー中・1コース目、走っているタイマーを止め、4コース分を制限時間（15分）に戻す
-    socket.on('reset_third_round_progress', () => {
+    socket.on('reset_round_progress', (payload) => {
+        const from = fromOf(payload);
+        if (!from || !isResetTarget(from, "thirdRound")) return;
         stopTimer();
         for (const key of Object.keys(remainings)) delete remainings[key];
         thirdRoundState = { phase: "courseSelect", step: "entry", quizOrder: 1, finishedOrder: null };

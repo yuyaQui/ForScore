@@ -19,6 +19,7 @@ import {
 } from "./AdminSemifinalParts";
 import { getIntroOrder, getLineupOrder, lineupTotalMs } from "@/lib/semifinalProfile";
 import { useSemifinalProfiles, PrepPanel, IntroPanel, LineupPanel, FinishPanel } from "./AdminSemifinalPrep";
+import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 
 type Props = {
     socket: Socket | null;
@@ -43,7 +44,7 @@ function nameList(players: Player[], ids: number[]): string {
 //
 // 始まりの流れ（2026-10-15 追加）: 準備（写真・二つ名の登録）→ 進出者紹介（1人ずつ 二つ名 → プロフィール）
 // → 選手カード表示（Main の演出が終わるまで待つ）→ 第1セットのクイズ画面。
-// 第3セットの判定が終わったら「FINAL へ」でモードを決勝に切り替える。
+// 第3セットの判定が終わったら「Final へ」でモードを決勝に切り替える。
 //
 // 1セットの流れ（2026-10-17 ユーザー指示。設計メモ 8章）:
 //   タイマー START → タイムアップ → 振り返る問題の番号を入力 → 振り返り（Main に3問ずつ）
@@ -96,6 +97,8 @@ export default function AdminSemifinal(props: Props) {
 
     // 写真・二つ名（準備・進出者紹介で使う）
     const { profiles } = useSemifinalProfiles(socket);
+    // 各ラウンドの状況（2026-10-22。「Final へ ▶」・Undo の制限・リセットの確認文に使う）
+    const progress = useRoundProgress();
 
     const seats = getSemifinalSeats(players, courses);
     const entrants = seats.map(s => s.player);
@@ -322,6 +325,8 @@ export default function AdminSemifinal(props: Props) {
     // Undo。判定前に戻したのは「得点の反映」なので、入力済みを取り消して振り返りに戻す
     // 得点を確定した直後に戻したときは、得点集計（tally）に戻って入れ直せるようにする（入力欄の値は残す）
     const handleUndo = async () => {
+        // Final が始まっていたら Undo しない（提案B）
+        if (blockUndoIfLaterStarted(progress, 'semifinal')) return;
         const stageBefore = stage;
         setErrorMessage("");
         setIsBusy(true);
@@ -359,9 +364,9 @@ export default function AdminSemifinal(props: Props) {
 
     // 結果リセット（2026-10-17 追加。2nd / 3rd / Extra Round と同じ位置づけ）。
     // DB（ポイント・勝ち抜け／敗退・Undo 履歴）を API で戻し、進行（セット・タイマーなど）をサーバで戻す。
-    // 二つ名・写真は消さない
+    // 二つ名・写真は消さない。2026-10-22: Final の結果も一緒にリセットする（一本道の前提）
     const handleReset = async () => {
-        if (!window.confirm('Semifinal の結果（ポイント・勝ち抜け・敗退）をリセットしますか？\n第1セットのクイズ画面に戻り、タイマーも 5:00 に戻ります。（元に戻せません）')) return;
+        if (!window.confirm(`Semi-Final の結果（ポイント・勝ち抜け・敗退）をリセットしますか？\n第1セットのクイズ画面に戻り、タイマーも 5:00 に戻ります。（元に戻せません）${cascadeNotice(progress, 'final', false)}`)) return;
         setErrorMessage("");
         setIsBusy(true);
         try {
@@ -371,10 +376,8 @@ export default function AdminSemifinal(props: Props) {
                 setErrorMessage(data.error || 'リセットに失敗しました');
                 return;
             }
-            if (socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-                socket.emit('reset_semifinal_progress');
-            }
+            // Semi-Final・Final の進行状態も戻す（サーバの reset_round_progress）
+            broadcastAfterReset(socket, 'semifinal', data);
             setPlayers(data.allPlayers);
             setPointInputs({});
             setRangeFrom("");
@@ -469,13 +472,10 @@ export default function AdminSemifinal(props: Props) {
         } else {
             // 決勝へはモードごと切り替える（Admin・Main とも決勝の画面になる）。
             // 決勝は待機画面から始めるので、先に決勝の表示を待機に戻しておく（2026-10-17）
+            // 2026-10-22: ボタン名は他のラウンドと同じ「Final へ ▶」（提案A）
             statusLabel = 'SEMIFINAL · 終了';
-            primaryLabel = 'FINAL へ ▶';
-            primaryAction = () => {
-                if (!socket) return;
-                socket.emit('change_final_state', { view: 'standby', introIndex: 0 });
-                socket.emit('change_mode', 'final');
-            };
+            ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'semifinal',
+                () => socket?.emit('change_final_state', { view: 'standby', introIndex: 0 })));
         }
     } else if (state.view === 'playoff' && state.playoff && playoffProgress) {
         // ⑦⑧ 同点のサドンデス。決着したら、その目的（勝ち抜け／敗退）の判定をサドンデスの結果で確定する

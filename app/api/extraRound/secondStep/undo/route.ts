@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from '@/lib/prisma';
 import { NO_HISTORY_MESSAGE, allSnapshotPlayersExist } from '@/lib/undoHistory';
+import { guardUndo } from '@/lib/roundGuard';
 
 export async function POST() {
   try {
+    // 後のラウンドが始まっていたら Undo しない（2026-10-22 提案B）
+    const blocked = await guardUndo('extraRound');
+    if (blocked) return blocked;
+
     // Second Step にはグループ分けがないため、2nd Round と違い絞り込みなしで
     // 最新1件を取ればよい
     const latestHistory = await prisma.extraRoundHistory.findFirst({

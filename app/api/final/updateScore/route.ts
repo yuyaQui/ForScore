@@ -6,6 +6,7 @@ import {
     type FinalAction
 } from '@/lib/finalScoring';
 import type { Player } from '@/lib/types';
+import { guardRound } from '@/lib/roundGuard';
 
 /**
  * このルートが受け付ける操作。
@@ -41,6 +42,10 @@ async function loadAllPlayers() {
 export async function POST(request: Request) {
     try {
         const body = (await request.json()) as UpdateScoreBody;
+
+        // 前のラウンドが完了していなければ採点しない（2026-10-22 提案C。docs/linear-progress-design.md）
+        const blocked = await guardRound('final');
+        if (blocked) return blocked;
 
         if (!VALID_ACTIONS.includes(body.action)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });

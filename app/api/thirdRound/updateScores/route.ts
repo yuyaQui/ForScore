@@ -7,6 +7,7 @@ import {
     type ThirdRoundAction
 } from '@/lib/thirdRoundScoring';
 import { THIRD_ROUND_COURSE_NAMES, type ThirdRoundCourseName } from '@/lib/thirdRoundCourses';
+import { guardRound } from '@/lib/roundGuard';
 
 /** 全選手の最新状態を返す（Socket 配信でそのまま使う） */
 async function loadAllPlayers() {
@@ -38,6 +39,10 @@ const VALID_ACTIONS: UpdateScoresAction[] = ['correct', 'wrong', 'through', 'fin
 export async function POST(request: Request) {
     try {
         const { playerId, action, courseName, playoff } = await request.json();
+
+        // 前のラウンドが完了していなければ採点しない（2026-10-22 提案C。docs/linear-progress-design.md）
+        const blocked = await guardRound('thirdRound');
+        if (blocked) return blocked;
 
         if (!VALID_ACTIONS.includes(action)) {
             return NextResponse.json({ error: 'action が不正です' }, { status: 400 });

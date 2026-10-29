@@ -20,7 +20,11 @@ let questionDisplay = {
     cursors: {}
 };
 
+const { isResetTarget, fromOf } = require("./roundOrder");
+
 const ROUNDS = ["secondRound", "thirdRound", "extraSecondStep", "final"];
+// 問題表示のラウンド → 大会のラウンド（reset_round_progress の対象判定に使う）
+const ROUND_OF = { secondRound: "secondRound", thirdRound: "thirdRound", extraSecondStep: "extraRound", final: "final" };
 const SERIAL_MAX = 100000;
 
 function isSerial(v) {
@@ -59,6 +63,22 @@ module.exports = function QuestionHandler(io, socket) {
         if (!payload || typeof payload.shown !== "boolean") return;
         if (payload.shown && questionDisplay.serial === null) return;   // 出す問題が無い
         questionDisplay = { ...questionDisplay, shown: payload.shown };
+        broadcast();
+    });
+
+    // 進行状態のリセット（2026-10-22）。from 以降のラウンドの「次に読む問題」を未設定に戻し、
+    // 表示中の問題がそのラウンドのものなら消す（Admin が開始番号を入れ直す）
+    socket.on("reset_round_progress", (payload) => {
+        const from = fromOf(payload);
+        if (!from) return;
+        const cursors = {};
+        for (const [round, serial] of Object.entries(questionDisplay.cursors)) {
+            if (!isResetTarget(from, ROUND_OF[round])) cursors[round] = serial;
+        }
+        const clearShown = questionDisplay.round !== null && isResetTarget(from, ROUND_OF[questionDisplay.round]);
+        questionDisplay = clearShown
+            ? { ...questionDisplay, round: null, serial: null, shown: false, cursors }
+            : { ...questionDisplay, cursors };
         broadcast();
     });
 
