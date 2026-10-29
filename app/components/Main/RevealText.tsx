@@ -132,8 +132,11 @@ export function RevealWhole({ text, revealed, freshColor, freshShadow, delayMs =
         return () => clearTimeout(id);
     }, [phase, delayMs]);
 
+    // 表示前と演出中の <span> には別々の key を付け、別の要素として作り直させる（2026-10-29 修正）。
+    // 同じ要素を使い回すと、切り替えの瞬間の「不透明 1 → 0」にも transition が効き、
+    // 全文がいったん見えてから消え、改めて現れていた
     if (!revealed) {
-        return <span aria-hidden style={{ visibility: 'hidden' }}>{text}</span>;
+        return <span key="hidden" aria-hidden style={{ visibility: 'hidden' }}>{text}</span>;
     }
     if (phase === null) {
         return <>{text}</>;
@@ -142,6 +145,7 @@ export function RevealWhole({ text, revealed, freshColor, freshShadow, delayMs =
     const glow = phase !== 'settling';
     return (
         <span
+            key="reveal"
             style={{
                 position: 'relative',
                 top: on ? 0 : 14,
