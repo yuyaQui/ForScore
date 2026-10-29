@@ -5,7 +5,7 @@ import type { SemifinalPlayoff, PlayoffProgress } from "@/lib/semifinalPlayoff";
 import { formatTime } from "@/lib/formatTime";
 import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { SET_TIME_LIMIT_SECONDS } from "@/lib/semifinal";
+import { SET_TIME_LIMIT_SECONDS, type SemifinalSeatAssignment } from "@/lib/semifinal";
 import {
     MANUAL_LABEL_STYLE, STAT_CARD_STYLE, STAT_LABEL_STYLE,
     neutralBtnStyle, NEUTRAL_BTN_TEXT, opBtnStyle, opBtnTextStyle,
@@ -197,8 +197,10 @@ export function PointsForm({ players, values, onChange, entered, busy }: {
 // サドンデス（2026-10-15 に「プレーオフ」から呼び名を変更）
 // ---------------------------------------------------------------------------
 
-export function PlayoffPanel({ playoff, progress, players, busy, onMark, onUndo }: {
-    playoff: SemifinalPlayoff; progress: PlayoffProgress; players: Player[]; busy: boolean;
+export function PlayoffPanel({ playoff, progress, seats, busy, onMark, onUndo }: {
+    playoff: SemifinalPlayoff; progress: PlayoffProgress;
+    /** 出場者の席（席番号順。Main と同じ getSemifinalSeats から作ったもの） */
+    seats: SemifinalSeatAssignment[]; busy: boolean;
     onMark: (playerId: number, action: 'correct' | 'wrong') => void; onUndo: () => void;
 }) {
     const isAdvance = playoff.purpose === 'advance';
@@ -210,14 +212,16 @@ export function PlayoffPanel({ playoff, progress, players, busy, onMark, onUndo 
                 {isAdvance ? '勝ち抜け' : '失格'}サドンデス（{isAdvance ? '勝ち抜け' : '失格'} {playoff.slots}名）
             </div>
             <div className="flex gap-[10px] flex-wrap">
-                {playoff.candidateIds.map(id => {
-                    const p = players.find(x => x.id === id);
+                {/* 並びは Main と同じ席番号順（2026-10-29 修正。以前は対象者を決めた順＝ポイント順で、Main と違っていた） */}
+                {seats.filter(s => playoff.candidateIds.includes(s.player.id)).map(({ seat, player: p }) => {
+                    const id = p.id;
                     const outcome = progress.outcomes[id];
                     const canOperate = !progress.resolved && outcome === undefined && !busy;
                     const color = outcome === 'win' ? GOLD : outcome === 'lose' ? '#4A5568' : '#4FD8FF';
                     return (
                         <div key={id} style={{ width: 180, boxSizing: 'border-box', padding: 10, background: 'rgba(12,22,40,.75)', borderTop: `3px solid ${color}` }}>
-                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 15, color: '#F3FAFF', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p?.name ?? `#${id}`}</div>
+                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 11, letterSpacing: 2, color: '#5C7EA6', textAlign: 'center' }}>SEAT {seat}</div>
+                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 15, color: '#F3FAFF', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                             <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, color, textAlign: 'center', minHeight: 18, margin: '4px 0' }}>
                                 {outcome === 'win' ? winLabel : outcome === 'lose' ? loseLabel : ''}
                             </div>

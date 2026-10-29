@@ -727,7 +727,7 @@ export default function AdminSemifinal(props: Props) {
                     <PlayoffPanel
                         playoff={state.playoff}
                         progress={playoffProgress}
-                        players={entrants}
+                        seats={seats}
                         busy={isBusy}
                         onMark={markPlayoff}
                         onUndo={undoPlayoff}
