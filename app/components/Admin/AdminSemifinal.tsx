@@ -353,6 +353,12 @@ export default function AdminSemifinal(props: Props) {
     // 判定前で、このセットの得点がまだ入っていないときの Undo は前のセットを戻してしまうので押せない
     const canUndo = !isBusy && stage !== 'mismatch' && !(stage === 'beforeJudge' && !state.pointsEntered);
 
+    // サドンデス中は、手動操作の Undo もサドンデスの1手を戻す（2026-10-29 ユーザー承認）。
+    // サドンデスの途中経過は DB に書かないので、DB の Undo を押すとサドンデスより前の判定・得点が
+    // 戻ってしまう（そのうえサドンデスが中止になり点数発表に戻っていた）。サドンデス中は DB の Undo を呼ばない
+    const inPlayoff = state.playoff !== null;
+    const canUndoPlayoff = !isBusy && !!playoffProgress && playoffProgress.effectiveActions.length > 0;
+
     // 得点を入力し直す（2026-10-17 変更）。以前は「入力済み」の印を外すだけで、入れ直すと得点が
     // 二重に加算されるおそれがあった。直前の得点入力を Undo で取り消してから得点集計に戻す
     const canReenterPoints = !isBusy && stage === 'beforeJudge' && state.pointsEntered;
@@ -627,9 +633,22 @@ export default function AdminSemifinal(props: Props) {
                                     </div>
                                 )}
                                 <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(79,216,255,.18)', margin: '0 4px' }} />
-                                <button onClick={handleUndo} disabled={!canUndo} style={{ ...dangerBtnStyle(), opacity: canUndo ? 1 : 0.35 }}>
-                                    <span style={DANGER_BTN_TEXT}>Undo</span>
-                                </button>
+                                {inPlayoff ? (
+                                    <>
+                                        <button onClick={undoPlayoff} disabled={!canUndoPlayoff} style={{ ...dangerBtnStyle(), opacity: canUndoPlayoff ? 1 : 0.35 }}>
+                                            <span style={DANGER_BTN_TEXT}>Undo（サドンデス）</span>
+                                        </button>
+                                        {!canUndoPlayoff && (
+                                            <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 12, color: '#9FB4D6' }}>
+                                                サドンデスをやめるときは「サドンデスを中止」
+                                            </span>
+                                        )}
+                                    </>
+                                ) : (
+                                    <button onClick={handleUndo} disabled={!canUndo} style={{ ...dangerBtnStyle(), opacity: canUndo ? 1 : 0.35 }}>
+                                        <span style={DANGER_BTN_TEXT}>Undo</span>
+                                    </button>
+                                )}
                                 <button onClick={() => { void handleReset(); }} disabled={isBusy} style={{ ...dangerBtnStyle(), opacity: isBusy ? 0.35 : 1 }}>
                                     <span style={DANGER_BTN_TEXT}>Semifinal の結果をリセット</span>
                                 </button>
