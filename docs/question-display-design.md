@@ -187,3 +187,18 @@ cursors = { secondRound: 15, thirdRound: 42, ... } // ラウンドごとの「�
 | 共通 | `lib/types.ts`（`QuestionDisplayState`）、`lib/questionPool.ts`（コメントの更新のみ） |
 | Admin | `AdminQuestionPanel.tsx`・問題取込パネル（新規）、`AdminText.tsx`、`AdminSecondRound.tsx`、`AdminThirdRound.tsx`、`AdminExtraRoundSecondStep.tsx`、`AdminFinal.tsx` |
 | Main | `QuestionOverlay.tsx`（新規）、`MainSecondRound.tsx`、`MainThirdRound.tsx`、`MainExtraRound.tsx`、`MainFinal.tsx` |
+
+## 8. Undo で問題も戻す（2026-10-29 ユーザー承認・案A）
+
+- サーバ（`server/QuestionHandler.js`）が、ラウンドごとに「操作の記録」をメモリに積む（1ラウンド200件まで。再起動で消える）
+  - `finish_question { round, serial, scope, scored }`: 問題を受け付けたら `scored`（得点の Undo 履歴あり）または `through`（スルー）を積む。問題を受け付けなかったが得点は動いたときは `other`
+  - `record_question_event { round, scope }`: 問題と関係しない得点の操作（3rd Round のコース終了、Final の次のセットへ）。`other`
+  - `scope` は組・コース（2nd Round は `g1`〜`g4`、3rd Round はコース名、Extra は `secondStep`、Final は `final`）
+- 配信する状態に `lastEvents`（ラウンドごとの記録の最後の種類と scope）を足した
+- Admin の Undo（`useQuestionDisplay().undoWithQuestion`）は記録の最後を見る
+  - `through` … 確認のうえ問題だけ戻す（得点の Undo API は呼ばない）
+  - `scored` … 得点の Undo が成功したら問題も戻す ／ `other` … 得点の Undo が成功したら記録を1つ消す
+  - 記録が無い・scope が違う … 得点の Undo だけ（従来どおり）
+- `undo_question_event { round, scope, kind }`: 記録の最後と一致するときだけ受け付ける（二重送信・複数の Admin で二重に戻らない）。問題を戻すと「次に読む問題」がその問題になり、Main は1つ前に表示していた問題（無ければ空）に戻る
+- 手動で番号を動かす（`set_question_cursor`）と、そのラウンドの記録は消える。一本道のリセットでも消える
+- 3rd Round・Final の採点 API は、Undo の履歴を積んだか（`historyAdded`）を返す（何も変わらない操作は履歴を積まないため、記録と手数をそろえる）

@@ -31,13 +31,49 @@ function isSerial(v) {
     return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= SERIAL_MAX;
 }
 
+// ---- 操作の記録（2026-10-29 追加。Undo で問題も戻すため。docs/question-display-design.md 8章） ----
+// ラウンドごとに、得点や問題を動かした操作を新しい順に積む。Admin の Undo は記録の最後を見て、
+//   scored（採点。得点の Undo 履歴あり・問題あり）… 得点の Undo が成功したら問題も1つ戻す
+//   through（スルー。得点なし・問題あり）       … 問題だけ戻す
+//   other（問題と関係しない得点の操作）           … 得点だけ戻す（記録を1つ消すだけ）
+// を決める。scope は「どの組・コースの操作か」で、Undo 側の組・コースと一致したときだけ戻す。
+// 他の進行状態と同じくメモリだけに持ち、再起動で消える（そのときの Undo は得点だけ戻る＝従来どおり）。
+const LOG_MAX = 200;
+const SCOPE_MAX = 64;
+const KINDS = ["scored", "through", "other"];
+let logs = {};
+
+function scopeOf(payload) {
+    const s = payload && typeof payload.scope === "string" ? payload.scope : "";
+    return s.slice(0, SCOPE_MAX);
+}
+
+function pushLog(round, entry) {
+    const list = logs[round] ? logs[round].slice() : [];
+    list.push(entry);
+    if (list.length > LOG_MAX) list.shift();
+    logs = { ...logs, [round]: list };
+}
+
+/** 配信用: ラウンドごとの記録の最後（種類と scope だけ） */
+function lastEventsOf() {
+    const out = {};
+    for (const [round, list] of Object.entries(logs)) {
+        if (list.length > 0) out[round] = { kind: list[list.length - 1].kind, scope: list[list.length - 1].scope };
+    }
+    return out;
+}
+
 module.exports = function QuestionHandler(io, socket) {
-    const broadcast = () => io.emit("update_question_display", questionDisplay);
+    const snapshot = () => ({ ...questionDisplay, lastEvents: lastEventsOf() });
+    const broadcast = () => io.emit("update_question_display", snapshot());
 
     // ラウンドの「次に読む問題」を設定・修正する（開始番号の入力、◀ 前の問題 / 次の問題 ▶）
     socket.on("set_question_cursor", (payload) => {
         if (!payload || !ROUNDS.includes(payload.round) || !isSerial(payload.serial)) return;
         questionDisplay = { ...questionDisplay, cursors: { ...questionDisplay.cursors, [payload.round]: payload.serial } };
+        // 番号を手で動かしたら、そのラウンドの記録は Undo と合わなくなるので消す（2026-10-29）
+        logs = { ...logs, [payload.round]: [] };
         broadcast();
     });
 
@@ -45,9 +81,21 @@ module.exports = function QuestionHandler(io, socket) {
     // serial がそのラウンドの「次に読む問題」と一致するときだけ受け付ける
     // （古い画面・二重送信で2問進んだり、違う問題を出したりしないように）。
     // 受け付けたら、その問題を表示中にして（自動表示。2026-10-22 ユーザー決定）、次に読む番号を1つ進める
+    // 2026-10-29: payload に scope（組・コース）と scored（得点の Undo 履歴を積んだか。省略時 true）を足した。
+    // 受け付けた問題は記録に積む。問題を受け付けなかった（開始番号が未設定など）が得点は動いたときは、
+    // 得点の Undo と手数をそろえるため other を積む
     socket.on("finish_question", (payload) => {
-        if (!payload || !ROUNDS.includes(payload.round) || !isSerial(payload.serial)) return;
-        if (questionDisplay.cursors[payload.round] !== payload.serial) return;
+        if (!payload || !ROUNDS.includes(payload.round)) return;
+        const scope = scopeOf(payload);
+        const scored = payload.scored !== false;
+        if (!isSerial(payload.serial) || questionDisplay.cursors[payload.round] !== payload.serial) {
+            if (scored) { pushLog(payload.round, { kind: "other", scope }); broadcast(); }
+            return;
+        }
+        pushLog(payload.round, {
+            kind: scored ? "scored" : "through", scope, serial: payload.serial,
+            prev: { round: questionDisplay.round, serial: questionDisplay.serial, shown: questionDisplay.shown }
+        });
         questionDisplay = {
             round: payload.round,
             serial: payload.serial,
@@ -55,6 +103,34 @@ module.exports = function QuestionHandler(io, socket) {
             seq: questionDisplay.seq + 1,
             cursors: { ...questionDisplay.cursors, [payload.round]: payload.serial + 1 }
         };
+        broadcast();
+    });
+
+    // 問題と関係しない得点の操作（3rd Round のコース終了、Final の次のセットへ など）を記録する（2026-10-29）
+    socket.on("record_question_event", (payload) => {
+        if (!payload || !ROUNDS.includes(payload.round)) return;
+        pushLog(payload.round, { kind: "other", scope: scopeOf(payload) });
+        broadcast();
+    });
+
+    // Undo に合わせて記録を1つ戻す（2026-10-29）。記録の最後と kind・scope が一致するときだけ受け付ける
+    // （Admin を複数開いていても二重に戻らない）。scored・through は「次に読む問題」をその問題に戻し、
+    // Main は1つ前に表示していた問題（無ければ空）に戻す
+    socket.on("undo_question_event", (payload) => {
+        if (!payload || !ROUNDS.includes(payload.round) || !KINDS.includes(payload.kind)) return;
+        const list = logs[payload.round] || [];
+        const last = list[list.length - 1];
+        if (!last || last.kind !== payload.kind || last.scope !== scopeOf(payload)) return;
+        logs = { ...logs, [payload.round]: list.slice(0, -1) };
+        if (last.kind !== "other") {
+            questionDisplay = {
+                round: last.prev.round,
+                serial: last.prev.serial,
+                shown: last.prev.shown,
+                seq: questionDisplay.seq + 1,
+                cursors: { ...questionDisplay.cursors, [payload.round]: last.serial }
+            };
+        }
         broadcast();
     });
 
@@ -76,6 +152,12 @@ module.exports = function QuestionHandler(io, socket) {
             if (!isResetTarget(from, ROUND_OF[round])) cursors[round] = serial;
         }
         const clearShown = questionDisplay.round !== null && isResetTarget(from, ROUND_OF[questionDisplay.round]);
+        // そのラウンド以降の操作の記録も消す（2026-10-29）
+        const keptLogs = {};
+        for (const [round, list] of Object.entries(logs)) {
+            if (!isResetTarget(from, ROUND_OF[round])) keptLogs[round] = list;
+        }
+        logs = keptLogs;
         questionDisplay = clearShown
             ? { ...questionDisplay, round: null, serial: null, shown: false, cursors }
             : { ...questionDisplay, cursors };
@@ -84,9 +166,9 @@ module.exports = function QuestionHandler(io, socket) {
 
     // 画面を開いたときに現在の状態を取り直す（読み取りだけ。他のラウンドの request_*_sync と同じ）
     socket.on("request_question_sync", () => {
-        socket.emit("update_question_display", questionDisplay);
+        socket.emit("update_question_display", snapshot());
     });
 
     // 接続直後、この1人にだけ現在の状態を渡す
-    socket.emit("update_question_display", questionDisplay);
+    socket.emit("update_question_display", snapshot());
 };

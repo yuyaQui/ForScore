@@ -54,7 +54,9 @@ export default function AdminFinal(props: Props) {
     // 写真・二つ名（選手紹介の確認用）
     const { profiles } = useSemifinalProfiles(socket);
     // 問題表示（2026-10-22）。採点が成功したら、その問題を Main に表示して次の問題に進める
-    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'final');
+    const { state: questionState, finishQuestion, recordEvent, undoWithQuestion } = useQuestionDisplay(socket, 'final');
+    // 問題表示の操作の記録で「どの操作か」を表す（Final の Undo 履歴はセットをまたいで1本。2026-10-29）
+    const QUESTION_SCOPE = 'final';
     const [isBusy, setIsBusy] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
 
@@ -111,7 +113,8 @@ export default function AdminFinal(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
-                finishQuestion();
+                // 得点の Undo 履歴を積んだか（historyAdded）も問題表示の記録に残す（2026-10-29）
+                finishQuestion(QUESTION_SCOPE, data.historyAdded !== false);
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -139,6 +142,8 @@ export default function AdminFinal(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
+                // 次のセットへ（得点が変わったとき）も Undo の1手になるので、問題と関係しない操作として記録する（2026-10-29）
+                if (data.historyAdded) recordEvent(QUESTION_SCOPE);
                 changeState({ set: set + 1 });
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
@@ -151,21 +156,28 @@ export default function AdminFinal(props: Props) {
         }
     };
 
+    // Undo。2026-10-29 から問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
     const handleUndo = async () => {
         setIsBusy(true);
         setErrorMessage("");
         try {
-            const res = await fetch('/api/final/undo', { method: 'POST' });
-            const data = await res.json();
+            await undoWithQuestion(QUESTION_SCOPE, async () => {
+                try {
+                    const res = await fetch('/api/final/undo', { method: 'POST' });
+                    const data = await res.json();
 
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-            } else {
-                setErrorMessage(data.error || 'Undo に失敗しました');
-            }
-        } catch (error) {
-            console.error('Final undo failed', error);
-            setErrorMessage('通信に失敗しました');
+                    if (data.success && socket) {
+                        socket.emit('broadcast_scores', data.allPlayers);
+                        return true;
+                    }
+                    setErrorMessage(data.error || 'Undo に失敗しました');
+                    return false;
+                } catch (error) {
+                    console.error('Final undo failed', error);
+                    setErrorMessage('通信に失敗しました');
+                    return false;
+                }
+            });
         } finally {
             setIsBusy(false);
         }
@@ -447,7 +459,7 @@ export default function AdminFinal(props: Props) {
 
             {/* スルー（誰も解答しなかった）と問題パネル（2026-10-22）。スルーはスコアを変えず問題だけ進める */}
             {view === 'quiz' && !isTournamentFinished && (
-                <button onClick={finishQuestion} disabled={isBusy} className="w-full bg-sky-600 hover:bg-sky-700 disabled:bg-zinc-300 text-white font-bold py-3 rounded-lg transition-colors">
+                <button onClick={() => finishQuestion(QUESTION_SCOPE, false)} disabled={isBusy} className="w-full bg-sky-600 hover:bg-sky-700 disabled:bg-zinc-300 text-white font-bold py-3 rounded-lg transition-colors">
                     スルー
                 </button>
             )}

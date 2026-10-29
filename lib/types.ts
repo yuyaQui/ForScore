@@ -234,6 +234,16 @@ export type QuestionDisplayState = {
     seq: number;
     /** ラウンドごとの「次に読む問題」の通し番号。開始番号を決めていないラウンドは無い */
     cursors: Partial<Record<QuestionRound, number>>;
+    /**
+     * ラウンドごとの「操作の記録」の最後（2026-10-29 追加。Undo で問題も戻すため）。
+     * kind: scored = 採点（得点の Undo 履歴あり・問題あり）／ through = スルー（得点なし・問題あり）／
+     *       other = 問題と関係しない得点の操作（3rd Round のコース終了、Final の次のセットへ など）
+     * scope: どの組・コースの操作か（2nd Round は "g1" など、3rd Round はコース名）。記録が無ければ無い
+     */
+    lastEvents?: Partial<Record<QuestionRound, QuestionEvent>>;
 };
+
+export type QuestionEventKind = 'scored' | 'through' | 'other';
+export type QuestionEvent = { kind: QuestionEventKind; scope: string };
 
 export const DEFAULT_QUESTION_DISPLAY: QuestionDisplayState = { round: null, serial: null, shown: false, seq: 0, cursors: {} };

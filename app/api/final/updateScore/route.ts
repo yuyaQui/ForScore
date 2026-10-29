@@ -99,7 +99,8 @@ export async function POST(request: Request) {
 
         const allPlayers = await loadAllPlayers();
 
-        return NextResponse.json({ success: true, allPlayers });
+        // historyAdded: Undo の履歴を1件積んだか（2026-10-29。Admin が問題表示の記録と Undo の手数をそろえるのに使う）
+        return NextResponse.json({ success: true, allPlayers, historyAdded: changed.length > 0 });
     } catch (error) {
         console.error('Final score update error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

@@ -2,7 +2,8 @@
 // 2nd Round・3rd Round・Extra Round Second Step・Final の Admin に置く共通部品。
 //   - 次に読む問題（通し番号・問題文・解答・別解）を司会・スタッフが確認する
 //   - Main に表示中の問題と、表示する／隠す
-//   - 開始番号の入力と、◀ 前の問題 / 次の問題 ▶（番号の手動修正。採点の Undo 後に合わせる）
+//   - 開始番号の入力と、◀ 前の問題 / 次の問題 ▶（番号の手動修正。2026-10-29 から Undo で問題も戻るので、通常は使わない。
+//     手で動かすとそのラウンドの操作の記録は消え、それ以前の Undo では問題が戻らなくなる）
 // 採点（正解・誤答・スルー）が成功したら、各ラウンドの Admin が finishQuestion() を呼ぶ。
 import { Socket } from "socket.io-client";
 import { useCallback, useEffect, useState } from "react";
@@ -27,13 +28,38 @@ export function useQuestionDisplay(socket: Socket | null, round: QuestionRound) 
     }, [socket]);
 
     // 採点（正解・誤答・スルー）が成功した後に呼ぶ。サーバは「次に読む問題」と一致するときだけ受け付け、
-    // その問題を Main に表示して番号を1つ進める（開始番号が未設定なら何もしない）
+    // その問題を Main に表示して番号を1つ進める（開始番号が未設定なら何もしない）。
+    // 2026-10-29: scope（どの組・コースの操作か）と scored（得点の Undo 履歴を積んだか）も送り、
+    // サーバが操作の記録に積む（Undo で問題も戻すため）
     const cursor = state.cursors[round];
-    const finishQuestion = useCallback(() => {
-        if (socket && cursor !== undefined) socket.emit('finish_question', { round, serial: cursor });
+    const finishQuestion = useCallback((scope: string, scored: boolean) => {
+        if (socket) socket.emit('finish_question', { round, serial: cursor, scope, scored });
     }, [socket, round, cursor]);
 
-    return { state, finishQuestion };
+    // 問題と関係しない得点の操作（3rd Round のコース終了、Final の次のセットへ）を記録する（2026-10-29）
+    const recordEvent = useCallback((scope: string) => {
+        if (socket) socket.emit('record_question_event', { round, scope });
+    }, [socket, round]);
+
+    // Undo（2026-10-29）。操作の記録の最後を見て、
+    //   スルー → 確認のうえ問題だけ戻す（得点の Undo は呼ばない）
+    //   採点 → 得点の Undo（dbUndo）が成功したら問題も戻す
+    //   問題と関係しない操作 → 得点の Undo が成功したら記録を1つ消す
+    //   記録が無い・組やコースが違う → 得点の Undo だけ（従来どおり）
+    // dbUndo は得点の Undo を行い、成功したら true を返す
+    const lastEvent = state.lastEvents?.[round];
+    const undoWithQuestion = useCallback(async (scope: string, dbUndo: () => Promise<boolean>) => {
+        const last = lastEvent && lastEvent.scope === scope ? lastEvent : null;
+        if (last?.kind === 'through') {
+            if (!window.confirm('直前のスルーを取り消して、問題を1つ戻しますか？（得点は変わりません）')) return;
+            socket?.emit('undo_question_event', { round, scope, kind: 'through' });
+            return;
+        }
+        const ok = await dbUndo();
+        if (ok && last) socket?.emit('undo_question_event', { round, scope, kind: last.kind });
+    }, [socket, round, lastEvent]);
+
+    return { state, finishQuestion, recordEvent, undoWithQuestion };
 }
 
 /** 通し番号1問ぶんを取得する（Admin 用。別解を含む）。無ければ error */

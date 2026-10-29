@@ -84,7 +84,9 @@ export default function AdminSecondRound(props: Props) {
     const progress = useRoundProgress();
 
     // 問題表示（2026-10-22）。採点が成功したら、その問題を Main に表示して次の問題に進める
-    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'secondRound');
+    const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'secondRound');
+    // 問題表示の操作の記録で「どの組の操作か」を表す（2026-10-29。Undo は組ごとなので、違う組の記録では問題を戻さない）
+    const questionScope = `g${secondRoundState.group}`;
 
     const handleScoreAction = async (playerId: number, action: 'correct' | 'wrong') => {
         try {
@@ -97,8 +99,8 @@ export default function AdminSecondRound(props: Props) {
 
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers);
-                // 正解・誤答でその問題は終わる（ルール）。Main に表示して次の問題へ
-                finishQuestion();
+                // 正解・誤答でその問題は終わる（ルール）。Main に表示して次の問題へ（得点の Undo 履歴あり）
+                finishQuestion(questionScope, true);
             }
         } catch (error) {
             console.error('Score update failed', error);
@@ -125,25 +127,30 @@ export default function AdminSecondRound(props: Props) {
         }
     };
 
+    // Undo。2026-10-29 から問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
     const handleGroupUndo = async (secondRoundState: { group: number, view: string }) => {
         // 3rd Round が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'secondRound')) return;
-        try {
-            const res = await fetch('/api/secondRound/undo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ secondRoundState })
-            });
-            const data = await res.json();
+        await undoWithQuestion(`g${secondRoundState.group}`, async () => {
+            try {
+                const res = await fetch('/api/secondRound/undo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ secondRoundState })
+                });
+                const data = await res.json();
 
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-            } else if (data.error) {
-                alert(data.error || 'Undo に失敗しました');
+                if (data.success && socket) {
+                    socket.emit('broadcast_scores', data.allPlayers);
+                    return true;
+                }
+                if (data.error) alert(data.error || 'Undo に失敗しました');
+                return false;
+            } catch (error) {
+                console.error('Undo scores failed', error);
+                return false;
             }
-        } catch (error) {
-            console.error('Undo scores failed', error);
-        }
+        });
     };
 
     const handleStateChange = (updates: Partial<typeof secondRoundState>) => {
@@ -577,7 +584,7 @@ export default function AdminSecondRound(props: Props) {
                         )}
                     </div>
                     {/* スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22） */}
-                    <button onClick={finishQuestion} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
+                    <button onClick={() => finishQuestion(questionScope, false)} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
                         <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
                     </button>
                     <AdminQuestionPanel socket={socket} round="secondRound" state={questionState} />

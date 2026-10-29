@@ -125,7 +125,9 @@ export default function AdminExtraRound(props: Props) {
     const noRevival = progress?.extraRoundNoRevival ?? false;
 
     // 問題表示（2026-10-22。Second Step のみ）。採点が成功したら、その問題を Main に表示して次の問題に進める
-    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'extraSecondStep');
+    const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'extraSecondStep');
+    // 問題表示の操作の記録で「どの操作か」を表す（Second Step は1つだけ。2026-10-29）
+    const QUESTION_SCOPE = 'secondStep';
 
     const handleScore = async (playerId: number, action: 'correct' | 'wrong') => {
         setErrorMessage('');
@@ -139,7 +141,7 @@ export default function AdminExtraRound(props: Props) {
             const data = await res.json();
             if (res.ok && data.success) {
                 if (socket) socket.emit('broadcast_scores', data.allPlayers);
-                finishQuestion();
+                finishQuestion(QUESTION_SCOPE, true);
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -154,19 +156,26 @@ export default function AdminExtraRound(props: Props) {
     const handleUndo = async () => {
         // Semi-Final が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'extraRound')) return;
+        // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
         setErrorMessage('');
         setIsBusy(true);
         try {
-            const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                if (socket) socket.emit('broadcast_scores', data.allPlayers);
-            } else {
-                setErrorMessage(data.error || 'Undo に失敗しました');
-            }
-        } catch (error) {
-            console.error('Extra Round Second Step undo failed', error);
-            setErrorMessage('通信に失敗しました');
+            await undoWithQuestion(QUESTION_SCOPE, async () => {
+                try {
+                    const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        if (socket) socket.emit('broadcast_scores', data.allPlayers);
+                        return true;
+                    }
+                    setErrorMessage(data.error || 'Undo に失敗しました');
+                    return false;
+                } catch (error) {
+                    console.error('Extra Round Second Step undo failed', error);
+                    setErrorMessage('通信に失敗しました');
+                    return false;
+                }
+            });
         } finally {
             setIsBusy(false);
         }
@@ -440,7 +449,7 @@ export default function AdminExtraRound(props: Props) {
                     <>
                         <AdminExtraRoundSecondStep entrants={entrants} onScore={handleScore} busy={isBusy} />
                         {/* スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22） */}
-                        <button onClick={finishQuestion} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
+                        <button onClick={() => finishQuestion(QUESTION_SCOPE, false)} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
                             <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
                         </button>
                         <AdminQuestionPanel socket={socket} round="extraSecondStep" state={questionState} />

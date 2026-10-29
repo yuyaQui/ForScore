@@ -241,7 +241,8 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `broadcast_third_round_courses` | `ThirdRoundCourse[]` | `ThirdRoundHandler` |
 | `reset_round_progress` | `{ from }`（`'all'` \| `'secondRound'` \| `'thirdRound'` \| `'extraRound'` \| `'semifinal'` \| `'final'`） | 各ラウンドのハンドラ・`QuestionHandler`（DB のリセット後に、from 以降のラウンドの進行状態・タイマー・問題番号を初期値に戻す。`server/roundOrder.js`・`docs/linear-progress-design.md`） |
 | `tournament_state_changed` | なし | `ModeHandler`（大会の状態（`TournamentState`）が変わったことを全員に知らせる） |
-| `set_question_cursor` / `finish_question` / `change_question_display` / `request_question_sync` | `{ round, serial }` / `{ round, serial }` / `{ shown }` / なし | `QuestionHandler`（問題表示。`docs/question-display-design.md`） |
+| `set_question_cursor` / `finish_question` / `change_question_display` / `request_question_sync` | `{ round, serial }` / `{ round, serial, scope, scored }` / `{ shown }` / なし | `QuestionHandler`（問題表示。`docs/question-display-design.md`） |
+| `record_question_event` / `undo_question_event` | `{ round, scope }` / `{ round, scope, kind }` | `QuestionHandler`（Undo で問題も戻すための操作の記録。同 8章） |
 | `update_text` | text: string | `TextHandler` |
 | `1R_start_timer` / `1R_stop_timer` / `1R_reset_timer` | なし | `FirstRoundHandler` |
 | `1R_edit_timer` | seconds: number | `FirstRoundHandler` |

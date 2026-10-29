@@ -369,7 +369,7 @@ export default function AdminThirdRound(props: Props) {
 
     // 問題表示（2026-10-22）。採点（正解・誤答・スルー）が成功したら、その問題を Main に表示して次の問題に進める。
     // コースが変わっても通し番号は続きから（ラウンドで1本の番号）
-    const { state: questionState, finishQuestion } = useQuestionDisplay(socket, 'thirdRound');
+    const { state: questionState, finishQuestion, recordEvent, undoWithQuestion } = useQuestionDisplay(socket, 'thirdRound');
     // 各ラウンドの状況（2026-10-22。「Extra Round へ ▶」・Undo の制限・リセットの確認文に使う）
     const progress = useRoundProgress();
 
@@ -522,8 +522,11 @@ export default function AdminThirdRound(props: Props) {
                 if (data.shouldStopTimer) {
                     socket.emit('change_third_round_timer', { action: 'stop' });
                 }
-                // 正解・誤答・スルーでその問題は終わる。コース終了処理（finish）は問題と関係しない
-                if (action !== 'finish') finishQuestion();
+                // 正解・誤答・スルーでその問題は終わる。コース終了処理（finish）は問題と関係しない。
+                // 2026-10-29: どのコースの操作か・得点の Undo 履歴を積んだか（historyAdded）を問題表示の記録に残す
+                const historyAdded = data.historyAdded !== false;
+                if (action !== 'finish') finishQuestion(quizCourse.name, historyAdded);
+                else if (historyAdded) recordEvent(quizCourse.name);
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -555,7 +558,7 @@ export default function AdminThirdRound(props: Props) {
             if (data.success && socket) {
                 socket.emit('broadcast_scores', data.allPlayers)
                 // サドンデスも早押しの1問。Main に表示して次の問題へ
-                finishQuestion();
+                finishQuestion(quizCourse.name, data.historyAdded !== false);
             } else {
                 setErrorMessage(data.error || '更新に失敗しました');
             }
@@ -574,27 +577,35 @@ export default function AdminThirdRound(props: Props) {
         // Extra Round が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'thirdRound')) return;
 
+        // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
+        const courseName = quizCourse.name;
         setIsBusy(true);
         setErrorMessage("");
         try {
-            const res = await fetch('/api/thirdRound/undo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ courseName: quizCourse.name })
-            });
-            const data = await res.json();
+            await undoWithQuestion(courseName, async () => {
+                try {
+                    const res = await fetch('/api/thirdRound/undo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ courseName })
+                    });
+                    const data = await res.json();
 
-            if (data.success && socket) {
-                socket.emit('broadcast_scores', data.allPlayers);
-                // 戻したのがコース終了だった可能性があるので、安全側に倒して解除する。
-                // それ以外の操作を戻した場合でも、押し直せば同じ結果になる（終了処理は冪等）。
-                changeState({ finishedOrder: null });
-            } else {
-                setErrorMessage(data.error || 'Undo に失敗しました');
-            }
-        } catch (error) {
-            console.error('Undo failed', error);
-            setErrorMessage('通信に失敗しました');
+                    if (data.success && socket) {
+                        socket.emit('broadcast_scores', data.allPlayers);
+                        // 戻したのがコース終了だった可能性があるので、安全側に倒して解除する。
+                        // それ以外の操作を戻した場合でも、押し直せば同じ結果になる（終了処理は冪等）。
+                        changeState({ finishedOrder: null });
+                        return true;
+                    }
+                    setErrorMessage(data.error || 'Undo に失敗しました');
+                    return false;
+                } catch (error) {
+                    console.error('Undo failed', error);
+                    setErrorMessage('通信に失敗しました');
+                    return false;
+                }
+            });
         } finally {
             setIsBusy(false);
         }
@@ -1281,7 +1292,7 @@ export default function AdminThirdRound(props: Props) {
                             （休み中の選手の残り問数を減らす）、他の3コースはスコアを変えずに問題だけ進める */}
                         {quizPlayers.length > 0 && (
                             <button
-                                onClick={() => { if (quizCourse?.name === THIRD_ROUND_COURSES.FREEZE) void handleScore(null, 'through'); else finishQuestion(); }}
+                                onClick={() => { if (quizCourse?.name === THIRD_ROUND_COURSES.FREEZE) void handleScore(null, 'through'); else if (quizCourse) finishQuestion(quizCourse.name, false); }}
                                 disabled={isBusy}
                                 style={{
                                     width: `min(100%, ${quizPlayers.length * ADMIN_QUIZ_CARD_MAX_WIDTH + (quizPlayers.length - 1) * 10}px)`,

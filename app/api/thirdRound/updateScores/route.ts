@@ -154,7 +154,8 @@ export async function POST(request: Request) {
             p => rankBefore.get(p.id) === 0 && p.thirdRoundRank !== 0
         );
 
-        return NextResponse.json({ success: true, allPlayers, shouldStopTimer });
+        // historyAdded: Undo の履歴を1件積んだか（2026-10-29。Admin が問題表示の記録と Undo の手数をそろえるのに使う）
+        return NextResponse.json({ success: true, allPlayers, shouldStopTimer, historyAdded: changed.length > 0 });
     } catch (error) {
         console.error('Third round score update error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
