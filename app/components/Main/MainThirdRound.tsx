@@ -29,6 +29,7 @@ import {
 import FixedStage from "@/app/components/FixedStage";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
+import { BELOW_NUMBER_FONT, belowFontSize, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
     players: Player[],
@@ -597,9 +598,9 @@ type QuizViewProps = {
 }
 
 /** 選手カード（694）＋ 下の数字（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準（2026-10-22） */
-const THIRD_ROUND_CONTENT_H = 694 + 16 + 70 + 4 + 70;
+const THIRD_ROUND_CONTENT_H = 694 + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H;
 /** サドンデスはカードの下が数字（勝ち抜け順位・LOST）だけ */
-const THIRD_ROUND_PLAYOFF_CONTENT_H = 694 + 16 + 70;
+const THIRD_ROUND_PLAYOFF_CONTENT_H = 694 + 16 + BELOW_NUMBER_H;
 
 function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps) {
     const phase = useCardIntroPhase();
@@ -623,9 +624,9 @@ function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps)
 /** Swedish 10 で次の誤答で付く×のマス（「・」）の色。Admin の「(+n)」と同じ淡い赤 */
 const SWEDISH_PREVIEW_COLOR = '#FF9E9E';
 
-function BelowNumber({ text, color }: { text: React.ReactNode; color: string }) {
+function BelowNumber({ text, color }: { text: string | number; color: string }) {
     return (
-        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color }}>
+        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(text), fontWeight: 800, letterSpacing: 1, color }}>
             {text}
         </div>
     );
@@ -640,7 +641,7 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
     // 勝ち抜け・失格の場合は枠下の表示を結果(順位/LOST)に差し替える。4コースとも共通の規則
     // (Design アーティファクトのbelowText/belowColor算出をそのまま踏襲)。
     const resultColor = eliminated ? '#8A93A3' : winner ? '#FFE28A' : '#EAF6FF';
-    const resultText: React.ReactNode | null = eliminated ? 'LOST' : winner ? toOrdinal(p.thirdRoundRank) : null;
+    const resultText: string | null = eliminated ? 'LOST' : winner ? toOrdinal(p.thirdRoundRank) : null;
 
     let pct = 0;
     let belowContent: React.ReactNode;
@@ -652,12 +653,12 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
         belowContent = (
             <>
                 <BelowNumber text={resultText ?? p.thirdRoundUpDownPoint} color={resultColor} />
-                <div style={{ display: 'flex', gap: 14, marginTop: 4, height: 70, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, height: BELOW_MARK_H, alignItems: 'center' }}>
                     {Array.from({ length: wrongCount }).map((_, i) => (
-                        <span key={`x${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
+                        <span key={`x${i}`} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT - 4, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
                     ))}
                     {Array.from({ length: Math.max(0, 2 - wrongCount) }).map((_, i) => (
-                        <span key={`d${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 60, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
+                        <span key={`d${i}`} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT - 4, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
                     ))}
                 </div>
             </>
@@ -675,8 +676,8 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
                     BelowNumber)より小さく見えてしまっていた。見た目を正解数と揃えるため、
                     BelowNumberと同じ書体・サイズに統一する(アーティファクトからの意図的な変更。
                     その後BelowNumber自体が2nd Round側の58pxに揃えられたため、本表示も追従)。 */}
-                <div style={{ marginTop: 4, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
+                <div style={{ marginTop: 4, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
                         {p.thirdRoundWrongCount}×
                     </span>
                 </div>

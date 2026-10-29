@@ -24,6 +24,7 @@ import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { WINNER_BAR_COLOR, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "@/app/components/Main/PlayerCardFrame";
+import { belowFontSize, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
     players: Player[],
@@ -361,7 +362,7 @@ type DoorPhase = 'hidden' | 'collapsed' | 'expanding' | 'open';
 
 const FULL_CHASSIS_H = 694, FULL_OUTER_H = 680;
 /** カード（694）＋ 下の点数（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準 */
-const SECOND_ROUND_CONTENT_H = FULL_CHASSIS_H + 16 + 70 + 4 + 70;
+const SECOND_ROUND_CONTENT_H = FULL_CHASSIS_H + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H;
 const COLLAPSED_CHASSIS_H = 144, COLLAPSED_OUTER_H = 130;
 const COLLAPSED_STRIP_H = 7;
 const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (FULL_OUTER_H / COLLAPSED_OUTER_H));
@@ -601,13 +602,13 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                                     </div>
                                 </div>
                                 <div style={styleBelowWrap}>
-                                    <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color: belowColor }}>{belowText}</div>
-                                    <div style={{ display: 'flex', gap: 14, marginTop: 4, height: 70, alignItems: 'center' }}>
+                                    <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(belowText), fontWeight: 800, letterSpacing: 1, color: belowColor }}>{belowText}</div>
+                                    <div style={{ display: 'flex', gap: 14, marginTop: 4, height: BELOW_MARK_H, alignItems: 'center' }}>
                                         {wrongMarks.map((_, i) => (
-                                            <span key={`x-${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
+                                            <span key={`x-${i}`} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>
                                         ))}
                                         {dotMarks.map((_, i) => (
-                                            <span key={`dot-${i}`} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
+                                            <span key={`dot-${i}`} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT, lineHeight: 1, fontWeight: 700, color: '#3A5170' }}>・</span>
                                         ))}
                                     </div>
                                 </div>

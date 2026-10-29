@@ -6,6 +6,7 @@ import {
 import { toOrdinal } from "@/lib/ordinal";
 import { NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "./PlayerCardFrame";
 import { LightningBoltsVertical } from "@/app/components/LightningBolts";
+import { BELOW_NUMBER_H } from "@/app/components/Main/belowSizes";
 
 // 準決勝の選手カード（2026-10-15。Design アーティファクト「【設計案】Semifinal 選手カード」を移植）。
 //
@@ -250,7 +251,7 @@ export function SemifinalCard({
 }
 
 /** 枠の下の表示（点数・WIN・LOST）の高さ。BelowText（marginTop 16 + 70）と同じ */
-export const BELOW_H = 86;
+export const BELOW_H = 16 + BELOW_NUMBER_H;   // 数字の大きさは belowSizes.ts（2026-10-29）
 
 /** 写真が未登録の選手の代わりの表示 */
 export function NoPhoto({ color }: { color: string }) {

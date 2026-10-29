@@ -14,6 +14,7 @@ import { toOrdinal } from "@/lib/ordinal";
 import FixedStage from "@/app/components/FixedStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { SemifinalCard, SemifinalTimerGauge, NoPhoto, useSfCardIntro, SF_CHASSIS_W, BELOW_H } from "./SemifinalCard";
+import { BELOW_NUMBER_FONT, belowFontSize } from "@/app/components/Main/belowSizes";
 
 type Props = {
     socket: Socket | null;
@@ -208,7 +209,7 @@ function SetLabel({ set }: { set: number }) {
 
 function BelowText({ text, color }: { text: React.ReactNode; color: string }) {
     return (
-        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color, height: BELOW_H - 16, lineHeight: `${BELOW_H - 16}px`, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: typeof text === 'string' || typeof text === 'number' ? belowFontSize(text) : BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, color, height: BELOW_H - 16, lineHeight: `${BELOW_H - 16}px`, fontVariantNumeric: 'tabular-nums' }}>
             {text}
         </div>
     );

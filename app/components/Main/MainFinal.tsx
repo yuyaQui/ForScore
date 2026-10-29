@@ -11,6 +11,7 @@ import FixedStage from "@/app/components/FixedStage";
 import { RoundStage } from "./RoundStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { FinalCard } from "./FinalCard";
+import { BELOW_NUMBER_FONT, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
     socket: Socket | null;
@@ -110,12 +111,12 @@ export default function MainFinal(props: Props) {
                                     barColor={champion ? WINNER_BAR_COLOR : undefined}
                                 />
                                 {/* 2nd Round と同じ: 正解数（大きな数字）と誤答（× と ・、3回でそのセット失格） */}
-                                <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, lineHeight: 1.2, color: out ? '#8A93A3' : '#EAF6FF', fontVariantNumeric: 'tabular-nums' }}>
+                                <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, color: out ? '#8A93A3' : '#EAF6FF', fontVariantNumeric: 'tabular-nums' }}>
                                     {correct}
                                 </div>
-                                <div style={{ display: 'flex', gap: 14, marginTop: 4, height: 70, alignItems: 'center' }}>
+                                <div style={{ display: 'flex', gap: 14, marginTop: 4, height: BELOW_MARK_H, alignItems: 'center' }}>
                                     {Array.from({ length: SET_ELIMINATE_WRONG_COUNT }, (_, i) => (
-                                        <span key={i} style={{ width: 64, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64, lineHeight: 1, fontWeight: 700, color: i < wrong ? '#FF4D6D' : '#3A5170' }}>
+                                        <span key={i} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT, lineHeight: 1, fontWeight: 700, color: i < wrong ? '#FF4D6D' : '#3A5170' }}>
                                             {i < wrong ? '×' : '・'}
                                         </span>
                                     ))}
@@ -178,4 +179,4 @@ function FinalHeader({ right }: { right?: React.ReactNode }) {
 }
 
 /** カード（574）＋ 正解数（16＋70）＋ 誤答（4＋70）＋ 最終順位（6＋56）。RoundStage の縮小の基準（2026-10-22） */
-const FINAL_CONTENT_H = 574 + 16 + 70 + 4 + 70 + 6 + 56;
+const FINAL_CONTENT_H = 574 + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H + 6 + 56;

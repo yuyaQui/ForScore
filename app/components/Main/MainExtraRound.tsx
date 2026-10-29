@@ -12,6 +12,7 @@ import FixedStage from "@/app/components/FixedStage";
 import { RoundStage } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
 import { RevealWhole } from "@/app/components/Main/RevealText";
+import { belowFontSize, BELOW_NUMBER_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
     socket: Socket | null;
@@ -324,7 +325,7 @@ function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Sock
                                 barColor={isWinner ? WINNER_BAR_COLOR : undefined}
                                 belowContent={
                                     <>
-                                        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color: resultColor }}>
+                                        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(eliminated ? 'LOST' : isWinner ? 'WIN' : p.extraRoundCorrectCount), fontWeight: 800, letterSpacing: 1, color: resultColor }}>
                                             {eliminated ? 'LOST' : isWinner ? 'WIN' : p.extraRoundCorrectCount}
                                         </div>
                                     </>
@@ -343,4 +344,4 @@ function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Sock
 }
 
 /** 選手カード（694）＋ 下の数字（16＋70）。RoundStage の縮小の基準（2026-10-22） */
-const EXTRA_SECOND_STEP_CONTENT_H = 694 + 16 + 70;
+const EXTRA_SECOND_STEP_CONTENT_H = 694 + 16 + BELOW_NUMBER_H;
