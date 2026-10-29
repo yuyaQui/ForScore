@@ -10,6 +10,7 @@ import {
     type ThirdRoundCourseName
 } from "@/lib/thirdRoundCourses";
 import { formatTime } from "@/lib/formatTime";
+import { reelPoolFor, buildReelSequence } from "@/lib/courseReel";
 import {
     getTenByTenTotal,
     getTenByTenWrongPoint,
@@ -203,7 +204,7 @@ export default function MainThirdRound(props: Props) {
     // 外れているため、ここにも含めない。
     return (
         <FixedStage>
-            <CourseSelectView gridItems={gridItems} currentCourse={currentCourse} />
+            <CourseSelectView gridItems={gridItems} currentCourse={currentCourse} courses={courses} />
         </FixedStage>
     );
 }
@@ -215,6 +216,8 @@ export default function MainThirdRound(props: Props) {
 type CourseSelectViewProps = {
     gridItems: (Player | null)[];
     currentCourse: Course | null;
+    /** 全コース（ルーレットに流すコース＝その抽選の時点で未抽選だったコースを求めるのに使う） */
+    courses: Course[];
 }
 
 // ルーレット表示の寸法・色・周回数。Design アーティファクトの値をそのまま使う。
@@ -251,13 +254,20 @@ function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number
 // 固定値の@keyframesではなくCSS変数経由でアニメーションの始点・終点を渡している。
 type ReelTrackStyle = CSSProperties & { '--reel-from': string; '--reel-to': string };
 
-function CourseSelectView({ gridItems, currentCourse }: CourseSelectViewProps) {
+function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectViewProps) {
     // ルーレットの回転演出。抽選そのものは Admin 側(app/api/thirdRound/draw)がすでに
     // 確定させていて、ここは「currentCourse の名前が変わった」ことを検知して結果を
     // 演出するだけ。結果はここでは決めない(app/api/thirdRound/draw/route.ts のコメント
     // 「アニメーションは確定した結果を演出するだけで、結果を決めてはいけない」と同じ方針)。
     const [spinStage, setSpinStage] = useState<'landed' | 'spinning'>('landed');
     const [reelTarget, setReelTarget] = useState<string | null>(currentCourse?.name ?? null);
+    // ルーレットに流すコース（2026-10-29: その抽選の時点で未抽選だったコースだけ）。
+    // 回転を始めた時点で固定する（回転中にコースの配信が来ても並びが変わらないように）
+    const [reelPool, setReelPool] = useState<string[]>(() => reelPoolFor(courses, currentCourse?.name ?? null));
+    // コース一覧は回転を始めるときに読むだけなので ref で持つ（effect の依存に入れると、回転中にコースの
+    // 配信が来たときに effect が作り直され、回転を終える setTimeout が消えてしまう）
+    const coursesRef = useRef(courses);
+    useEffect(() => { coursesRef.current = courses; });
     const prevCourseNameRef = useRef<string | null>(currentCourse?.name ?? null);
 
     useEffect(() => {
@@ -267,6 +277,7 @@ function CourseSelectView({ gridItems, currentCourse }: CourseSelectViewProps) {
             // 15秒かけて初速維持→減速→最終区間でさらに減速して停止する演出を1回再生する。
             prevCourseNameRef.current = name;
             setReelTarget(name);
+            setReelPool(reelPoolFor(coursesRef.current, name));
             setSpinStage('spinning');
             const timer = setTimeout(() => setSpinStage('landed'), REEL_SPIN_MS);
             return () => clearTimeout(timer);
@@ -277,9 +288,9 @@ function CourseSelectView({ gridItems, currentCourse }: CourseSelectViewProps) {
     // 回転中に流れる全アイテムを的中アイテムと同じスタイル(白文字+縁取り)で揃える
     // (アーティファクトのコメント：「選択されない部分のスタイルも選択される部分に
     // 揃えてほしい」というユーザー指示による)。
-    const reelSequence: string[] = [];
-    for (let lap = 0; lap < REEL_LAPS; lap++) reelSequence.push(...THIRD_ROUND_COURSE_NAMES);
-    if (reelTarget) reelSequence.push(reelTarget);
+    // 並びは固定の順番のまま、周回の続きで当選コースの位置まで進めて止める（lib/courseReel.ts。2026-10-29 修正。
+    // 以前は周回の後ろに当選コースを付け足していたため、同じ名前が2つ続いたり順番が飛んだりした）
+    const reelSequence = buildReelSequence(reelTarget, reelPool.length > 0 ? reelPool : THIRD_ROUND_COURSE_NAMES, REEL_LAPS);
     // track内では的中アイテムが先頭(最上部)に来るよう、時系列を反転させる
     const reelTrackItems = reelSequence.slice().reverse();
     const reelYLanded = (REEL_VIEW_H - REEL_ITEM_H) / 2;
