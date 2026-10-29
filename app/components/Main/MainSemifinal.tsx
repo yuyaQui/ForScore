@@ -365,7 +365,6 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
     // now は最初のフレームまで 0。そのあいだは開始待ちとして扱う
     const elapsed = animation && now > 0 ? now - animation.startAt : -Infinity;
     const playing = animation !== null && elapsed < animation.plan.totalMs;
-    const settled = players.some(p => p.semifinalRank === set);
 
     // 得点集計・点数発表を開いたとき（振り返りなど別の画面からこのステージを新しく作ったとき）だけ、
     // カードの開扉演出を見せる。得点集計 → 点数発表は同じステージなので開扉はしない
@@ -381,7 +380,8 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
     return (
         <div style={STAGE_STYLE}>
             <Header subtitle="Nine Hundred" right={mode === 'lineup' ? undefined : <SetLabel set={set} />} />
-            <Rule color={mode === 'results' && settled ? GOLD : ACCENT} />
+            {/* 仕切り線は Semi-Final の間ずっと青（2026-10-29 ユーザー指示。以前は判定後に金色へ変わっていた） */}
+            <Rule color={ACCENT} />
             {/* カードの上端はどの表示でも同じ位置（縮むのは下辺だけ）。空いた下の部分にタイマーを出す */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 70, gap: 72 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: ROW_GAP }}>
@@ -515,7 +515,8 @@ function PlayoffView({ seats, state, profileOf }: { seats: SemifinalSeatAssignme
     return (
         <div style={STAGE_STYLE}>
             <Header subtitle={isAdvance ? '勝ち抜けサドンデス' : '失格サドンデス'} right={<SetLabel set={state.set} />} />
-            <Rule color={GOLD} />
+            {/* サドンデスも仕切り線は青（2026-10-29 ユーザー指示） */}
+            <Rule color={ACCENT} />
             <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 70 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56 }}>
                     {candidates.map(p => {
