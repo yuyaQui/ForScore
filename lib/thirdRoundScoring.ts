@@ -119,7 +119,23 @@ export function applyThirdRoundScore(input: ScoringInput): Player[] {
 
     // 2段目: 終了条件2 が成立していたら、解答席に残っている全員を勝ち抜けにする。
     // この処理は対象者以外の順位も変えるため、全員を見る別の段が要る。
-    return finalizeRemainingWinners(input.course, scored);
+    const finalized = finalizeRemainingWinners(input.course, scored);
+
+    // 3段目: 勝ち抜け枠が埋まったら、その瞬間にコースを終える（2026-10-29 ユーザー指示）
+    return closeCourseIfSeatsFilled(finalized);
+}
+
+/**
+ * 勝ち抜け枠（2名）が埋まったら、まだ解答席にいる選手を全員失格（−1）にしてコースを終える。
+ * 失格者が何人いても関係なく、枠が0になった瞬間に終わる（2026-10-29 ユーザー指示）。
+ * これをしないと、2名勝ち抜けた後に残りの選手へ「正解」を押すと3人目の勝ち抜けができてしまう。
+ * 通常のクイズとサドンデスの両方の最後で呼ぶ。
+ * Main は 2nd Round と同じく、ルールで失格した選手だけを LOST にする（isEliminatedByCourseRule）。
+ */
+export function closeCourseIfSeatsFilled(players: Player[]): Player[] {
+    const winnersCount = players.filter(p => p.thirdRoundRank > 0).length;
+    if (winnersCount < WINNERS_PER_COURSE) return players;
+    return players.map(p => (p.thirdRoundRank === 0 ? { ...p, thirdRoundRank: -1 } : p));
 }
 
 /**
@@ -316,7 +332,10 @@ export function applyPlayoffScore(
     });
 
     // トビ残りが発生した時の処理
-    return finalizeRemainingWinners(course, scored)
+    const finalized = finalizeRemainingWinners(course, scored);
+
+    // 勝ち抜け枠が埋まったら、残りのサドンデス参加者は失格にしてコースを終える（2026-10-29 ユーザー指示）
+    return closeCourseIfSeatsFilled(finalized);
 }
 
 // 「コース終了」を押した時に呼ぶ関数

@@ -12,7 +12,8 @@ import {
 import { formatTime } from "@/lib/formatTime";
 import {
     getTenByTenTotal,
-    getTenByTenWrongPoint
+    getTenByTenWrongPoint,
+    isEliminatedByCourseRule,
 } from "@/lib/thirdRoundScoring";
 import {
     ACCENT,
@@ -598,7 +599,10 @@ function BelowNumber({ text, color }: { text: React.ReactNode; color: string }) 
 }
 
 function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; courseName: ThirdRoundCourseName; phase: CardIntroPhase }) {
-    const eliminated = p.thirdRoundRank < 0;
+    // LOST にするのは、コースのルールで失格した選手だけ（2026-10-29 ユーザー指示。2nd Round と同じ）。
+    // 勝ち抜け枠が埋まってコースが終わった・15分経過で通過できなかった選手は、DB 上は −1 だが
+    // 通常の表示（点数・×）のままにする
+    const eliminated = p.thirdRoundRank < 0 && isEliminatedByCourseRule(courseName, p);
     const winner = p.thirdRoundRank > 0;
     // 勝ち抜け・失格の場合は枠下の表示を結果(順位/LOST)に差し替える。4コースとも共通の規則
     // (Design アーティファクトのbelowText/belowColor算出をそのまま踏襲)。
@@ -752,8 +756,10 @@ function PlayoffView({ quizCourse, quizPlayers, socket }: PlayoffViewProps) {
         }>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, justifyContent: 'center' }}>
                     {quizPlayers.map(p => {
-                        // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0
-                        const eliminated = p.thirdRoundRank < 0;
+                        // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0。
+                        // LOST はコースのルールで失格した選手だけ（2026-10-29 ユーザー指示。2nd Round と同じ）。
+                        // サドンデスで勝ち抜けられなかった選手は LOST にしない
+                        const eliminated = p.thirdRoundRank < 0 && !!quizCourse && isEliminatedByCourseRule(quizCourse.name as ThirdRoundCourseName, p);
                         const winner = p.thirdRoundRank > 0;
                         const belowContent = winner
                             ? <BelowNumber text={toOrdinal(p.thirdRoundRank)} color="#FFE28A" />
