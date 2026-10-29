@@ -16,6 +16,7 @@ import {
     getTenByTenTotal,
     getTenByTenWrongPoint,
     isEliminatedByCourseRule,
+    getSwedishCrossToAdd,
 } from "@/lib/thirdRoundScoring";
 import {
     ACCENT,
@@ -617,6 +618,9 @@ function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps)
 }
 
 /** below表示(枠下の大きな数字+補助表示)の共通の「見出し数字」部分 */
+/** Swedish 10 で次の誤答で付く×のマス（「・」）の色。Admin の「(+n)」と同じ淡い赤 */
+const SWEDISH_PREVIEW_COLOR = '#FF9E9E';
+
 function BelowNumber({ text, color }: { text: React.ReactNode; color: string }) {
     return (
         <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: 58, fontWeight: 800, letterSpacing: 1, color }}>
@@ -684,14 +688,20 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
         // 通算×の合計(crossCount、最大10)を2行5列のグリッドで示す。埋まっている分は赤い×、
         // 残りは薄暗い・のプレースホルダー(Design アーティファクトの構成をそのまま移植)。
         const filledCrosses = Math.min(10, p.thirdRoundSwedishCross);
+        // 次に誤答したら付く×の数のマスは、「・」の色を変えて予告する（2026-10-29 ユーザー指示）。
+        // 数は採点と同じ getSwedishCrossToAdd から求める。色は Admin の「(+n)」と同じ淡い赤。決着した選手には出さない
+        const previewEnd = p.thirdRoundRank === 0
+            ? Math.min(10, filledCrosses + getSwedishCrossToAdd(p.thirdRoundCorrectCount))
+            : filledCrosses;
         belowContent = (
             <>
                 <BelowNumber text={resultText ?? p.thirdRoundCorrectCount} color={resultColor} />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', rowGap: 0, marginTop: 2, width: 172, boxSizing: 'border-box', overflow: 'hidden' }}>
                     {Array.from({ length: 10 }).map((_, i) => {
                         const filled = i < filledCrosses;
+                        const preview = !filled && i < previewEnd;
                         return (
-                            <span key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', height: 38, fontSize: 44, lineHeight: 1, fontWeight: 700, color: filled ? '#FF4D6D' : '#3A5170' }}>
+                            <span key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', height: 38, fontSize: 44, lineHeight: 1, fontWeight: 700, color: filled ? '#FF4D6D' : preview ? SWEDISH_PREVIEW_COLOR : '#3A5170' }}>
                                 {filled ? '×' : '・'}
                             </span>
                         );
