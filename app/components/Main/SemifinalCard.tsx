@@ -4,7 +4,7 @@ import {
     tierOf, shade, outlineShadow,
 } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR } from "./PlayerCardFrame";
+import { NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "./PlayerCardFrame";
 import { LightningBoltsVertical } from "@/app/components/LightningBolts";
 
 // 準決勝の選手カード（2026-10-15。Design アーティファクト「【設計案】Semifinal 選手カード」を移植）。
@@ -225,7 +225,7 @@ export function SemifinalCard({
                                         {l}
                                     </div>
                                 ))}
-                                <div style={{ marginTop: META_NAME_GAP, display: 'flex', flexDirection: 'column', alignSelf: 'center', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nm.size, lineHeight: 1, letterSpacing: 1, color: textColor, textShadow: outlineShadow(outline, 1.5), whiteSpace: 'nowrap' }}>
+                                <div style={{ marginTop: META_NAME_GAP, display: 'flex', flexDirection: 'column', alignSelf: 'center', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nm.size, lineHeight: 1, letterSpacing: 1, color: textColor, textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(outline, 1.5), whiteSpace: 'nowrap' }}>
                                     {nm.lines.map((l, i) => (
                                         <div key={i} style={{ height: NAME_ROW_H, display: 'flex', alignItems: 'center', alignSelf: 'flex-start', marginLeft: i > 0 ? `${NAME_STAGGER_EM}em` : 0 }}>{l}</div>
                                     ))}

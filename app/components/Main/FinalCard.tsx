@@ -8,7 +8,7 @@ import {
     ACCENT, GUNMETAL_DARK, INNER_BG, HONEYCOMB_BG, tierOf, shade, outlineShadow,
 } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR } from "./PlayerCardFrame";
+import { NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "./PlayerCardFrame";
 import { NoPhoto } from "./SemifinalCard";
 
 export const F_CHASSIS_W = 556, F_OUTER_W = 552, F_PAD = 10;
@@ -99,7 +99,7 @@ export function FinalCard({ paperRank, name, school, grade, photo, eliminated = 
                         {[school, grade].map((l, i) => (
                             <div key={i} style={{ height: META_ROW_H, display: 'flex', alignItems: 'center', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaSize, lineHeight: 1, color: eliminated ? ELIMINATED_NAME_COLOR : '#FFFFFF', textShadow: outlineShadow(outline, 1.1), whiteSpace: 'nowrap' }}>{l}</div>
                         ))}
-                        <div style={{ marginTop: META_NAME_GAP, height: NAME_ROW_H, display: 'flex', alignItems: 'center', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameSize, lineHeight: 1, letterSpacing: 2, color: textColor, textShadow: outlineShadow(outline, 1.8), whiteSpace: 'nowrap' }}>
+                        <div style={{ marginTop: META_NAME_GAP, height: NAME_ROW_H, display: 'flex', alignItems: 'center', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameSize, lineHeight: 1, letterSpacing: 2, color: textColor, textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(outline, 1.8), whiteSpace: 'nowrap' }}>
                             {name.trim().split(/\s+/).map((part, i) => <span key={i} style={{ marginLeft: i === 0 ? 0 : '0.35em' }}>{part}</span>)}
                         </div>
                     </div>

@@ -22,8 +22,8 @@ import {
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
-import { WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
+import { WINNER_BAR_COLOR, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
     players: Player[],
@@ -487,7 +487,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                         const metalGradient = `linear-gradient(0deg, ${metalBase}, ${metalBase})`;
                         const brushedTexture = 'repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0px, rgba(255,255,255,.06) 1px, transparent 1px, transparent 7px)';
                         const outerFilter = eliminated
-                            ? 'grayscale(1) opacity(.55)'
+                            ? ELIMINATED_FRAME_FILTER
                             : winner
                                 ? `drop-shadow(0 0 16px ${tier.glowA}) drop-shadow(0 0 36px ${tier.glowB})`
                                 : `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 24px ${tier.glowB})`;
@@ -556,7 +556,9 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                         const styleNameWrap: CSSProperties = { position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', ...textRevealStyle };
                         const styleName: CSSProperties = {
                             writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1,
-                            letterSpacing: 4, color: eliminated ? '#6E7685' : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.5),
+                            letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF',
+                            // 失格者の名前は明るい灰色＋黒い縁（2026-10-29 案B。PlayerCardFrame と共通の値）
+                            textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5),
                         };
                         const styleMeta: CSSProperties = { position: 'absolute', top: '16%', right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', ...textRevealStyle };
                         const styleMetaText: CSSProperties = { writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, textShadow: outlineShadow(textOutlineColor, 1.1) };

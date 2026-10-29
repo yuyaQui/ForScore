@@ -43,9 +43,15 @@ const META_ZONE_H = NAME_ZONE_H - 14; // 2nd Roundと同じく少し余裕を多
 const NAME_META_WIDTH_BUDGET = NAME_META_INNER_W - 18; // 左右9pxずつの余白を引く
 const NAME_META_SAFETY_GAP = 8;
 export const NEUTRAL_FRAME = '#4A5568'; // 失格した選手の枠色（順位帯の色に関わらずこのグレーに固定）
-/** 失格した選手の枠にかけるフィルターと名前の色（3rd Round のコース選択で、コースが決まった選手にも使う） */
-export const ELIMINATED_FRAME_FILTER = 'grayscale(1) opacity(.55)';
-export const ELIMINATED_NAME_COLOR = '#6E7685';
+// 失格した選手のカード（2026-10-29 ユーザー決定の案B）。半透明にすると名前まで透けて読めなかったので、
+// 明るさで暗くし、名前は明るい灰色＋黒い縁にする。2nd Round・3rd Round・Extra Round・Semi-Final・Final で共通
+export const ELIMINATED_FRAME_FILTER = 'grayscale(1) brightness(.75)';
+export const ELIMINATED_NAME_COLOR = '#C3CAD5';
+/** 失格した選手の名前の縁取り（outlineShadow に渡す色と太さ） */
+export const ELIMINATED_NAME_OUTLINE = { color: '#000000', width: 2.5 };
+// 3rd Round のコース選択で、別のコースに決まった選手のカード（失格ではないので、上の変更前の見た目のまま）
+export const COURSE_DONE_FRAME_FILTER = 'grayscale(1) opacity(.55)';
+export const COURSE_DONE_NAME_COLOR = '#6E7685';
 const BRUSHED_TEXTURE = 'repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0px, rgba(255,255,255,.06) 1px, transparent 1px, transparent 7px)';
 
 export type CardIntroPhase = {
@@ -196,7 +202,7 @@ export function PlayerCardFrame({ phase, paperRank, eliminated, winner, name, sc
                                 </span>
                             </div>
                             <div style={{ position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
-                                <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1, letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.5) }}>
+                                <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1, letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5) }}>
                                     {name}
                                 </span>
                             </div>

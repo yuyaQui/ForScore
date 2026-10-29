@@ -28,7 +28,7 @@ import {
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
-import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
+import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 
 type Props = {
     players: Player[],
@@ -374,7 +374,7 @@ function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCar
     const outerStyle: CSSProperties = {
         position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box',
         clipPath: chamferClipPct(OUTER_REF_W, OUTER_REF_H, OUTER_CHAMFER), background: frameColor, padding: OUTER_PAD,
-        filter: isDecided ? ELIMINATED_FRAME_FILTER : `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 20px ${tier.glowB})`,
+        filter: isDecided ? COURSE_DONE_FRAME_FILTER : `drop-shadow(0 0 10px ${tier.glowA}) drop-shadow(0 0 20px ${tier.glowB})`,
     };
     const cutStyle: CSSProperties = {
         position: 'absolute', inset: 0, background: '#3A3F46',
@@ -404,7 +404,7 @@ function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCar
                             </span>
                         </div>
                         <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 2px' }}>
-                            <span style={{ display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 46, letterSpacing: 1, color: isDecided ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.2), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', textAlign: 'center' }}>
+                            <span style={{ display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 46, letterSpacing: 1, color: isDecided ? COURSE_DONE_NAME_COLOR : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.2), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', textAlign: 'center' }}>
                                 {p.name}
                             </span>
                         </div>
