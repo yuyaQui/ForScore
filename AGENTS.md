@@ -228,7 +228,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | イベント | 引数 | ハンドラ |
 |---|---|---|
 | `change_mode` | mode: string | `ModeHandler` |
-| `change_2nd_round_state` | `{ group, view }` | `ModeHandler` |
+| `change_2nd_round_state` | `{ group, view }`（view は turnOver・quiz・runnerUp〔次点の発表。2026-10-30〕だけ受け付ける） | `ModeHandler` |
 | `change_3rd_round_state` | `Partial<ThirdRoundState>` | `ThirdRoundHandler` |
 | `change_semifinal_state` | `SemifinalState` の一部（`reviewRange` で振り返り範囲） | `SemifinalHandler`（項目ごとに検証） |
 | `announce_semifinal_results` | `{ set }` | `SemifinalHandler`（振り返り中・得点入力済みのときだけ） |

@@ -21,8 +21,14 @@ module.exports = function ModeHandler(io, socket) {
         io.emit('mode_update', currentMode);
     })
 
+    // 2nd Round の表示（view）として受け付ける値（2026-10-30 に次点の発表 runnerUp を追加）
+    const SECOND_ROUND_VIEWS = ["turnOver", "quiz", "runnerUp"];
+
     socket.on('change_2nd_round_state', (newState) => {
         console.log('2nd Round State changed to:', newState);
+        if (!newState || typeof newState !== 'object') return;
+        // 決まった値以外の view は受け付けない（不正な値で Main が壊れないように）
+        if ('view' in newState && !SECOND_ROUND_VIEWS.includes(newState.view)) return;
         secondRoundState = { ...secondRoundState, ...newState };
         io.emit('update_second_round_state', secondRoundState);
     });

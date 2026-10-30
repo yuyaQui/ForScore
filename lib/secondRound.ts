@@ -23,6 +23,17 @@
 /** 2nd Round に進出する人数（1st Round 上位48名） */
 export const SECOND_ROUND_PLAYER_COUNT = 48;
 
+/** 次点のペーパー順位（2nd Round に進めなかった最上位。2026-10-30 追加） */
+export const RUNNER_UP_RANK = SECOND_ROUND_PLAYER_COUNT + 1;
+
+/**
+ * 次点（ペーパー49位）の選手を返す。同順位が複数いれば全員。いなければ空。
+ * DB には何も書かず、ペーパー順位からその都度探すだけ（2026-10-30 ユーザー承認・項目6）
+ */
+export function getRunnerUps<T extends { id: number; paperRank: number }>(players: T[]): T[] {
+    return players.filter(p => p.paperRank === RUNNER_UP_RANK).sort((a, b) => a.id - b.id);
+}
+
 /** 2nd Round の組の数 */
 export const SECOND_ROUND_GROUP_COUNT = 4;
 

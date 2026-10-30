@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
-import { getTurnOverStepSlice, getTurnOverSecondaryIndex, TURN_OVER_STEP_LABELS, SECOND_ROUND_WINNERS_PER_GROUP } from "@/lib/secondRound";
+import { getTurnOverStepSlice, getTurnOverSecondaryIndex, getRunnerUps, TURN_OVER_STEP_LABELS, SECOND_ROUND_WINNERS_PER_GROUP } from "@/lib/secondRound";
 import {
     ACCENT,
     GUNMETAL_DARK,
@@ -73,7 +73,19 @@ export default function MainSecondRound(props: Props) {
     // マウント内で state が変わることを前提にしている）。
     return (
         <FixedStage>
-            {secondRoundState.view === 'turnOver' ? (
+            {secondRoundState.view === 'runnerUp' ? (
+                // 次点（ペーパー49位）の発表（2026-10-30 ユーザー承認・項目6・案A）。
+                // ターンオーバーと同じ帯を中央に1本だけ出す。順位だけ → 学校名・学年・名前（turnOverPhase）
+                <TurnOverView
+                    key="runnerUp"
+                    groupPlayers={getRunnerUps(players)}
+                    groupNumber={0}
+                    turnOverStep={0}
+                    turnOverPhase={secondRoundState.turnOverPhase}
+                    turnOverFinalRevealed={false}
+                    singleBand
+                />
+            ) : secondRoundState.view === 'turnOver' ? (
                 <TurnOverView
                     key={`turnover-${secondRoundState.group}`}
                     groupPlayers={groupPlayers}
@@ -105,6 +117,8 @@ type TurnOverViewProps = {
     turnOverPhase: 'collapsed' | 'expanded';
     /** 4組目の最終ステップだけで使う、48位を単独発表済みかのフラグ（lib/types.ts 参照） */
     turnOverFinalRevealed: boolean;
+    /** true なら段階に分けず、groupPlayers 全員を1本の帯にする（次点の発表。2026-10-30） */
+    singleBand?: boolean;
 };
 
 const CHAMFER = 16; // 角の斜めカット幅(px)。縦横比が変わっても常に45°の切り欠きになるよう両軸共通
@@ -114,7 +128,7 @@ const CARD_H = 220;
 const GAP = 20;
 const ROW_GAP = 20;
 
-function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed }: TurnOverViewProps) {
+function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false }: TurnOverViewProps) {
     // マウント時に一度だけ、カード全体がフェード＋ポップインする
     // （Design アーティファクトの componentDidMount と同じ手順。以降、発表ステップの
     // 切り替えはこのフラグに関係なく「帯(layer)ごとの不透明度フェード」だけで表現する）
@@ -160,12 +174,15 @@ function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, 
         return () => clearTimeout(t);
     }, [turnOverStep, turnOverPhase, turnOverFinalRevealed]);
 
-    const groupDefs = [0, 1, 2, 3].map((step) => ({
-        label: TURN_OVER_STEP_LABELS[step],
-        slice: getTurnOverStepSlice(groupPlayers, step),
-        // 4組目の最終ステップだけ、この帯の中で48位に当たる帯内インデックス（それ以外はnull）
-        secondaryIndex: getTurnOverSecondaryIndex(groupNumber, step),
-    }));
+    // 次点の発表（singleBand）は全員を1本の帯にする（同順位が複数いれば並べる）
+    const groupDefs = singleBand
+        ? [{ label: '次点', slice: groupPlayers, secondaryIndex: null as number | null }]
+        : [0, 1, 2, 3].map((step) => ({
+            label: TURN_OVER_STEP_LABELS[step],
+            slice: getTurnOverStepSlice(groupPlayers, step),
+            // 4組目の最終ステップだけ、この帯の中で48位に当たる帯内インデックス（それ以外はnull）
+            secondaryIndex: getTurnOverSecondaryIndex(groupNumber, step),
+        }));
 
     return (
         <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>

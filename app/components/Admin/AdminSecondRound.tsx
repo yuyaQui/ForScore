@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
-import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice } from "@/lib/secondRound";
+import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice, getRunnerUps, RUNNER_UP_RANK } from "@/lib/secondRound";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
@@ -174,6 +174,10 @@ export default function AdminSecondRound(props: Props) {
     // （トラブル時のみ）の中に退避してある。
     // ============================================================
     const allResolved = filteredPlayers.length > 0 && filteredPlayers.every(p => p.secondRoundRank !== 0);
+    // 次点（ペーパー49位）。同順位なら全員、いなければ空（2026-10-30 項目6。DB は変えない）
+    const runnerUps = getRunnerUps(players);
+    // 次点の発表へ進む（順位だけの状態から始める）
+    const startRunnerUp = () => handleStateChange({ view: 'runnerUp', turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
 
     // 手動操作パネル: 発表ステップの選択はTurn Over画面、データ操作はQuiz View画面の
     // ときだけ意味を持つ操作なので、表示中の画面に応じて片方を不活性化する。
@@ -196,7 +200,15 @@ export default function AdminSecondRound(props: Props) {
         && secondRoundState.turnOverPhase === 'expanded'
         && !secondRoundState.turnOverFinalRevealed;
 
-    if (secondRoundState.view === 'turnOver') {
+    if (secondRoundState.view === 'runnerUp') {
+        // 次点の発表: 順位だけ → 展開 → 3rd Round へ（2026-10-30 ユーザー承認・項目6）
+        if (secondRoundState.turnOverPhase === 'collapsed') {
+            primaryLabel = '展開 ▶';
+            primaryAction = () => handleStateChange({ turnOverPhase: 'expanded' });
+        } else {
+            ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'secondRound'));
+        }
+    } else if (secondRoundState.view === 'turnOver') {
         if (turnOverTransitioning) {
             // 収縮+ペーパー順位再表示アニメーションの最中は、進行ボタンを一時的に無効化する。
             primaryLabel = '切替中...';
@@ -249,6 +261,10 @@ export default function AdminSecondRound(props: Props) {
             primaryLabel = `${nextGroup}組目へ ▶`;
             // 次の組の発表(turnOver)は必ず1位からやり直すので、ここで turnOverStep/turnOverPhase をリセットする
             primaryAction = () => handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
+        } else if (runnerUps.length > 0) {
+            // 4組目まで終わった。次点（49位）がいれば先に発表する（2026-10-30 項目6）
+            primaryLabel = `次点（${RUNNER_UP_RANK}位）を発表 ▶`;
+            primaryAction = startRunnerUp;
         } else {
             // 4組目まで終わった。全20名の勝ち抜けが決まっていれば「3rd Round へ ▶」（提案A）
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'secondRound'));
@@ -277,7 +293,9 @@ export default function AdminSecondRound(props: Props) {
                 データ操作としての承認は不要（AGENTS.md の UI 変更の範囲内）。 */}
             <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
                 <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
-                    2ND ROUND · {secondRoundState.group}組目 · {secondRoundState.view === 'turnOver' ? 'ターンオーバー' : 'クイズ画面'}
+                    {secondRoundState.view === 'runnerUp'
+                        ? '2ND ROUND · 次点発表'
+                        : `2ND ROUND · ${secondRoundState.group}組目 · ${secondRoundState.view === 'turnOver' ? 'ターンオーバー' : 'クイズ画面'}`}
                 </div>
                 <button onClick={() => primaryAction?.()} disabled={!primaryAction} style={primaryButtonStyle}>
                     {primaryLabel}
@@ -328,6 +346,10 @@ export default function AdminSecondRound(props: Props) {
                                 </button>
                                 <button onClick={() => handleStateChange({ view: 'quiz' })} style={manualBtnStyle(secondRoundState.view === 'quiz')}>
                                     <span style={manualBtnTextStyle(secondRoundState.view === 'quiz')}>クイズ画面</span>
+                                </button>
+                                {/* 次点の発表（2026-10-30）。次点がいないときは押せない */}
+                                <button onClick={startRunnerUp} disabled={runnerUps.length === 0} style={{ ...manualBtnStyle(secondRoundState.view === 'runnerUp'), opacity: runnerUps.length === 0 ? 0.35 : 1 }}>
+                                    <span style={manualBtnTextStyle(secondRoundState.view === 'runnerUp')}>次点</span>
                                 </button>
                             </div>
                         </div>
@@ -396,6 +418,51 @@ export default function AdminSecondRound(props: Props) {
             </details>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
+
+            {/* 次点の発表中の管理者ビュー（2026-10-30 項目6）。Main に出している選手と公開の状態 */}
+            {secondRoundState.view === 'runnerUp' && (
+                <div className="flex flex-col gap-4 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
+                    <div className="flex items-center justify-between">
+                        <label className="text-lg font-bold" style={{ color: '#F3FAFF', fontFamily: '"Noto Sans JP",sans-serif' }}>
+                            次点（{RUNNER_UP_RANK}位）の発表
+                        </label>
+                        <span className="text-sm font-mono" style={{ color: '#5C7EA6' }}>
+                            {secondRoundState.turnOverPhase === 'expanded' ? '名前まで公開中' : '順位だけ表示中'}
+                        </span>
+                    </div>
+                    <div style={{ border: '1px solid rgba(79,216,255,.22)', background: 'rgba(12,22,40,.75)' }}>
+                        <table className="w-full text-left" style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 15, color: '#DFF7FF' }}>
+                            <thead>
+                                <tr style={{ color: '#5C7EA6', fontSize: 12, letterSpacing: 2 }}>
+                                    <th className="px-4 py-3 w-40">1st Round順位</th>
+                                    <th className="px-4 py-3">選手名</th>
+                                    <th className="px-4 py-3">学校名</th>
+                                    <th className="px-4 py-3 w-32">学年</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {runnerUps.map(p => (
+                                    <tr key={p.id} style={{ borderTop: '1px solid rgba(79,216,255,.12)' }}>
+                                        <td className="px-4 py-3" style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, color: tierOf(p.paperRank, ACCENT).color }}>
+                                            {toOrdinal(p.paperRank)}
+                                        </td>
+                                        <td className="px-4 py-3 font-bold" style={{ color: '#F3FAFF' }}>{p.name}</td>
+                                        <td className="px-4 py-3" style={{ color: '#9FB4D6' }}>{p.school || '-'}</td>
+                                        <td className="px-4 py-3" style={{ color: '#9FB4D6' }}>{p.grade || '-'}</td>
+                                    </tr>
+                                ))}
+                                {runnerUps.length === 0 && (
+                                    <tr style={{ borderTop: '1px solid rgba(79,216,255,.12)' }}>
+                                        <td colSpan={4} className="px-4 py-8 text-center" style={{ color: '#5C7EA6' }}>
+                                            {RUNNER_UP_RANK}位の選手がいません
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {/* ターンオーバー画面用の管理者ビュー。2026-10-11 のユーザー指示で、列を
                 「1st Round順位・選手名・学校名・学年」の4つにし、クイズ画面の操作パネルと

@@ -27,14 +27,17 @@ export type ExtraRoundQuestion = PrismaExtraRoundQuestion & { altAnswer: string 
 export type SecondRoundState = {
     /** 何組目か（1〜4） */
     group: number;
-    /** turnOver = ターンオーバー（選手紹介）、quiz = 正誤判定 */
-    view: 'turnOver' | 'quiz';
+    /**
+     * turnOver = ターンオーバー（選手紹介）、quiz = 正誤判定、
+     * runnerUp = 次点（ペーパー49位）の発表（2026-10-30 追加。4組目の後。順位だけ／展開は turnOverPhase）
+     */
+    view: 'turnOver' | 'quiz' | 'runnerUp';
     /**
      * turnOver 画面の発表ステップ（0〜3）。0=1位のみ、1=2・3位、2=4〜6位、3=7〜12位。
      * group を切り替えたとき、または view を turnOver に切り替えたときは 0 にリセットする。
      */
     turnOverStep: number;
-    /** そのステップの順位帯を公開済みか。collapsed=順位のみ、expanded=氏名まで公開 */
+    /** そのステップの順位帯を公開済みか。collapsed=順位のみ、expanded=氏名まで公開（次点の発表でも使う） */
     turnOverPhase: 'collapsed' | 'expanded';
     /**
      * 4組目の最終ステップ（7〜12位）でだけ意味を持つフラグ。48位（そのステップの
