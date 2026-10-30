@@ -22,9 +22,10 @@ let questionDisplay = {
 
 const { isResetTarget, fromOf } = require("./roundOrder");
 
-const ROUNDS = ["secondRound", "thirdRound", "extraSecondStep", "final"];
+// semifinal はサドンデスだけで使う（2026-10-30 追加）
+const ROUNDS = ["secondRound", "thirdRound", "extraSecondStep", "semifinal", "final"];
 // 問題表示のラウンド → 大会のラウンド（reset_round_progress の対象判定に使う）
-const ROUND_OF = { secondRound: "secondRound", thirdRound: "thirdRound", extraSecondStep: "extraRound", final: "final" };
+const ROUND_OF = { secondRound: "secondRound", thirdRound: "thirdRound", extraSecondStep: "extraRound", semifinal: "semifinal", final: "final" };
 const SERIAL_MAX = 100000;
 
 function isSerial(v) {

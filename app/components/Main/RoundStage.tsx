@@ -1,6 +1,6 @@
 // 早押しラウンドの Main 画面の共通の枠（2026-10-22 追加。docs/question-display-design.md 5.1）。
 //
-// 2nd Round・3rd Round（クイズ・サドンデス）・Extra Round Second Step・Final のクイズ画面で、
+// 2nd Round・3rd Round（クイズ・サドンデス）・Extra Round Second Step・Semi-Final（サドンデス。2026-10-30）・Final のクイズ画面で、
 // 見出し → 問題欄 → 仕切り線 → 本体（選手カードなど）の位置を全ラウンドでそろえる。
 //   - 問題欄は仕切り線の上。問題文 100文字（1行50文字 × 2行）と解答 1行の高さを常に確保する
 //     （問題が無いときも空けておき、表示の有無でカードが動かないようにする）

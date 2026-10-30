@@ -197,10 +197,12 @@ export function PointsForm({ players, values, onChange, entered, busy }: {
 // サドンデス（2026-10-15 に「プレーオフ」から呼び名を変更）
 // ---------------------------------------------------------------------------
 
-export function PlayoffPanel({ playoff, progress, seats, busy, onMark, onUndo }: {
+export function PlayoffPanel({ playoff, progress, seats, busy, canUndo, onMark, onUndo }: {
     playoff: SemifinalPlayoff; progress: PlayoffProgress;
     /** 出場者の席（席番号順。Main と同じ getSemifinalSeats から作ったもの） */
     seats: SemifinalSeatAssignment[]; busy: boolean;
+    /** Undo できるか（取り消す採点がある、または直前がスルー。2026-10-30） */
+    canUndo: boolean;
     onMark: (playerId: number, action: 'correct' | 'wrong') => void; onUndo: () => void;
 }) {
     const isAdvance = playoff.purpose === 'advance';
@@ -238,7 +240,7 @@ export function PlayoffPanel({ playoff, progress, seats, busy, onMark, onUndo }:
                 })}
             </div>
             <div>
-                <button onClick={onUndo} disabled={busy || progress.effectiveActions.length === 0} style={{ ...neutralBtnStyle(), opacity: progress.effectiveActions.length === 0 ? 0.35 : 1 }}>
+                <button onClick={onUndo} disabled={!canUndo} style={{ ...neutralBtnStyle(), opacity: canUndo ? 1 : 0.35 }}>
                     <span style={NEUTRAL_BTN_TEXT}>Undo</span>
                 </button>
             </div>

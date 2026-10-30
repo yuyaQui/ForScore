@@ -221,7 +221,8 @@ export const DEFAULT_FINAL_STATE: FinalState = { set: 1, view: 'standby', introI
  * 早押しの1問が終わるたびに、その問題の問題文と解答を Main の仕切り線の上に出す。
  * server/QuestionHandler.js がメモリに保持し、update_question_display で配信する。
  */
-export type QuestionRound = 'secondRound' | 'thirdRound' | 'extraSecondStep' | 'final';
+// semifinal はサドンデスだけで使う（2026-10-30 追加。項目17）
+export type QuestionRound = 'secondRound' | 'thirdRound' | 'extraSecondStep' | 'semifinal' | 'final';
 
 export type QuestionDisplayState = {
     /** 表示中の問題がどのラウンドのものか。まだ何も出していなければ null */

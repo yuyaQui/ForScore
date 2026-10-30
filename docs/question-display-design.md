@@ -81,7 +81,7 @@ model QuestionPoolItem {
 
 ```js
 questionDisplay = {
-  round: "secondRound" | "thirdRound" | "extraSecondStep" | "final" | null, // どのラウンドの問題か
+  round: "secondRound" | "thirdRound" | "extraSecondStep" | "semifinal" | "final" | null, // どのラウンドの問題か（semifinal はサドンデスだけ。9章）
   serial: number | null,   // いま表示対象の通し番号（null = まだ開始番号を決めていない）
   stage: "hidden" | "shown", // Main に出しているか
   seq: number              // 表示を切り替えた回数（Main のアニメーション用。増えた瞬間だけ演出）
@@ -202,3 +202,13 @@ cursors = { secondRound: 15, thirdRound: 42, ... } // ラウンドごとの「�
 - `undo_question_event { round, scope, kind }`: 記録の最後と一致するときだけ受け付ける（二重送信・複数の Admin で二重に戻らない）。問題を戻すと「次に読む問題」がその問題になり、Main は1つ前に表示していた問題（無ければ空）に戻る
 - 手動で番号を動かす（`set_question_cursor`）と、そのラウンドの記録は消える。一本道のリセットでも消える
 - 3rd Round・Final の採点 API は、Undo の履歴を積んだか（`historyAdded`）を返す（何も変わらない操作は履歴を積まないため、記録と手数をそろえる）
+
+## 9. Semi-Final のサドンデス（2026-10-30 ユーザー承認・項目17）
+
+- 問題表示のラウンドに `semifinal` を足した。使うのはサドンデス（`view: "playoff"`）の間だけ（本戦はペーパー形式の振り返りのため対象外）
+- Main（`MainSemifinal.tsx` の PlayoffView）は `RoundStage` を使い、見出し → 問題欄 → 仕切り線（青）→ カードの配置を他のラウンドとそろえる。カードは最大8枚でも箱に収まる倍率で縮む
+- Admin（`AdminSemifinal.tsx`）はサドンデスのパネルの下に「スルー」と問題パネルを置く
+  - 「正解」「誤答」「スルー」で、その問題を Main に出して次の問題へ進む
+  - `scope` は `set{セット}-{advance|eliminate}`。番号はラウンドで1つなので、セットをまたいでも続きから進む
+  - サドンデスの Undo（パネルの Undo・手動の「Undo（サドンデス）」）は 8章の `undoWithQuestion` を使い、問題も1つ戻す。直前がこのサドンデスのスルーなら Undo できる
+- サドンデスの途中経過は従来どおりサーバのメモリだけ（DB は変わらない）。一本道のリセットは Semi-Final 以前からのリセットで記録が消える

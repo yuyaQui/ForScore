@@ -20,6 +20,7 @@ import {
 import { getIntroOrder, getLineupOrder, lineupTotalMs } from "@/lib/semifinalProfile";
 import { useSemifinalProfiles, PrepPanel, IntroPanel, LineupPanel, FinishPanel } from "./AdminSemifinalPrep";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 
 type Props = {
     socket: Socket | null;
@@ -311,15 +312,37 @@ export default function AdminSemifinal(props: Props) {
         }
     };
 
+    // サドンデスの問題表示（2026-10-30 追加。項目17）。正解・誤答・スルーで、その問題を Main に出して次の問題へ進む。
+    // 番号はラウンド（semifinal）で1つなので、セットをまたいでも続きから進む。
+    // scope はセットと種類（勝ち抜け／失格）ごと。別のサドンデスの記録では問題を戻さない
+    const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'semifinal');
+    const playoffScope = state.playoff ? `set${state.set}-${state.playoff.purpose}` : '';
+    const lastQuestionEvent = questionState.lastEvents?.semifinal;
+    const lastIsThrough = !!lastQuestionEvent && lastQuestionEvent.scope === playoffScope && lastQuestionEvent.kind === 'through';
+
     const markPlayoff = (playerId: number, action: 'correct' | 'wrong') => {
         if (!state.playoff) return;
         const next = addPlayoffAction(state.playoff, playerId, action);
-        if (next) changeState({ playoff: next });
+        if (!next) return;
+        changeState({ playoff: next });
+        // 採点できたら、その問題を Main に出して次の問題へ（Undo の履歴は playoff.actions に積まれる）
+        finishQuestion(playoffScope, true);
     };
-    const undoPlayoff = () => {
+    // スルー: 誰も解答しなかった。サドンデスの記録は変えず、問題だけ進める
+    const throughPlayoff = () => {
         if (!state.playoff) return;
-        const next = undoPlayoffAction(state.playoff);
-        if (next) changeState({ playoff: next });
+        finishQuestion(playoffScope, false);
+    };
+    // サドンデスの Undo（項目15）。2026-10-30 から問題も1つ戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
+    const undoPlayoff = () => {
+        const playoff = state.playoff;
+        if (!playoff) return;
+        void undoWithQuestion(playoffScope, async () => {
+            const next = undoPlayoffAction(playoff);
+            if (!next) return false;
+            changeState({ playoff: next });
+            return true;
+        });
     };
 
     // Undo。判定前に戻したのは「得点の反映」なので、入力済みを取り消して振り返りに戻す
@@ -357,7 +380,8 @@ export default function AdminSemifinal(props: Props) {
     // サドンデスの途中経過は DB に書かないので、DB の Undo を押すとサドンデスより前の判定・得点が
     // 戻ってしまう（そのうえサドンデスが中止になり点数発表に戻っていた）。サドンデス中は DB の Undo を呼ばない
     const inPlayoff = state.playoff !== null;
-    const canUndoPlayoff = !isBusy && !!playoffProgress && playoffProgress.effectiveActions.length > 0;
+    // 取り消す採点がある、または直前がこのサドンデスのスルーのときに Undo できる
+    const canUndoPlayoff = !isBusy && !!playoffProgress && (playoffProgress.effectiveActions.length > 0 || lastIsThrough);
 
     // 得点を入力し直す（2026-10-17 変更）。以前は「入力済み」の印を外すだけで、入れ直すと得点が
     // 二重に加算されるおそれがあった。直前の得点入力を Undo で取り消してから得点集計に戻す
@@ -729,9 +753,21 @@ export default function AdminSemifinal(props: Props) {
                         progress={playoffProgress}
                         seats={seats}
                         busy={isBusy}
+                        canUndo={canUndoPlayoff}
                         onMark={markPlayoff}
                         onUndo={undoPlayoff}
                     />
+                )}
+
+                {/* サドンデスのスルーと問題パネル（2026-10-30 追加。項目17）。スルーは記録を変えず問題だけ進める */}
+                {state.view === 'playoff' && state.playoff && playoffProgress && (
+                    <div className="flex flex-col gap-[10px]">
+                        <button onClick={throughPlayoff} disabled={isBusy || playoffProgress.resolved}
+                            style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer', opacity: isBusy || playoffProgress.resolved ? 0.35 : 1 }}>
+                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
+                        </button>
+                        <AdminQuestionPanel socket={socket} round="semifinal" state={questionState} />
+                    </div>
                 )}
 
                 </>)}

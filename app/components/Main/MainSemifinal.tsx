@@ -13,7 +13,8 @@ import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import FixedStage from "@/app/components/FixedStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
-import { SemifinalCard, SemifinalTimerGauge, NoPhoto, useSfCardIntro, SF_CHASSIS_W, BELOW_H } from "./SemifinalCard";
+import { RoundStage } from "./RoundStage";
+import { SemifinalCard, SemifinalTimerGauge, NoPhoto, useSfCardIntro, SF_CHASSIS_W, SF_FULL_CHASSIS_H, BELOW_H } from "./SemifinalCard";
 import { BELOW_NUMBER_FONT, belowFontSize } from "@/app/components/Main/belowSizes";
 
 type Props = {
@@ -153,7 +154,7 @@ export default function MainSemifinal(props: Props) {
         const loaded = questions && questions.key === `${pageFrom}-${pageTo}` ? questions.items : [];
         body = <ReviewView set={current.set} questions={loaded} />;
     } else if (current.view === 'playoff' && current.playoff) {
-        body = <PlayoffView seats={seats} state={current} profileOf={profileOf} />;
+        body = <PlayoffView socket={socket} seats={seats} state={current} profileOf={profileOf} />;
     } else {
         // lineup / quiz / tally / results は同じ並びを使い回す（切り替えでカードがその場で縮む・伸びる）。
         // 得点集計 → 点数発表は同じカードのまま、バーだけが上がる（開扉演出をやり直さない）
@@ -507,19 +508,27 @@ function ReviewView({ set, questions }: { set: number; questions: PublicPoolQues
 // サドンデス（2026-10-15 に「プレーオフ」から呼び名を変更。コード上の名前は playoff のまま）
 // ============================================================================
 
-function PlayoffView({ seats, state, profileOf }: { seats: SemifinalSeatAssignment[]; state: SemifinalState; profileOf: (id: number) => SemifinalProfile | undefined }) {
+/** サドンデスのカードどうしの間隔 */
+const PLAYOFF_GAP = 56;
+
+function PlayoffView({ socket, seats, state, profileOf }: {
+    socket: Socket | null; seats: SemifinalSeatAssignment[]; state: SemifinalState; profileOf: (id: number) => SemifinalProfile | undefined;
+}) {
     const playoff = state.playoff!;
     const progress = getPlayoffProgress(playoff);
     const isAdvance = playoff.purpose === 'advance';
     const candidates = seats.filter(s => playoff.candidateIds.includes(s.player.id)).map(s => s.player);
 
+    // カードの並びの設計上の大きさ（RoundStage はこれが箱に収まらないときだけ縮める。最大8枚でも収まる）
+    const contentW = Math.max(1, candidates.length) * SF_CHASSIS_W + Math.max(0, candidates.length - 1) * PLAYOFF_GAP;
+    const contentH = SF_FULL_CHASSIS_H + BELOW_H;
+
+    // 見出し → 問題欄 → 仕切り線 → カードの配置を他のラウンドとそろえる（2026-10-30 ユーザー指示。項目17）。
+    // サドンデスも仕切り線は青（2026-10-29 ユーザー指示）
     return (
-        <div style={STAGE_STYLE}>
-            <Header subtitle={isAdvance ? '勝ち抜けサドンデス' : '失格サドンデス'} right={<SetLabel set={state.set} />} />
-            {/* サドンデスも仕切り線は青（2026-10-29 ユーザー指示） */}
-            <Rule color={ACCENT} />
-            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 70 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56 }}>
+        <RoundStage socket={socket} round="semifinal" ruleColor={ACCENT} contentW={contentW} contentH={contentH}
+            header={<Header subtitle={isAdvance ? '勝ち抜けサドンデス' : '失格サドンデス'} right={<SetLabel set={state.set} />} />}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: PLAYOFF_GAP }}>
                     {candidates.map(p => {
                         const outcome = progress.outcomes[p.id];
                         // 勝ち抜けサドンデス: 勝者 WIN・誤答は × ／ 失格サドンデス: 失格 LOST・正解は ○
@@ -545,7 +554,6 @@ function PlayoffView({ seats, state, profileOf }: { seats: SemifinalSeatAssignme
                         );
                     })}
                 </div>
-            </div>
-        </div>
+        </RoundStage>
     );
 }

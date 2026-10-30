@@ -1,5 +1,5 @@
 // 問題パネル（2026-10-22 追加。docs/question-display-design.md 4.1 (b)）。
-// 2nd Round・3rd Round・Extra Round Second Step・Final の Admin に置く共通部品。
+// 2nd Round・3rd Round・Extra Round Second Step・Semi-Final（サドンデス。2026-10-30）・Final の Admin に置く共通部品。
 //   - 次に読む問題（通し番号・問題文・解答・別解）を司会・スタッフが確認する
 //   - Main に表示中の問題と、表示する／隠す
 //   - 開始番号の入力と、◀ 前の問題 / 次の問題 ▶（番号の手動修正。2026-10-29 から Undo で問題も戻るので、通常は使わない。
