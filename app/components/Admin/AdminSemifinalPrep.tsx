@@ -6,7 +6,7 @@ import type { Player } from "@/lib/types";
 import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import {
-    NICKNAME_MAX, PHOTO_WIDTH, PHOTO_HEIGHT, countChars, photoUrl, type SemifinalProfile,
+    NICKNAME_MAX, PHOTO_WIDTH, PHOTO_HEIGHT, REVIVED_DEFAULT_NICKNAME, countChars, photoUrl, isRevived, displayNickname, type SemifinalProfile,
 } from "@/lib/semifinalProfile";
 import { NoPhoto } from "@/app/components/Main/SemifinalCard";
 import {
@@ -19,6 +19,8 @@ const ORB = 'Orbitron, sans-serif';
 const GOLD = '#FFC93C';
 
 function courseLabel(p: Player): string {
+    // 敗者復活者はコースではなく「敗者復活」（2026-10-31 から紹介の対象。項目13）
+    if (isRevived(p)) return '敗者復活';
     return `${p.thirdRoundCourseName ?? ''} ${p.thirdRoundRank}位`;
 }
 
@@ -46,12 +48,14 @@ export function useSemifinalProfiles(socket: Socket | null): { profiles: Semifin
 export function PrepPanel({ socket, introOrder, revived, profiles, onError }: {
     socket: Socket | null; introOrder: Player[]; revived: Player | null; profiles: SemifinalProfile[]; onError: (msg: string) => void;
 }) {
-    const all = [...introOrder, ...(revived ? [revived] : [])];
+    // 紹介順（2026-10-31 から敗者復活者も紹介に含まれ、最初に紹介する。項目13）
+    const all = introOrder;
+    const isRev = (p: Player) => revived !== null && p.id === revived.id;
     const profileOf = (id: number) => profiles.find(p => p.playerId === id);
-    // 登録済み = 写真あり（紹介する8名は二つ名も）
+    // 登録済み = 写真あり＋二つ名あり（敗者復活者は二つ名が空でも「敗者復活」と出るので写真だけでよい）
     const isDone = (p: Player) => {
         const pr = profileOf(p.id);
-        return !!pr && pr.photoVersion !== null && (p === revived || pr.nickname !== '');
+        return !!pr && pr.photoVersion !== null && (isRev(p) || pr.nickname !== '');
     };
     const done = all.filter(isDone).length;
     const [cropping, setCropping] = useState<{ player: Player; src: string } | null>(null);
@@ -67,20 +71,20 @@ export function PrepPanel({ socket, introOrder, revived, profiles, onError }: {
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <div style={MANUAL_LABEL_STYLE}>進出者の写真・二つ名（紹介順・敗者復活者は最後）</div>
+                <div style={MANUAL_LABEL_STYLE}>進出者の写真・二つ名（紹介順・敗者復活者が最初）</div>
                 <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: done === all.length ? '#7FE8FF' : '#9FB4D6' }}>登録済み {done} / {all.length}名</span>
             </div>
             <div className="grid gap-[14px]" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                 {all.map((p, i) => (
                     <PrepCard
-                        key={p.id} player={p} index={i} revived={p === revived} profile={profileOf(p.id)} done={isDone(p)}
+                        key={p.id} player={p} index={i} revived={isRev(p)} profile={profileOf(p.id)} done={isDone(p)}
                         onPickPhoto={file => setCropping({ player: p, src: URL.createObjectURL(file) })}
                         onSaved={notifyChanged} onError={onError}
                     />
                 ))}
             </div>
             <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 13, color: '#5C7EA6' }}>
-                未登録のままでも進行できます（二つ名が無い選手は二つ名の画面を飛ばし、写真が無い選手は NO PHOTO を表示）。登録した情報は大会後に削除します。
+                未登録のままでも進行できます（二つ名が無い選手は二つ名の画面を飛ばし、写真が無い選手は NO PHOTO を表示。敗者復活者の二つ名が無いときは「{REVIVED_DEFAULT_NICKNAME}」と表示）。登録した情報は大会後に削除します。
             </div>
             {cropping && (
                 <CropModal
@@ -131,9 +135,8 @@ function PrepCard({ player, index, revived, profile, done, onPickPhoto, onSaved,
     return (
         <div style={{ ...MANUAL_PANEL_BASE, padding: '14px 14px 16px', gap: 10, borderColor: done ? 'rgba(79,216,255,.22)' : 'rgba(255,201,60,.45)' }}>
             <div className="flex items-center justify-between">
-                {revived
-                    ? <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, letterSpacing: 2, color: '#B98BFF' }}>EXTRA</span>
-                    : <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, letterSpacing: 2, color: '#7FA8D9' }}>{String(index + 1).padStart(2, '0')}</span>}
+                {/* 紹介の番号（敗者復活者は紫） */}
+                <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, letterSpacing: 2, color: revived ? '#B98BFF' : '#7FA8D9' }}>{String(index + 1).padStart(2, '0')}</span>
                 <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 12, color: '#9FB4D6' }}>{revived ? '敗者復活' : courseLabel(player)}</span>
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
@@ -160,27 +163,22 @@ function PrepCard({ player, index, revived, profile, done, onPickPhoto, onSaved,
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ ...STAT_LABEL_STYLE, fontSize: 11 }}>二つ名</span>
-                {revived ? (
-                    <div style={{ display: 'flex', alignItems: 'center', minHeight: 36, fontFamily: JP, fontWeight: 700, fontSize: 13, color: '#5C7EA6' }}>
-                        なし（敗者復活者は紹介しません）
-                    </div>
-                ) : (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                        <input type="text" value={nick} onChange={e => setNick(e.target.value)} placeholder="未登録"
-                            onKeyDown={e => { if (e.key === 'Enter' && dirty && !tooLong && !busy) void saveNickname(); }}
-                            className="px-2 py-1.5 bg-zinc-900 border text-white"
-                            style={{ flex: 1, minWidth: 0, fontFamily: JP, fontSize: 14, borderColor: tooLong ? '#FF3B5C' : dirty ? ACCENT : saved ? '#52525b' : 'rgba(255,201,60,.6)' }} />
-                        <span style={{ alignSelf: 'center', fontFamily: ORB, fontWeight: 700, fontSize: 11, color: tooLong ? '#FF3B5C' : '#5C7EA6', whiteSpace: 'nowrap' }}>
-                            {countChars(nick.trim())}/{NICKNAME_MAX}
-                        </span>
-                        <button onClick={() => { void saveNickname(); }} disabled={!dirty || tooLong || busy} style={{ ...manualBtnStyle(dirty), padding: '7px 12px', opacity: dirty && !tooLong && !busy ? 1 : 0.35 }}>
-                            <span style={{ ...manualBtnTextStyle(dirty), fontFamily: JP, fontSize: 12 }}>保存</span>
-                        </button>
-                    </div>
-                )}
+                {/* 敗者復活者も二つ名を登録できる（2026-10-31 項目13）。空なら「敗者復活」と表示する */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="text" value={nick} onChange={e => setNick(e.target.value)} placeholder={revived ? `未登録（${REVIVED_DEFAULT_NICKNAME}）` : '未登録'}
+                        onKeyDown={e => { if (e.key === 'Enter' && dirty && !tooLong && !busy) void saveNickname(); }}
+                        className="px-2 py-1.5 bg-zinc-900 border text-white"
+                        style={{ flex: 1, minWidth: 0, fontFamily: JP, fontSize: 14, borderColor: tooLong ? '#FF3B5C' : dirty ? ACCENT : saved || revived ? '#52525b' : 'rgba(255,201,60,.6)' }} />
+                    <span style={{ alignSelf: 'center', fontFamily: ORB, fontWeight: 700, fontSize: 11, color: tooLong ? '#FF3B5C' : '#5C7EA6', whiteSpace: 'nowrap' }}>
+                        {countChars(nick.trim())}/{NICKNAME_MAX}
+                    </span>
+                    <button onClick={() => { void saveNickname(); }} disabled={!dirty || tooLong || busy} style={{ ...manualBtnStyle(dirty), padding: '7px 12px', opacity: dirty && !tooLong && !busy ? 1 : 0.35 }}>
+                        <span style={{ ...manualBtnTextStyle(dirty), fontFamily: JP, fontSize: 12 }}>保存</span>
+                    </button>
+                </div>
             </div>
             <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 12, color: done ? '#7FE8FF' : GOLD }}>
-                {done ? '登録済み' : revived ? '写真が未登録' : !photo && !saved ? '写真・二つ名が未登録' : !photo ? '写真が未登録' : '二つ名が未登録'}
+                {done ? (revived && !saved ? `登録済み（二つ名は「${REVIVED_DEFAULT_NICKNAME}」）` : '登録済み') : revived ? '写真が未登録' : !photo && !saved ? '写真・二つ名が未登録' : !photo ? '写真が未登録' : '二つ名が未登録'}
             </div>
         </div>
     );
@@ -370,7 +368,7 @@ export function IntroPanel({ introOrder, index, step, profiles }: {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
                         <div style={STAT_LABEL_STYLE}>Main に表示中</div>
-                        <div style={{ fontFamily: JP, fontWeight: 900, fontSize: 22, color: profile?.nickname ? '#F3FAFF' : '#5C7EA6' }}>{profile?.nickname || '（二つ名なし）'}</div>
+                        <div style={{ fontFamily: JP, fontWeight: 900, fontSize: 22, color: displayNickname(cur, profile) ? '#F3FAFF' : '#5C7EA6' }}>{displayNickname(cur, profile) || '（二つ名なし）'}</div>
                         <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: isNick ? '#5C7EA6' : '#9FB4D6' }}>
                             {cur.school} {cur.grade}　{cur.name}{isNick ? '（次に表示）' : ''}
                         </div>

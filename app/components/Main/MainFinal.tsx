@@ -6,7 +6,7 @@ import { getFinalists } from "@/lib/finalProfile";
 import { FinalProfile } from "./FinalProfile";
 import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { photoUrl, type SemifinalProfile } from "@/lib/semifinalProfile";
+import { photoUrl, displayNickname, type SemifinalProfile } from "@/lib/semifinalProfile";
 import FixedStage from "@/app/components/FixedStage";
 import { RoundStage } from "./RoundStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
@@ -154,11 +154,11 @@ export default function MainFinal(props: Props) {
                 </>)}
                 {view === 'intro' && introPlayer && (
                     <FinalProfile key={`intro-${finalState.introIndex}`} player={introPlayer} index={finalState.introIndex}
-                        nickname={profileOf(introPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(introPlayer.id))} place={null} />
+                        nickname={displayNickname(introPlayer, profileOf(introPlayer.id))} photo={photoUrl(profileOf(introPlayer.id))} place={null} />
                 )}
                 {view === 'result' && resultPlayer && (
                     <FinalProfile key={`result-${finalState.resultRank}`} player={resultPlayer} index={finalPlayers.indexOf(resultPlayer)}
-                        nickname={profileOf(resultPlayer.id)?.nickname ?? ''} photo={photoUrl(profileOf(resultPlayer.id))} place={finalState.resultRank} />
+                        nickname={displayNickname(resultPlayer, profileOf(resultPlayer.id))} photo={photoUrl(profileOf(resultPlayer.id))} place={finalState.resultRank} />
                 )}
             </div>
         </FixedStage>

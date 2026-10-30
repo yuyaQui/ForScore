@@ -39,7 +39,7 @@ let semifinalState = {
 
 const VIEWS = ["standby", "intro", "lineup", "quiz", "review", "tally", "results", "playoff"];
 const INTRO_STEPS = ["nickname", "profile"];
-const INTRO_INDEX_MAX = 7;        // 紹介するのは 3rd Round 通過の8名（0〜7）
+const INTRO_INDEX_MAX = 8;        // 紹介するのは敗者復活者＋3rd Round 通過の8名（0〜8。2026-10-31 項目13）
 const REVIEW_RANGE_MAX = 300;   // lib/questionPool.ts の QUESTION_RANGE_MAX と同じ
 const REVIEW_PAGE_MAX = 100;
 const PLAYOFF_ACTIONS_MAX = 100;

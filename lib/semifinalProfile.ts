@@ -45,23 +45,44 @@ export function isSemifinalist(p: Pick<Player, 'thirdRoundRank' | 'extraRoundRan
     return p.thirdRoundRank > 0 || p.extraRoundRank === 1;
 }
 
-/** 進出者紹介の対象か（3rd Round 通過の8名だけ。敗者復活者は紹介しない）。二つ名を登録できる */
-export function isIntroTarget(p: Pick<Player, 'thirdRoundRank'>): boolean {
-    return p.thirdRoundRank > 0;
+/**
+ * 進出者紹介の対象か。二つ名を登録できる。
+ * 2026-10-31（項目13）から敗者復活者も紹介するので、進出者全員（isSemifinalist と同じ）
+ */
+export function isIntroTarget(p: Pick<Player, 'thirdRoundRank' | 'extraRoundRank'>): boolean {
+    return isSemifinalist(p);
+}
+
+/** 敗者復活者の二つ名が未登録のときに表示する二つ名（表示だけ。DB には書かない。2026-10-31 項目13） */
+export const REVIVED_DEFAULT_NICKNAME = '敗者復活';
+
+/** 敗者復活者か */
+export function isRevived(p: Pick<Player, 'extraRoundRank'>): boolean {
+    return p.extraRoundRank === 1;
 }
 
 /**
- * 進出者紹介の順番: 3rd Round の実施コース順 → コース内の 1位 → 2位。
- * 選手カードの表示は、この順のあとに敗者復活者を足す（getLineupOrder）。
+ * 画面に出す二つ名。登録済みならそれ、敗者復活者で未登録なら「敗者復活」、それ以外の未登録は空文字
  */
-export function getIntroOrder(players: Player[], courses: ThirdRoundCourse[]): Player[] {
-    return getThirdRoundPassOrder(players, courses);
+export function displayNickname(player: Pick<Player, 'extraRoundRank'>, profile: Pick<SemifinalProfile, 'nickname'> | undefined): string {
+    const nickname = profile?.nickname ?? '';
+    if (nickname !== '') return nickname;
+    return isRevived(player) ? REVIVED_DEFAULT_NICKNAME : '';
 }
 
-/** 選手カードを並べる順番（紹介順 → 最後に敗者復活者） */
+/**
+ * 進出者紹介の順番: 敗者復活者 → 3rd Round の実施コース順 → コース内の 1位 → 2位。
+ * 敗者復活者を最初に紹介する（2026-10-31 ユーザー指示・項目13）。
+ */
+export function getIntroOrder(players: Player[], courses: ThirdRoundCourse[]): Player[] {
+    const revived = players.find(isRevived);
+    return [...(revived ? [revived] : []), ...getThirdRoundPassOrder(players, courses)];
+}
+
+/** 選手カードを並べる順番（3rd Round 通過の順 → 最後に敗者復活者。紹介の順番とは別。従来どおり） */
 export function getLineupOrder(players: Player[], courses: ThirdRoundCourse[]): Player[] {
-    const revived = players.find(p => p.extraRoundRank === 1);
-    return [...getIntroOrder(players, courses), ...(revived ? [revived] : [])];
+    const revived = players.find(isRevived);
+    return [...getThirdRoundPassOrder(players, courses), ...(revived ? [revived] : [])];
 }
 
 /** 写真の URL。版を付けて、差し替えたら画面側が必ず取り直すようにする */

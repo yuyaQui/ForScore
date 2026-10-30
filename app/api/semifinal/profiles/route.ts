@@ -6,7 +6,7 @@ import { isIntroTarget, validateNickname, type SemifinalProfile } from '@/lib/se
  * 準決勝の進出者の「二つ名」と「写真の有無」（2026-10-15 追加）。
  *
  *   GET  … 進出者（3rd Round 通過＋敗者復活者）全員ぶんの一覧
- *   POST … 二つ名を保存する { playerId, nickname }。3rd Round 通過の8名だけ（敗者復活者は紹介しないため対象外）
+ *   POST … 二つ名を保存する { playerId, nickname }。進出者（3rd Round 通過＋敗者復活者。2026-10-31 から敗者復活者も紹介する）
  *
  * 写真そのものは /api/semifinal/photo が扱う。ここでは写真の版（最終更新時刻）だけを返し、
  * 画像のバイト列は読まない（一覧を軽く保つため）。
@@ -48,10 +48,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: nickname.error }, { status: 400 });
         }
 
-        // 紹介の対象（3rd Round 通過）だけ。敗者復活者・進出していない選手の二つ名は書き換えない
-        const player = await prisma.player.findUnique({ where: { id: playerId }, select: { thirdRoundRank: true } });
+        // 紹介の対象（3rd Round 通過＋敗者復活者）だけ。進出していない選手の二つ名は書き換えない
+        const player = await prisma.player.findUnique({ where: { id: playerId }, select: { thirdRoundRank: true, extraRoundRank: true } });
         if (!player || !isIntroTarget(player)) {
-            return NextResponse.json({ error: '二つ名を登録できるのは 3rd Round を通過した選手だけです' }, { status: 400 });
+            return NextResponse.json({ error: '二つ名を登録できるのは Semi-Final の進出者だけです' }, { status: 400 });
         }
 
         await prisma.player.update({ where: { id: playerId }, data: { nickname: nickname.value } });

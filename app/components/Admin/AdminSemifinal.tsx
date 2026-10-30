@@ -17,7 +17,7 @@ import {
 import {
     SemifinalTimerCard, SemifinalStandings, ReviewRangeForm, ReviewPreview, PointsForm, PlayoffPanel, parsePointInput, allPointsValid,
 } from "./AdminSemifinalParts";
-import { getIntroOrder, getLineupOrder, lineupTotalMs } from "@/lib/semifinalProfile";
+import { getIntroOrder, getLineupOrder, lineupTotalMs, displayNickname } from "@/lib/semifinalProfile";
 import { useSemifinalProfiles, PrepPanel, IntroPanel, LineupPanel, FinishPanel } from "./AdminSemifinalPrep";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
@@ -433,9 +433,10 @@ export default function AdminSemifinal(props: Props) {
     };
 
     // ---- 進出者紹介の進め方。二つ名が無い選手は二つ名の画面を飛ばす（2026-10-15 ユーザー決定） ----
+    // 敗者復活者は未登録でも「敗者復活」を出すので、二つ名の画面を飛ばさない（2026-10-31 項目13）
     const hasNickname = (i: number) => {
         const p = introOrder[i];
-        return !!p && (profiles.find(pr => pr.playerId === p.id)?.nickname ?? '') !== '';
+        return !!p && displayNickname(p, profiles.find(pr => pr.playerId === p.id)) !== '';
     };
     const firstStepOf = (i: number): 'nickname' | 'profile' => hasNickname(i) ? 'nickname' : 'profile';
     const introNext = () => {

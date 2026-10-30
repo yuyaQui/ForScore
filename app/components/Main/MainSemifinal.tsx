@@ -7,7 +7,7 @@ import { getPlayoffProgress } from "@/lib/semifinalPlayoff";
 import {
     buildAnnouncePlan, getAnnounceFrame, pointToPct, ANNOUNCE_START_DELAY_MS, type AnnouncePlan,
 } from "@/lib/semifinalAnnounce";
-import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, type SemifinalProfile } from "@/lib/semifinalProfile";
+import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, displayNickname, type SemifinalProfile } from "@/lib/semifinalProfile";
 import type { PublicPoolQuestion } from "@/lib/questionPool";
 import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
@@ -254,7 +254,8 @@ const BIG_PHOTO_W = 480, BIG_PHOTO_H = 640;
 
 function IntroView({ player, index, step, profile }: { player: Player; index: number; step: 'nickname' | 'profile'; profile: SemifinalProfile | undefined }) {
     const tier = tierOf(player.paperRank, ACCENT);
-    const nickname = profile?.nickname ?? '';
+    // 敗者復活者で未登録なら「敗者復活」（2026-10-31 項目13）
+    const nickname = displayNickname(player, profile);
     return (
         <div style={STAGE_STYLE}>
             <style>{INTRO_CSS}</style>

@@ -4,7 +4,7 @@ import type { Player, FinalState, FinalView } from "@/lib/types";
 import { DEFAULT_FINAL_STATE } from "@/lib/types";
 import { isSetOver, getSetWinner } from "@/lib/finalScoring";
 import { getFinalists, finalPlaceLabel } from "@/lib/finalProfile";
-import { photoUrl } from "@/lib/semifinalProfile";
+import { photoUrl, displayNickname } from "@/lib/semifinalProfile";
 import { NoPhoto } from "@/app/components/Main/SemifinalCard";
 import { useSemifinalProfiles } from "./AdminSemifinalPrep";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
@@ -311,7 +311,7 @@ export default function AdminFinal(props: Props) {
                                             {i + 1}人目 · SF {p.semifinalRank}セット目{now ? ' · NOW' : done ? ' · DONE' : ''}
                                         </span>
                                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 16, color: '#F3FAFF' }}>{p.name}</span>
-                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 12, color: '#9FB4D6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pr?.nickname || '（二つ名なし）'}</span>
+                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 12, color: '#9FB4D6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayNickname(p, pr) || '（二つ名なし）'}</span>
                                     </div>
                                 </div>
                             );
