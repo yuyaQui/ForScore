@@ -46,9 +46,10 @@ export default function RootLayout({ // Web ページの一番大きい枠組
             該当しない(意図的な抑制)。 */}
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@500;600;700&display=swap"
           rel="stylesheet"
         />
+        {/* Chakra Petch は Admin の運営コンソールの数字用（2026-10-31 追加。0 に斜線がなく桁がそろう） */}
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

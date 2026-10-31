@@ -16,6 +16,11 @@ import type { SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { RoundProgressProvider, useRoundProgressSource } from "../components/Admin/roundProgressContext";
 import { AdminRoundSidebar, AdminResumeBanner } from "../components/Admin/AdminRoundNav";
+import consoleStyles from "../components/Admin/console/console.module.css";
+
+// 運営コンソール（1画面に収まる新しい枠。2026-10-31 改善案）に載せ替え済みのモード。
+// 載せ替えたモードは、進行レールの右を画面いっぱいの枠にする（各ラウンドが ConsoleFrame を描く）
+const CONSOLE_MODES = new Set(["secondRound"]);
 
 export default function AdminPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -71,6 +76,18 @@ export default function AdminPage() {
       ? "bg-black"
       : "bg-zinc-50 dark:bg-zinc-900";
 
+  // 運営コンソールに載せ替え済みのモードは、スクロールしない1画面の枠で表示する
+  if (CONSOLE_MODES.has(currentMode)) {
+    return (
+      <RoundProgressProvider value={progress}>
+        <div className={consoleStyles.page}>
+          <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
+          {currentMode === "secondRound" && <AdminSecondRound socket={socket} />}
+        </div>
+      </RoundProgressProvider>
+    );
+  }
+
   return (
     <RoundProgressProvider value={progress}>
     <div className="flex min-h-screen bg-black">
@@ -102,10 +119,6 @@ export default function AdminPage() {
           {/* 大会共通の問題データの取り込み（大会前に一度。2026-10-22） */}
           <AdminQuestionPoolUpload />
         </>
-      )}
-
-      {currentMode === "secondRound" && (
-        <AdminSecondRound socket={socket} />
       )}
 
       {currentMode === "thirdRound" && (

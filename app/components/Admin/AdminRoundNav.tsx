@@ -6,33 +6,27 @@
 // - 後のラウンドに結果があるときに前のラウンドを押したら確認を出す（提案D-1。Main も切り替わるため）
 // - 待機画面のとき、DB の結果から見た「いま進めるべきラウンド」を示し、1クリックで移れるようにする（提案E）
 import type { RoundProgress } from './roundProgressContext';
+import styles from './console/console.module.css';
 import {
     ROUND_LABEL, ROUND_MODE, canEnterRound, currentRoundFromData, laterRoundStarted, previousRound,
     type RoundKey,
 } from '@/lib/roundProgress';
 
-/** サイドバーの項目。ラベルは 2026-10-11 のユーザー指示どおり */
-const ROUND_NAV: { mode: string; label: string; round: RoundKey | null }[] = [
-    { mode: 'waiting', label: '待機画面', round: null },
-    { mode: '1stRound', label: '1ST ROUND', round: 'firstRound' },
-    { mode: 'secondRound', label: '2ND ROUND', round: 'secondRound' },
-    { mode: 'thirdRound', label: '3RD ROUND', round: 'thirdRound' },
-    { mode: 'extraRound', label: 'EXTRA ROUND', round: 'extraRound' },
-    { mode: 'semifinal', label: 'SEMI-FINAL', round: 'semifinal' },
-    { mode: 'final', label: 'FINAL', round: 'final' },
-    // 大会終了後のペーパー上位100名の発表（2026-10-31 項目19）。ラウンドではないので、いつでも押せる
-    { mode: 'paperTop100', label: 'PAPER TOP 100', round: null },
+/**
+ * 進行レールの項目（2026-10-31 改善案 Step 1 で、日本語で読める大きさ・ルール名つきに変更）。
+ * rule は状況（進行中の内容など）が無いときに2段目へ出すルール名
+ */
+const ROUND_NAV: { mode: string; label: string; rule: string; round: RoundKey | null }[] = [
+    { mode: 'waiting', label: '待機画面', rule: '案内・準備', round: null },
+    { mode: '1stRound', label: '1st Round', rule: '筆記クイズ', round: 'firstRound' },
+    { mode: 'secondRound', label: '2nd Round', rule: '連答つき 5○2×', round: 'secondRound' },
+    { mode: 'thirdRound', label: '3rd Round', rule: '4コース', round: 'thirdRound' },
+    { mode: 'extraRound', label: 'Extra Round', rule: '敗者復活', round: 'extraRound' },
+    { mode: 'semifinal', label: 'Semi-Final', rule: 'Nine Hundred', round: 'semifinal' },
+    { mode: 'final', label: 'Final', rule: 'Triple Seven', round: 'final' },
 ];
-
-/** 鍵の印（押せないラウンド） */
-function LockIcon() {
-    return (
-        <svg width="12" height="14" viewBox="0 0 12 14" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <rect x="1" y="6" width="10" height="7.5" fill="none" stroke="#5C7EA6" strokeWidth="1.5" />
-            <path d="M3.2 6V4.2a2.8 2.8 0 0 1 5.6 0V6" fill="none" stroke="#5C7EA6" strokeWidth="1.5" />
-        </svg>
-    );
-}
+/** 大会終了後の発表（ラウンドではないので、区切り線の下に置き、いつでも押せる） */
+const AFTER_NAV = { mode: 'paperTop100', label: '上位100名発表', rule: '大会終了後' };
 
 export function AdminRoundSidebar({ currentMode, progress, onChangeMode }: {
     currentMode: string;
@@ -58,66 +52,44 @@ export function AdminRoundSidebar({ currentMode, progress, onChangeMode }: {
     };
 
     return (
-        <div
-            className="shrink-0 flex flex-col gap-[10px]"
-            style={{
-                width: 220, minHeight: '100vh', boxSizing: 'border-box', padding: '30px 18px',
-                background: 'rgba(8,15,28,.7)', borderRight: '1px solid rgba(79,216,255,.18)',
-            }}
-        >
-            <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, letterSpacing: 5, color: '#5C7EA6', marginBottom: 10 }}>
-                SELECT ROUND
-            </div>
-            {ROUND_NAV.map(({ mode, label, round }) => {
+        <nav className={styles.rail} aria-label="ラウンドの選択">
+            <div className={styles.brand}><b>abc the24th</b>運営コンソール</div>
+            {ROUND_NAV.map(({ mode, label, rule, round }) => {
                 const active = isActive(mode);
                 const status = round && progress ? progress.statuses[round] : null;
                 const gate = round && progress ? canEnterRound(progress.statuses, round) : { ok: true as const };
                 // 表示中のラウンドは、条件を満たさなくなっても（リセット後など）押せないだけで表示は続ける
                 const locked = !gate.ok && !active;
                 const prev = round ? previousRound(round) : null;
-                // 2段目の小さい説明: 押せない理由／進行中・完了の内容
+                const complete = !!status && status.complete;
+                // 2段目: 押せない理由 ／ 進行中・完了の内容 ／ ルール名
                 const note = locked && prev
                     ? `${ROUND_LABEL[prev]} 未完了`
-                    : status && status.started && round !== 'firstRound' ? status.detail : null;
-                const mark = !status || locked ? null : status.complete ? '✓' : status.started ? '●' : null;
-
+                    : status && status.started && round !== 'firstRound'
+                        ? (complete ? `完了 · ${status.detail}` : status.detail)
+                        : complete ? '完了' : rule;
+                const cls = [styles.step, active ? styles.stepNow : complete ? styles.stepDone : ''].join(' ');
                 return (
-                    <button
-                        key={mode}
-                        onClick={() => handleClick(mode, round)}
-                        disabled={locked}
-                        title={!gate.ok ? gate.reason : undefined}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                            cursor: locked ? 'not-allowed' : 'pointer',
-                            background: active ? 'rgba(79,216,255,.10)' : 'transparent',
-                            border: 'none', textAlign: 'left', opacity: locked ? 0.55 : 1,
-                        }}
-                    >
-                        <span style={{
-                            display: 'block', width: 3, height: 20, flexShrink: 0,
-                            background: active ? '#4FD8FF' : 'transparent', boxShadow: active ? '0 0 8px #4FD8FF' : 'none',
-                        }} />
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 14, letterSpacing: 2, color: active ? '#F3FAFF' : '#5C7EA6' }}>
-                                    {label}
-                                </span>
-                                {locked && <LockIcon />}
-                                {mark && (
-                                    <span style={{ fontSize: 12, fontWeight: 800, color: mark === '✓' ? '#4FD8FF' : '#FFC93C' }}>{mark}</span>
-                                )}
-                            </span>
-                            {note && (
-                                <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 11, color: '#5C7EA6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {note}
-                                </span>
-                            )}
+                    <button key={mode} type="button" className={cls} onClick={() => handleClick(mode, round)} disabled={locked}
+                        title={!gate.ok ? gate.reason : undefined} aria-current={active ? 'page' : undefined}>
+                        <span className={styles.mark} aria-hidden="true">{!active && complete ? '✓' : ''}</span>
+                        <span>
+                            <span className={styles.stepName}>{label}</span>
+                            <span className={styles.stepNote}>{note}</span>
                         </span>
                     </button>
                 );
             })}
-        </div>
+            <div className={styles.railSep} />
+            <button type="button" className={[styles.step, isActive(AFTER_NAV.mode) ? styles.stepNow : ''].join(' ')}
+                onClick={() => handleClick(AFTER_NAV.mode, null)} aria-current={isActive(AFTER_NAV.mode) ? 'page' : undefined}>
+                <span className={styles.mark} aria-hidden="true" />
+                <span>
+                    <span className={styles.stepName}>{AFTER_NAV.label}</span>
+                    <span className={styles.stepNote}>{AFTER_NAV.rule}</span>
+                </span>
+            </button>
+        </nav>
     );
 }
 

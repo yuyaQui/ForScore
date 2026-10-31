@@ -47,23 +47,25 @@ export function useQuestionDisplay(socket: Socket | null, round: QuestionRound) 
     //   問題と関係しない操作 → 得点の Undo が成功したら記録を1つ消す
     //   記録が無い・組やコースが違う → 得点の Undo だけ（従来どおり）
     // dbUndo は得点の Undo を行い、成功したら true を返す
+    // 2026-10-31: 何かを取り消したら true を返す（運営コンソールの操作の記録を1つ戻すため）
     const lastEvent = state.lastEvents?.[round];
-    const undoWithQuestion = useCallback(async (scope: string, dbUndo: () => Promise<boolean>) => {
+    const undoWithQuestion = useCallback(async (scope: string, dbUndo: () => Promise<boolean>): Promise<boolean> => {
         const last = lastEvent && lastEvent.scope === scope ? lastEvent : null;
         if (last?.kind === 'through') {
-            if (!window.confirm('直前のスルーを取り消して、問題を1つ戻しますか？（得点は変わりません）')) return;
+            if (!window.confirm('直前のスルーを取り消して、問題を1つ戻しますか？（得点は変わりません）')) return false;
             socket?.emit('undo_question_event', { round, scope, kind: 'through' });
-            return;
+            return true;
         }
         const ok = await dbUndo();
         if (ok && last) socket?.emit('undo_question_event', { round, scope, kind: last.kind });
+        return ok;
     }, [socket, round, lastEvent]);
 
     return { state, finishQuestion, recordEvent, undoWithQuestion };
 }
 
-/** 通し番号1問ぶんを取得する（Admin 用。別解を含む）。無ければ error */
-function useQuestion(serial: number | null) {
+/** 通し番号1問ぶんを取得する（Admin 用。別解を含む）。無ければ error。運営コンソール（console/）からも使う */
+export function useQuestion(serial: number | null) {
     const [loaded, setLoaded] = useState<{ serial: number; question: PoolQuestion | null; error: string } | null>(null);
     useEffect(() => {
         if (serial === null) return;
