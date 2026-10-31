@@ -28,6 +28,16 @@ const EXTRA_ROUND_MAX_ENTRANTS = 12;
 /** Extra Round の段階（server/ExtraRoundHandler.js が保持する進行状態の stage） */
 const EXTRA_ROUND_STAGES = ['setup', 'firstStep', 'entrantSelect', 'secondStep'];
 
+/**
+ * ペーパークイズ上位100名の発表（2026-10-31 ユーザー承認・項目19）。
+ * 1画面目は 1〜4位の4人、以降は6人ずつ（5〜10位 … 95〜100位）の全17画面。
+ * 画面ごとの選手の割り振りは lib/paperTop.ts の getPaperTopPages が計算する
+ */
+const PAPER_TOP_COUNT = 100;
+const PAPER_TOP_FIRST_PAGE_SIZE = 4;
+const PAPER_TOP_PAGE_SIZE = 6;
+const PAPER_TOP_PAGE_MAX = 1 + Math.ceil((PAPER_TOP_COUNT - PAPER_TOP_FIRST_PAGE_SIZE) / PAPER_TOP_PAGE_SIZE);   // 17
+
 module.exports = {
     DEFAULT_COUNTDOWN,
     THIRD_ROUND_TIME_LIMIT,
@@ -35,5 +45,9 @@ module.exports = {
     EXTRA_ROUND_QUESTION_COUNT,
     EXTRA_ROUND_FIRST_STEP_LENGTH,
     EXTRA_ROUND_MAX_ENTRANTS,
-    EXTRA_ROUND_STAGES
+    EXTRA_ROUND_STAGES,
+    PAPER_TOP_COUNT,
+    PAPER_TOP_FIRST_PAGE_SIZE,
+    PAPER_TOP_PAGE_SIZE,
+    PAPER_TOP_PAGE_MAX
 };

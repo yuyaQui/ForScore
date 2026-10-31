@@ -128,7 +128,8 @@ const CARD_H = 220;
 const GAP = 20;
 const ROW_GAP = 20;
 
-function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false }: TurnOverViewProps) {
+// ペーパー上位100名の発表（MainPaperTop.tsx）でも同じ帯を使うので export する（2026-10-31 項目19）
+export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false }: TurnOverViewProps) {
     // マウント時に一度だけ、カード全体がフェード＋ポップインする
     // （Design アーティファクトの componentDidMount と同じ手順。以降、発表ステップの
     // 切り替えはこのフラグに関係なく「帯(layer)ごとの不透明度フェード」だけで表現する）

@@ -11,6 +11,7 @@ import AdminThirdRound from "../components/Admin/AdminThirdRound";
 import AdminExtraRound from "../components/Admin/AdminExtraRound";
 import AdminSemifinal from "../components/Admin/AdminSemifinal";
 import AdminFinal from "../components/Admin/AdminFinal";
+import AdminPaperTop from "../components/Admin/AdminPaperTop";
 import type { SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { RoundProgressProvider, useRoundProgressSource } from "../components/Admin/roundProgressContext";
@@ -121,6 +122,11 @@ export default function AdminPage() {
 
       {currentMode === "final" && (
         <AdminFinal socket={socket} />
+      )}
+
+      {/* ペーパークイズ上位100名の発表（大会終了後。2026-10-31） */}
+      {currentMode === "paperTop100" && (
+        <AdminPaperTop socket={socket} />
       )}
 
       </div>

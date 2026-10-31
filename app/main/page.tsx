@@ -9,6 +9,7 @@ import MainThirdRound from "../components/Main/MainThirdRound";
 import MainExtraRound from "../components/Main/MainExtraRound";
 import MainSemifinal from "../components/Main/MainSemifinal";
 import MainFinal from "../components/Main/MainFinal";
+import MainPaperTop from "../components/Main/MainPaperTop";
 // import type は型だけを読み込む書き方で、ビルド時に削除される
 import type { Player } from "@/lib/types";
 
@@ -69,7 +70,8 @@ export default function MainPage() {
     currentMode === "secondRound" ||
     currentMode === "extraRound" ||
     currentMode === "semifinal" ||
-    currentMode === "final"
+    currentMode === "final" ||
+    currentMode === "paperTop100"
       ? "bg-black"
       : "bg-zinc-50 dark:bg-zinc-900";
 
@@ -83,6 +85,8 @@ export default function MainPage() {
       {currentMode === "extraRound" && <MainExtraRound socket={socket} />}
       {currentMode === "semifinal" && <MainSemifinal socket={socket} />}
       {currentMode === "final" && <MainFinal socket={socket} />}
+      {/* ペーパークイズ上位100名の発表（大会終了後。2026-10-31） */}
+      {currentMode === "paperTop100" && <MainPaperTop socket={socket} />}
       {currentMode === "waiting" && <MainText text={displayText} />}
     </div>
   );

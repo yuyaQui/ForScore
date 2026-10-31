@@ -20,6 +20,8 @@ const ROUND_NAV: { mode: string; label: string; round: RoundKey | null }[] = [
     { mode: 'extraRound', label: 'EXTRA ROUND', round: 'extraRound' },
     { mode: 'semifinal', label: 'SEMI-FINAL', round: 'semifinal' },
     { mode: 'final', label: 'FINAL', round: 'final' },
+    // 大会終了後のペーパー上位100名の発表（2026-10-31 項目19）。ラウンドではないので、いつでも押せる
+    { mode: 'paperTop100', label: 'PAPER TOP 100', round: null },
 ];
 
 /** 鍵の印（押せないラウンド） */

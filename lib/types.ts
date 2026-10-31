@@ -220,6 +220,20 @@ export type FinalView = 'standby' | 'intro' | 'quiz' | 'result';
 export const DEFAULT_FINAL_STATE: FinalState = { set: 1, view: 'standby', introIndex: 0, resultRank: 0 };
 
 /**
+ * ペーパークイズ上位100名の発表の進行状態（2026-10-31 追加。項目19）。
+ * server/PaperTopHandler.js がメモリに保持し、update_paper_top_state で配信する。
+ */
+export type PaperTopState = {
+    /** 何画面目か（0始まり。lib/paperTop.ts の getPaperTopPages の何番目か） */
+    page: number;
+    /** collapsed = 順位だけ、expanded = 学校名・学年・名前まで公開 */
+    phase: 'collapsed' | 'expanded';
+};
+
+/** サーバから届くまでの初期値（server/PaperTopHandler.js の初期値と同じ） */
+export const DEFAULT_PAPER_TOP_STATE: PaperTopState = { page: 0, phase: 'collapsed' };
+
+/**
  * 問題表示（2026-10-22 追加。docs/question-display-design.md 3.3）。
  * 早押しの1問が終わるたびに、その問題の問題文と解答を Main の仕切り線の上に出す。
  * server/QuestionHandler.js がメモリに保持し、update_question_display で配信する。

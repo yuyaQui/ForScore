@@ -237,6 +237,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `change_final_state` | `FinalState` の一部（`set`・`view`・`introIndex`・`resultRank`） | `FinalHandler`（項目ごとに検証） |
 | `semifinal_profiles_changed` | なし | `SemifinalHandler`（写真・二つ名の保存を全員に知らせる） |
 | `request_semifinal_sync` / `request_final_sync` | なし | `SemifinalHandler` / `FinalHandler`（開いた画面にだけ現在の状態を返す） |
+| `change_paper_top_state` / `request_paper_top_sync` | `PaperTopState` の一部（`page`・`phase`）/ なし | `PaperTopHandler`（ペーパー上位100名の発表。2026-10-31） |
 | `broadcast_scores` | `Player[]` | `server.js` |
 | `broadcast_third_round_courses` | `ThirdRoundCourse[]` | `ThirdRoundHandler` |
 | `reset_round_progress` | `{ from }`（`'all'` \| `'secondRound'` \| `'thirdRound'` \| `'extraRound'` \| `'semifinal'` \| `'final'`） | 各ラウンドのハンドラ・`QuestionHandler`（DB のリセット後に、from 以降のラウンドの進行状態・タイマー・問題番号を初期値に戻す。`server/roundOrder.js`・`docs/linear-progress-design.md`） |
@@ -259,6 +260,7 @@ socket.emit('broadcast_scores', data.allPlayers);
 | `update_semifinal_timer` | `SemifinalTimer` |
 | `update_semifinal_profiles` | なし（受け取ったら `/api/semifinal/profiles` を取り直す） |
 | `update_final_state` | `FinalState` |
+| `update_paper_top_state` | `PaperTopState` |
 | `update_question_display` | `QuestionDisplayState` |
 | `update_tournament_state` | なし（受け取ったら `/api/tournamentState` を取り直す） |
 | `update_players` | `Player[]` |
