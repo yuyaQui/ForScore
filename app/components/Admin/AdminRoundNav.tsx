@@ -17,7 +17,8 @@ import {
  * rule は状況（進行中の内容など）が無いときに2段目へ出すルール名
  */
 const ROUND_NAV: { mode: string; label: string; rule: string; round: RoundKey | null }[] = [
-    { mode: 'waiting', label: '待機画面', rule: '案内・準備', round: null },
+    // 2026-11-02 ユーザー指示で「待機画面」から「大会準備」に（大会名・案内テキスト・問題データ）
+    { mode: 'waiting', label: '大会準備', rule: '大会名・問題データ', round: null },
     { mode: '1stRound', label: '1st Round', rule: '筆記クイズ', round: 'firstRound' },
     { mode: 'secondRound', label: '2nd Round', rule: '連答つき 5○2×', round: 'secondRound' },
     { mode: 'thirdRound', label: '3rd Round', rule: '4コース', round: 'thirdRound' },
@@ -53,7 +54,8 @@ export function AdminRoundSidebar({ currentMode, progress, onChangeMode }: {
 
     return (
         <nav className={styles.rail} aria-label="ラウンドの選択">
-            <div className={styles.brand}><b>abc the24th</b>運営コンソール</div>
+            {/* 大会名（大会準備で入力。2026-11-02）。未設定なら何も出さない */}
+            <div className={styles.brand}>{progress?.tournamentName && <b>{progress.tournamentName}</b>}運営コンソール</div>
             {ROUND_NAV.map(({ mode, label, rule, round }) => {
                 const active = isActive(mode);
                 const status = round && progress ? progress.statuses[round] : null;

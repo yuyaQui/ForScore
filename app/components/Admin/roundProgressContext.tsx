@@ -18,6 +18,8 @@ export type RoundProgress = {
     extraRoundNoRevival: boolean;
     /** 二つ名が1人でも登録されているか（リセットの確認文で「二つ名と写真も削除」を出すかに使う） */
     hasProfiles: boolean;
+    /** 大会名（2026-11-02 追加。未設定なら空文字。Admin 左上に表示） */
+    tournamentName: string;
 };
 
 const RoundProgressContext = createContext<RoundProgress | null>(null);
@@ -36,6 +38,7 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
     const [players, setPlayers] = useState<Player[] | null>(null);
     const [courses, setCourses] = useState<CourseRow[] | null>(null);
     const [noRevival, setNoRevival] = useState(false);
+    const [tournamentName, setTournamentName] = useState('');
 
     useEffect(() => {
         if (!socket) return;
@@ -46,7 +49,10 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
             try {
                 const res = await fetch('/api/tournamentState');
                 const data = await res.json();
-                if (alive && data.success) setNoRevival(!!data.state.extraRoundNoRevival);
+                if (alive && data.success) {
+                    setNoRevival(!!data.state.extraRoundNoRevival);
+                    setTournamentName(typeof data.state.tournamentName === 'string' ? data.state.tournamentName : '');
+                }
             } catch (error) {
                 console.error('Tournament state load failed', error);
             }
@@ -86,8 +92,9 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
             players,
             extraRoundNoRevival: noRevival,
             hasProfiles: players.some(p => p.nickname !== ''),
+            tournamentName,
         };
-    }, [players, courses, noRevival]);
+    }, [players, courses, noRevival, tournamentName]);
 }
 
 /** リセットの連鎖で戻す最初のラウンド（server/roundOrder.js と同じ値。'all' は選手 CSV の取り込み） */

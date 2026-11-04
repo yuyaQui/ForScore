@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { io, Socket } from "socket.io-client";
 import AdminText from "../components/Admin/AdminText";
 import AdminQuestionPoolUpload from "../components/Admin/AdminQuestionPoolUpload";
+import AdminTournamentName from "../components/Admin/AdminTournamentName";
 import AdminFirstRound from "../components/Admin/AdminFirstRound";
 import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
@@ -113,6 +114,8 @@ export default function AdminPage() {
 
       {currentMode === "waiting" && (
         <>
+          {/* 大会準備（2026-11-02 に「待機画面」から改称）: いちばん上に大会名の入力 */}
+          <AdminTournamentName socket={socket} />
           {/* DB の結果から見た、いま進めるべきラウンド（提案E。サーバ再起動で待機画面に戻ったとき用） */}
           <AdminResumeBanner progress={progress} onChangeMode={changeMode} />
           <AdminText socket={socket} />

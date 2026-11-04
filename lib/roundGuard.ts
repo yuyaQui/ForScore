@@ -15,19 +15,41 @@ export function isTournamentStateClientReady(client: object = prisma): boolean {
     return (client as Record<string, unknown>).tournamentState !== undefined;
 }
 
+/** 大会の状態（loadTournamentState の戻り値） */
+export type TournamentStateValue = {
+    extraRoundNoRevival: boolean;
+    /** 大会名（2026-11-02 追加。未設定なら空文字） */
+    tournamentName: string;
+};
+
+const INITIAL_TOURNAMENT_STATE: TournamentStateValue = { extraRoundNoRevival: false, tournamentName: '' };
+
 /**
  * 大会の状態（1行）。まだ無ければ初期値。
  * 表がまだ使えないとき（migrate dev 前）も初期値を返す。採点などの API が順番チェックで止まらないようにするため。
+ * 大会名の列が無い古いクライアント・DB でも、大会名は空文字として返す。
  */
-export async function loadTournamentState() {
-    if (!isTournamentStateClientReady()) return { extraRoundNoRevival: false };
+export async function loadTournamentState(): Promise<TournamentStateValue> {
+    if (!isTournamentStateClientReady()) return INITIAL_TOURNAMENT_STATE;
     try {
         const row = await prisma.tournamentState.findUnique({ where: { id: 1 } });
-        return { extraRoundNoRevival: row?.extraRoundNoRevival ?? false };
+        const name = (row as { tournamentName?: unknown } | null)?.tournamentName;
+        return { extraRoundNoRevival: row?.extraRoundNoRevival ?? false, tournamentName: typeof name === 'string' ? name : '' };
     } catch (error) {
-        if (isTableMissingError(error)) return { extraRoundNoRevival: false };
+        if (isTableMissingError(error) || isColumnMissingError(error)) return INITIAL_TOURNAMENT_STATE;
         throw error;
     }
+}
+
+/**
+ * 大会名の列がまだ使えないときのエラーか（2026-11-02）。
+ * DB に列が無い（P2022）か、Prisma クライアントが古くて列を知らない（Unknown argument / Unknown field）
+ */
+export function isColumnMissingError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) return false;
+    if ((error as { code?: unknown }).code === 'P2022') return true;
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' && /Unknown (argument|field)/.test(message);
 }
 
 /** DB から全ラウンドの状況を求める */

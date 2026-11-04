@@ -1,7 +1,11 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// kqk-abc のデータベース定義（Prisma / SQLite）
+//
+// モデルの並び（2026-11-02 に読みやすさのため並べ替え。並びは DB に影響しない）
+//   1. 大会全体     … TournamentState
+//   2. 選手         … Player, PlayerPhoto
+//   3. 問題         … QuestionPoolItem, ExtraRoundQuestion
+//   4. ラウンドの設定 … ThirdRoundCourse
+//   5. Undo の履歴  … SecondRoundHistory → ThirdRoundHistory → ExtraRoundHistory → SemifinalHistory → FinalHistory（ラウンド順）
 
 generator client {
   provider = "prisma-client-js"
@@ -12,6 +16,30 @@ datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
+
+// ============================================================================
+// 1. 大会全体
+// ============================================================================
+
+// 大会全体の状態（2026-10-22 追加。docs/linear-progress-design.md 6章）
+//
+// 選手データから導出できない「大会の進行に関わる決定」を1行だけ持つ（id は常に 1）。
+//   extraRoundNoRevival … Extra Round First Step で全員が脱落し、「敗者復活者なし」を
+//                         Admin が確定したか。true なら敗者復活者なしで Semi-Final に進める
+//   tournamentName      … 大会名（2026-11-02 追加）。Admin の「大会準備」で入力する
+// extraRoundNoRevival は Extra Round 以前のリセット（選手 CSV の取り込みを含む）で false に戻す。
+// tournamentName はリセットでは消さない。
+model TournamentState {
+  id                  Int     @id @default(1)
+  extraRoundNoRevival Boolean @default(false)
+  // 大会名（2026-11-02 追加）。Admin の「大会準備」で入力し、Admin 左上などに表示する。
+  // 一本道のリセット・選手 CSV の取り込みでは消さない（lib/tournamentName.ts）
+  tournamentName      String  @default("")
+}
+
+// ============================================================================
+// 2. 選手
+// ============================================================================
 
 // 参加プレイヤーのモデル
 model Player {
@@ -94,28 +122,20 @@ model PlayerPhoto {
   updatedAt DateTime @updatedAt // 差し替えたときに画面側のキャッシュを捨てるための版として使う
 }
 
-// 3rd Round のコース（4行固定。マイグレーションで投入する）
-model ThirdRoundCourse {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  playOrder Int?     // 抽選で決まる実施順 1〜4。抽選前は null
-  players   Player[] // Prisma の文法上必須。DBの列にはならない
-}
+// ============================================================================
+// 3. 問題
+// ============================================================================
 
-// 2nd Round の履歴（スナップショット）保存モデル
-model SecondRoundHistory {
-  id                     Int      @id @default(autoincrement())
-  createdAt              DateTime @default(now())
-  secondRoundGroupNumber Int      // どの組（1〜4）の履歴かを識別する
-  snapshot               String   // その組の12名分のJSONスナップショットデータ
-}
-
-// 3rd Round の履歴（スナップショット）保存モデル
-model ThirdRoundHistory {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  course    String   // どのコースの履歴かを識別する
-  snapshot  String   // そのコースの5名分のJSONスナップショットデータ
+// 大会共通の問題群（2026-10-22 追加。docs/question-display-design.md）
+//
+// 2nd Round・3rd Round・Extra Round Second Step・準決勝・決勝で同じ問題群を使い、
+// 通し番号で問題を指定する。大会前に CSV でまとめて取り込む（全件入れ替え）。
+// 選手データとは関係を持たない独立した表。大会後のデータ削除の対象に含める。
+model QuestionPoolItem {
+  serial    Int    @id          // 通し番号（1〜）
+  text      String              // 問題文
+  answer    String              // 解答
+  altAnswer String @default("") // 別解・正誤判定基準（Admin だけが見る。空でもよい）
 }
 
 // Extra Round First Step の問題
@@ -139,16 +159,36 @@ model ExtraRoundQuestion {
   // number から導出できるため列にしない。
 }
 
-// 大会共通の問題群（2026-10-22 追加。docs/question-display-design.md）
-//
-// 2nd Round・3rd Round・Extra Round Second Step・準決勝・決勝で同じ問題群を使い、
-// 通し番号で問題を指定する。大会前に CSV でまとめて取り込む（全件入れ替え）。
-// 選手データとは関係を持たない独立した表。大会後のデータ削除の対象に含める。
-model QuestionPoolItem {
-  serial    Int    @id          // 通し番号（1〜）
-  text      String              // 問題文
-  answer    String              // 解答
-  altAnswer String @default("") // 別解・正誤判定基準（Admin だけが見る。空でもよい）
+// ============================================================================
+// 4. ラウンドの設定
+// ============================================================================
+
+// 3rd Round のコース（4行固定。マイグレーションで投入する）
+model ThirdRoundCourse {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  playOrder Int?     // 抽選で決まる実施順 1〜4。抽選前は null
+  players   Player[] // Prisma の文法上必須。DBの列にはならない
+}
+
+// ============================================================================
+// 5. Undo の履歴（スナップショット。ラウンド順）
+// ============================================================================
+
+// 2nd Round の履歴（スナップショット）保存モデル
+model SecondRoundHistory {
+  id                     Int      @id @default(autoincrement())
+  createdAt              DateTime @default(now())
+  secondRoundGroupNumber Int      // どの組（1〜4）の履歴かを識別する
+  snapshot               String   // その組の12名分のJSONスナップショットデータ
+}
+
+// 3rd Round の履歴（スナップショット）保存モデル
+model ThirdRoundHistory {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  course    String   // どのコースの履歴かを識別する
+  snapshot  String   // そのコースの5名分のJSONスナップショットデータ
 }
 
 // Extra Round Second Step の履歴（スナップショット）保存モデル
@@ -176,15 +216,4 @@ model FinalHistory {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
   snapshot  String   // 出場3名分のJSONスナップショットデータ
-}
-
-// 大会全体の状態（2026-10-22 追加。docs/linear-progress-design.md 6章）
-//
-// 選手データから導出できない「大会の進行に関わる決定」を1行だけ持つ（id は常に 1）。
-//   extraRoundNoRevival … Extra Round First Step で全員が脱落し、「敗者復活者なし」を
-//                         Admin が確定したか。true なら敗者復活者なしで Semi-Final に進める
-// Extra Round 以前のリセット（選手 CSV の取り込みを含む）で false に戻す。
-model TournamentState {
-  id                  Int     @id @default(1)
-  extraRoundNoRevival Boolean @default(false)
 }
