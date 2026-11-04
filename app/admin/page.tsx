@@ -1,7 +1,10 @@
 "use client"; // クライアントサイドで動作する必要がある場合に指定
 
 import { useState, useEffect } from "react";
-import { io, Socket } from "socket.io-client";
+import type { Socket } from "socket.io-client";
+import { createAdminSocket } from "@/lib/adminSocket";
+import AdminNoticeHost from "../components/Admin/AdminNoticeHost";
+import { useSocketSync } from "../components/useSocketSync";
 import AdminText from "../components/Admin/AdminText";
 import AdminQuestionPoolUpload from "../components/Admin/AdminQuestionPoolUpload";
 import AdminTournamentName from "../components/Admin/AdminTournamentName";
@@ -31,10 +34,13 @@ export default function AdminPage() {
   const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
   // 各ラウンドの状況（2026-10-22。サイドバーの鍵・各ラウンドの「○○へ ▶」・Undo の制限に使う）
   const progress = useRoundProgressSource(socket);
+  // 今のモードと2nd Round の進行は、つなぎ直したときにも必ず取り直す（切れていた間の変更を取りこぼさない。2026-11-04）
+  useSocketSync(socket, ['request_mode_sync', 'request_second_round_sync']);
 
   // サーバー接続時の処理（ここだけ socket が使えない）
   useEffect(() => {
-    const socketConnection = io();
+    // 切断中の操作は送らずに捨てて知らせる（つながった瞬間にまとめて実行されるのを防ぐ。lib/adminSocket.ts）
+    const socketConnection = createAdminSocket();
     // socket を state に入れているのは、子コンポーネントへ props で渡すため。
     // useRef にすると値の更新で再描画が起きず、子に socket が永久に届かない。
     //
@@ -63,9 +69,11 @@ export default function AdminPage() {
 
   // モードの切り替え
   // mode に 切り替え先のモードを入れて送信
-  const changeMode = (mode: string) => {
+  // resume: すでに結果が入っているラウンドへ戻るとき。会場には「NEXT ○○」の待機画面ではなく、ブランクを出し、
+  // 「この画面を表示する ▶」を押すまで何も出さない（途中のラウンドの画面がいきなり出るのを防ぐ。2026-11-04）
+  const changeMode = (mode: string, resume = false) => {
     if (socket) {
-      socket.emit('change_mode', mode);
+      socket.emit('change_mode', resume ? { mode, resume: true } : mode);
     }
   }
 
@@ -83,6 +91,7 @@ export default function AdminPage() {
     return (
       <RoundProgressProvider value={progress}>
         <div className={consoleStyles.page}>
+          <AdminNoticeHost socket={socket} />
           <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
           {currentMode === "secondRound" && <AdminSecondRound socket={socket} />}
         </div>
@@ -93,6 +102,7 @@ export default function AdminPage() {
   return (
     <RoundProgressProvider value={progress}>
     <div className="flex min-h-screen bg-black">
+      <AdminNoticeHost socket={socket} />
 
       {/* 左サイドバー: Select Round。Design アーティファクト(Admin.dc.html)の見た目を移植。
           2026-10-22: 前のラウンドが未完了のラウンドは押せない・状態の印・戻るときの確認（AdminRoundNav.tsx） */}

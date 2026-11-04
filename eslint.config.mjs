@@ -16,7 +16,7 @@ const eslintConfig = defineConfig([
   // globalIgnores で server/ を除外しないのは、no-unused-vars など他のルールは
   // server/ にも効かせたいため（実際に未使用の require を検出した実績がある）。
   {
-    files: ["server.js", "server/**/*.js", "constants.js"],
+    files: ["server.js", "server/**/*.js", "constants.js", "lib/coverFlow.js", "tests/**/*.js"],
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   // Override default ignores of eslint-config-next.

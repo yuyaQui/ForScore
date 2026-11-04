@@ -221,6 +221,15 @@ socket.emit('broadcast_scores', data.allPlayers);
 
 取り違えると「自分だけ変わって他が追随しない」または「誰かが繋ぐたびに全員が再描画される」という不具合になる。
 
+## 覆い(待機画面・ブランク)の遷移表と、進行状態の保存(2026-11-04。`docs/robust-flow-design.md`)
+
+- **覆いを決めるのは `lib/coverFlow.js` の遷移表だけ**(サーバと Admin が共通で使う純関数)。表にない遷移は受け付けない。要求には Admin が見ていた版番号(`rev`)を添える。版が違えば断られ、理由が画面に出る。割り込み(手動の待機画面)は外すと元の覆いに戻る。強制解除(「覆いを外す」)でどの覆いからも本編に戻れる。**覆いの形や遷移を足すときは、表とテスト(`tests/coverFlow.test.js`)を先に直す**
+- **進行状態は `server/stateStore.js` が `.state/server-state.json` に保存し、起動時に戻す**。ハンドラに進行状態を足すときは `store.register(名前, 保存する値, 戻す処理)` を1回書く(戻す処理で値を検証する)。タイマーは止めた状態で戻る
+- **画面が進行状態を読むときは `useSocketSync(socket, ['request_xxx_sync'])`** で、表示した時とつなぎ直した時に取り直す。サーバ側には `request_xxx_sync` を用意する(読み取りだけ)。覆いで画面が作り直されるため、接続直後の配信だけに頼らない
+- **Admin の Socket は `createAdminSocket()`**(切断中の操作は送らずに捨てる)。通知は `notify()`(`alert` は使わない)。採点・Undo・リセットのように応答を待つ操作は `useSingleFlight` で二重に走らせない
+- **Undo で組・コースをまたぐとき**は、サーバの操作記録(`lastEvents` の scope)で戻り先を決め、Main はブランクにして「クイズを再開する ▶」で出す(`rewindCover()`)
+- テスト: `npm test`(遷移表と、別プロセスのサーバへの結合テスト)、`node tests/e2e/second-round.e2e.js`(実ブラウザ。Playwright が必要)
+
 ## Socket イベント一覧
 
 ### クライアント → サーバ

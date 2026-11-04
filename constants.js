@@ -62,6 +62,12 @@ const MAIN_COVER_ON_MODE = {
     final: { title: 'Final', startLabel: 'Final を始める' },
 };
 
+/**
+ * Admin が切り替えられる表示モード（change_mode で受け付ける値。2026-11-04 追加）。
+ * これ以外の値を送られても、サーバは受け付けず今のモードを返す
+ */
+const MODES = ['waiting', '1stRound', '1stRoundResult', 'secondRound', 'thirdRound', 'extraRound', 'semifinal', 'final', 'paperTop100'];
+
 module.exports = {
     DEFAULT_COUNTDOWN,
     THIRD_ROUND_TIME_LIMIT,
@@ -76,5 +82,6 @@ module.exports = {
     PAPER_TOP_PAGE_MAX,
     MAIN_COVER_KINDS,
     MAIN_COVER_ATS,
-    MAIN_COVER_ON_MODE
+    MAIN_COVER_ON_MODE,
+    MODES
 };

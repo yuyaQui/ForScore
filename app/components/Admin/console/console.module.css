@@ -77,14 +77,27 @@
 .btnDanger { composes: btn; color: #FFD9E2; border-color: var(--ng); background: rgba(242, 85, 122, .1); }
 
 /* 問題欄（Main の問題欄と同じ位置） */
-.qstrip { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 18px; align-items: end; flex-shrink: 0; }
-.qLabel { grid-column: 1 / 3; display: flex; gap: 10px; align-items: baseline; font: 700 12.5px var(--ui); color: var(--sub); }
-.qLabel b { font: 700 15px var(--num); color: var(--cue); }
-.qAlt { margin-left: auto; font: 500 12.5px var(--ui); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
-.qText { font: 700 20px/1.5 var(--ui); color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 60px; }
+/* 問題欄（2026-11-04）: 左に表示中（大きく・黄色）、右に次に読む問題（小さく・水色） */
+.qstrip { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; flex-shrink: 0; }
+.qOn { background: rgba(244, 178, 62, .07); border: 1px solid var(--air); border-radius: 8px; padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.qOnOff { composes: qOn; background: var(--panel); border-color: var(--line); }
+.qNext { background: rgba(60, 200, 242, .06); border: 1px solid var(--cue); border-radius: 8px; padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.qLabel { display: flex; gap: 10px; align-items: center; font: 700 12.5px var(--ui); color: var(--air); min-height: 26px; }
+.qNext .qLabel { color: var(--cue); }
+.qOnOff .qLabel { color: var(--sub); }
+.qLabel b { font: 700 14px var(--num); }
+.qNav { margin-left: auto; display: flex; gap: 6px; }
+.qNav button { padding: 3px 10px; font-size: 12px; }
+.qBody { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; }
+.qText { font: 700 19px/1.5 var(--ui); color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .qAns { font: 900 22px/1.4 var(--ui); color: #FFE08A; white-space: nowrap; }
 .qAns small { font: 700 13px var(--ui); color: #C9A54B; margin-right: 6px; }
-.qWarn { grid-column: 1 / 3; font: 700 14px/1.6 var(--ui); color: var(--air); }
+.qTextSm { font: 600 13.5px/1.55 var(--ui); color: var(--sub); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.qAnsSm { font: 800 14px/1.4 var(--ui); color: #FFE08A; display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.qAnsSm small { font: 700 12px var(--ui); color: #C9A54B; margin-right: -4px; }
+.qAlt { font: 500 12px var(--ui); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.qNone { font: 600 14px var(--ui); color: var(--sub); padding: 8px 0; }
+.qWarn { font: 700 13px/1.6 var(--ui); color: var(--air); }
 
 /* 選手の列（Main と同じ横一列・縦書き） */
 .row { display: grid; gap: 6px; flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }

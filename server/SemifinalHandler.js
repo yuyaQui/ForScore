@@ -155,6 +155,22 @@ function stopTimer() {
     runningSet = null;
 }
 
+// 進行状態の保存と復元（2026-11-04）。タイマーは止まった状態で戻す
+const store = require("./stateStore");
+store.register(
+    "semifinal",
+    () => ({ state: semifinalState, remainings }),
+    (saved) => {
+        if (!saved || typeof saved !== "object") return;
+        semifinalState = applyUpdate(semifinalState, saved.state);
+        const r = saved.remainings && typeof saved.remainings === "object" ? saved.remainings : {};
+        for (const set of [1, 2, 3]) {
+            const v = r[set];
+            if (typeof v === "number" && Number.isFinite(v)) remainings[set] = Math.min(Math.max(Math.floor(v), 0), SEMIFINAL_SET_TIME_LIMIT);
+        }
+    }
+);
+
 module.exports = function SemifinalHandler(io, socket) {
     // 進行状態の切り替え（部分更新。applyUpdate で検証する）
     socket.on('change_semifinal_state', (update) => {

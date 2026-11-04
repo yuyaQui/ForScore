@@ -13,20 +13,12 @@ const port = process.env.PORT || 3000;             // ポート番号（デフ�
 const app = next({ dev });
 const handle = app.getRequestHandler(); // 通常のWebアクセスを処理するNext.jsのハンドラー
 
-// module の読み込み
-const firstRoundHandlers = require("./server/FirstRoundHandler");
-const registerTextHandlers = require("./server/TextHandler");
-const ModeHandler = require("./server/ModeHandler");
-const ThirdRoundHandler = require("./server/ThirdRoundHandler");
-const ExtraRoundHandler = require("./server/ExtraRoundHandler");
-const SemifinalHandler = require("./server/SemifinalHandler");
-const FinalHandler = require("./server/FinalHandler");
-const QuestionHandler = require("./server/QuestionHandler"); // 問題表示（2026-10-22）
-const PaperTopHandler = require("./server/PaperTopHandler"); // ペーパー上位100名の発表（2026-10-31）
-const MainCoverHandler = require("./server/MainCoverHandler"); // Main を覆う待機画面・ブランク（2026-11-04）
+// 各ハンドラの登録と、進行状態の保存・復元は server/registerHandlers.js にまとめてある
+const { registerHandlers, startPersistence } = require("./server/registerHandlers");
 
 // 4. アプリケーションの立ち上げ処理
 console.log("Next.jsを起動しています。しばらくお待ちください");
+startPersistence(); // 落ちる前の進行状態があれば戻す（.state/server-state.json）
 app.prepare().then(() => {
 
     // HTTPサーバー
@@ -55,20 +47,7 @@ app.prepare().then(() => {
         console.log('A client connected:', socket.id); // 繋がったユーザーのIDを表示
 
         // 各部品に、通信の処理を丸投げ
-        firstRoundHandlers(io, socket);
-        registerTextHandlers(io, socket);
-        ModeHandler(io, socket);
-        ThirdRoundHandler(io, socket);
-        ExtraRoundHandler(io, socket);
-        SemifinalHandler(io, socket);
-        FinalHandler(io, socket);
-        QuestionHandler(io, socket);
-        PaperTopHandler(io, socket);
-        MainCoverHandler(io, socket);
-
-        socket.on('broadcast_scores', (allPlayers) => {
-            io.emit('update_players', allPlayers);
-        });
+        registerHandlers(io, socket);
         socket.on('disconnect', () => {
             console.log('A client disconnected:', socket.id);
         });

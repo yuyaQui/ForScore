@@ -65,6 +65,41 @@ function lastEventsOf() {
     return out;
 }
 
+// 進行状態の保存と復元（2026-11-04）。Undo の記録（logs）も戻すので、再起動の後も Undo で問題が一緒に戻る
+const store = require("./stateStore");
+store.register(
+    "question",
+    () => ({ questionDisplay, logs }),
+    (saved) => {
+        if (!saved || typeof saved !== "object") return;
+        const q = saved.questionDisplay;
+        if (q && typeof q === "object") {
+            const cursors = {};
+            for (const [round, serial] of Object.entries(q.cursors && typeof q.cursors === "object" ? q.cursors : {})) {
+                if (ROUNDS.includes(round) && isSerial(serial)) cursors[round] = serial;
+            }
+            const roundOk = q.round === null || ROUNDS.includes(q.round);
+            const serialOk = q.serial === null || isSerial(q.serial);
+            questionDisplay = {
+                round: roundOk ? q.round : null,
+                serial: roundOk && serialOk ? q.serial : null,
+                shown: q.shown === true && roundOk && serialOk && q.serial !== null,
+                seq: Number.isInteger(q.seq) && q.seq >= 0 ? q.seq : 0,
+                cursors,
+            };
+        }
+        const restored = {};
+        for (const [round, list] of Object.entries(saved.logs && typeof saved.logs === "object" ? saved.logs : {})) {
+            if (!ROUNDS.includes(round) || !Array.isArray(list)) continue;
+            restored[round] = list
+                .filter(e => e && typeof e === "object" && KINDS.includes(e.kind) && typeof e.scope === "string")
+                .slice(-LOG_MAX)
+                .map(e => ({ ...e, scope: e.scope.slice(0, SCOPE_MAX) }));
+        }
+        logs = restored;
+    }
+);
+
 module.exports = function QuestionHandler(io, socket) {
     const snapshot = () => ({ ...questionDisplay, lastEvents: lastEventsOf() });
     const broadcast = () => io.emit("update_question_display", snapshot());

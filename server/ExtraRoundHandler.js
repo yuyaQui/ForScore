@@ -85,6 +85,17 @@ function applyUpdate(prev, update) {
     return next;
 }
 
+// 進行状態の保存と復元（2026-11-04）。復元で revealed を勝手に true にしないよう、保存された値をそのまま検証して戻す
+const store = require("./stateStore");
+store.register(
+    "extraRound",
+    () => extraRoundState,
+    (saved) => {
+        const base = { stage: "setup", cursor: 0, revealed: false };
+        extraRoundState = applyUpdate(base, saved && typeof saved === "object" ? { ...saved, revealed: saved.revealed === true } : null);
+    }
+);
+
 module.exports = function ExtraRoundHandler(io, socket) {
     // 進行状態の切り替え。
     // 部分更新できるよう、受け取った内容（検証済みの項目だけ）を既存の状態にマージする。
@@ -116,6 +127,12 @@ module.exports = function ExtraRoundHandler(io, socket) {
         if (!from || !isResetTarget(from, "extraRound")) return;
         extraRoundState = { stage: "setup", cursor: 0, revealed: false };
         io.emit('update_extra_round_state', extraRoundState);
+    });
+
+    // 画面を開いたときに現在の状態を取り直す（読み取りだけ。他のラウンドの request_*_sync と同じ。2026-11-04 追加）。
+    // 接続直後の配信は、Extra Round の画面がまだ無い（別のラウンドを表示中・覆われている）と受け取れずに失われる
+    socket.on('request_extra_round_sync', () => {
+        socket.emit('update_extra_round_state', extraRoundState);
     });
 
     // 接続直後、この1人にだけ現在の状態を渡す（io.emit ではなく socket.emit）

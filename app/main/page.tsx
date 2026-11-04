@@ -54,6 +54,16 @@ export default function MainPage() {
       setPlayers(allPlayers);
     });
 
+    // つなぎ直したときは選手データを DB から読み直す。切れている間の更新の配信は受け取れていないので、
+    // 読み直さないと、次の更新が来るまで会場の得点が古いままになる(2026-11-04)
+    const reloadPlayers = () => {
+      fetch("/api/secondRound/loadPlayers")
+        .then((res) => res.json())
+        .then((data) => { if (data.success) setPlayers(data.allPlayers); })
+        .catch((err) => console.error("Failed to reload players", err));
+    };
+    newSocket.io.on("reconnect", reloadPlayers);
+
 
     // クリーンアップ処理
     return () => {

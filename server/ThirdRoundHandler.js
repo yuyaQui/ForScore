@@ -6,6 +6,7 @@
 
 const { THIRD_ROUND_TIME_LIMIT } = require("../constants.js");
 const { isResetTarget, fromOf } = require("./roundOrder");
+const store = require("./stateStore");
 
 // 進行状態
 //
@@ -57,15 +58,31 @@ function isValidPlayoffIds(v) {
     return Array.isArray(v) && v.length <= PLAYOFF_IDS_MAX && v.every(id => Number.isInteger(id));
 }
 
-/** 部分更新を反映した次の状態。playoffIds を検証し、サドンデス以外・別のコースへ移ったら消す */
+const PHASES = ["courseSelect", "quiz", "playoff"];
+const STEPS = ["entry", "closed"];
+const COURSE_COUNT = 4;
+
+function isInt(v, min, max) {
+    return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
+}
+
+/**
+ * 部分更新を反映した次の状態。playoffIds を検証し、サドンデス以外・別のコースへ移ったら消す。
+ * 2026-11-04: 決まった項目・決まった値以外は無視する（以前は届いた中身をそのまま混ぜていたので、
+ * 不正な値や知らない項目で Main の画面が壊れえた）
+ */
 function applyThirdRoundUpdate(prev, update) {
-    const patch = { ...(update && typeof update === 'object' ? update : {}) };
-    if (Object.prototype.hasOwnProperty.call(patch, 'playoffIds')) {
-        if (isValidPlayoffIds(patch.playoffIds)) {
-            patch.playoffIds = patch.playoffIds === null ? null : Array.from(new Set(patch.playoffIds));
-        } else {
-            delete patch.playoffIds;
-        }
+    const raw = update && typeof update === 'object' ? update : {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(raw, k);
+    const patch = {};
+    if (has('phase') && PHASES.includes(raw.phase)) patch.phase = raw.phase;
+    if (has('step') && STEPS.includes(raw.step)) patch.step = raw.step;
+    if (has('quizOrder') && isInt(raw.quizOrder, 1, COURSE_COUNT)) patch.quizOrder = raw.quizOrder;
+    if (has('finishedOrder') && (raw.finishedOrder === null || isInt(raw.finishedOrder, 1, COURSE_COUNT))) {
+        patch.finishedOrder = raw.finishedOrder;
+    }
+    if (has('playoffIds') && isValidPlayoffIds(raw.playoffIds)) {
+        patch.playoffIds = raw.playoffIds === null ? null : Array.from(new Set(raw.playoffIds));
     }
     const next = { ...prev, ...patch };
     const given = Object.prototype.hasOwnProperty.call(patch, 'playoffIds');
@@ -112,6 +129,21 @@ function stopTimer() {
     }
     runningOrder = null;
 }
+
+// 進行状態の保存と復元（2026-11-04）。タイマーは「止まった状態」で戻す（再起動の間の時間は数えない。再開は明示操作）
+store.register(
+    "thirdRound",
+    () => ({ state: thirdRoundState, remainings }),
+    (saved) => {
+        if (!saved || typeof saved !== "object") return;
+        thirdRoundState = applyThirdRoundUpdate(thirdRoundState, saved.state);
+        const r = saved.remainings && typeof saved.remainings === "object" ? saved.remainings : {};
+        for (const order of [1, 2, 3, 4]) {
+            const v = r[order];
+            if (typeof v === "number" && Number.isFinite(v)) remainings[order] = Math.min(Math.max(Math.floor(v), 0), THIRD_ROUND_TIME_LIMIT);
+        }
+    }
+);
 
 module.exports = function ThirdRoundHandler(io, socket) {
     // 進行状態の切り替え。

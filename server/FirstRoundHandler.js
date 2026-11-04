@@ -3,6 +3,17 @@ const { DEFAULT_COUNTDOWN } = require("../constants.js");
 let countdown = DEFAULT_COUNTDOWN;
 let timerInterval = null;
 
+// 残り時間の保存と復元（2026-11-04）。止まった状態で戻す
+const store = require("./stateStore");
+store.register(
+    "firstRound",
+    () => ({ countdown }),
+    (saved) => {
+        const v = saved && typeof saved === "object" ? saved.countdown : undefined;
+        if (typeof v === "number" && Number.isFinite(v)) countdown = Math.min(Math.max(Math.floor(v), 0), DEFAULT_COUNTDOWN);
+    }
+);
+
 module.exports = function firstRoundHandlers(io, socket) {
     socket.emit('1R_update_timer', countdown);
 

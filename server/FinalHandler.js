@@ -57,6 +57,14 @@ function applyUpdate(prev, update) {
     return next;
 }
 
+// 進行状態の保存と復元（2026-11-04）
+const store = require("./stateStore");
+store.register(
+    "final",
+    () => finalState,
+    (saved) => { finalState = applyUpdate({ ...INITIAL_FINAL_STATE }, saved); }
+);
+
 module.exports = function FinalHandler(io, socket) {
     // 進行状態の切り替え（部分更新。applyUpdate で検証する）
     socket.on('change_final_state', (newState) => {

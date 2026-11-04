@@ -1,3 +1,4 @@
+import { useSocketSync } from "../useSocketSync";
 import { Socket } from "socket.io-client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ExtraRoundState, ExtraRoundQuestion, ExtraRoundStage, Player } from "@/lib/types";
@@ -19,7 +20,7 @@ import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import { useMainCover } from "../useMainCover";
-import { BLANK_END_COVER, blankStartCover, standbyAfterCover, coverBlocksRound } from "@/lib/mainCover";
+import { BLANK_END_COVER, blankStartCover, standbyAfterCover, coverBlocksRound, rewindCover } from "@/lib/mainCover";
 import {
     MANUAL_LABEL_STYLE,
     DANGER_BTN_TEXT,
@@ -57,6 +58,8 @@ export default function AdminExtraRound(props: Props) {
     // 進行状態はサーバが持つ。ここは配信された値を映すだけ。
     // 初期値は配信が届くまでの仮置き（接続直後にサーバから現在値が届く）。
     const [state, setState] = useState<ExtraRoundState>(DEFAULT_EXTRA_ROUND_STATE);
+    // 進行状態は、この画面を開いた時・つなぎ直した時に必ずサーバから取り直す(別のラウンドから戻ったとき・再読み込みの後に、仮の初期値のまま操作しない。2026-11-04)
+    useSocketSync(socket, ['request_extra_round_sync']);
 
     // 問題文・解答・別解（Admin 用なので別解を含む）
     const [questions, setQuestions] = useState<ExtraRoundQuestion[]>([]);
@@ -160,11 +163,15 @@ export default function AdminExtraRound(props: Props) {
     const handleUndo = async () => {
         // Semi-Final が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'extraRound')) return;
+        if (cover.at === 'manual') {
+            setErrorMessage('手動の待機画面が出ています。「待機画面を消す」を押してから Undo してください');
+            return;
+        }
         // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
         setErrorMessage('');
         setIsBusy(true);
         try {
-            await undoWithQuestion(QUESTION_SCOPE, async () => {
+            const undone = await undoWithQuestion(QUESTION_SCOPE, async () => {
                 try {
                     const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
                     const data = await res.json();
@@ -180,6 +187,9 @@ export default function AdminExtraRound(props: Props) {
                     return false;
                 }
             });
+            // クイズの終了後（ブランク・待機画面 NEXT Semi-Final）に戻したときは、取り消した先の画面を会場に出さず、
+            // ブランクにして「クイズを再開する ▶」で出す(2026-11-04)
+            if (undone && cover.at === 'end') setCover(rewindCover());
         } finally {
             setIsBusy(false);
         }

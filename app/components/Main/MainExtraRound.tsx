@@ -1,3 +1,4 @@
+import { useSocketSync } from "../useSocketSync";
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
 import type { ExtraRoundState, ExtraRoundQuestion, Player } from "@/lib/types";
@@ -44,6 +45,8 @@ export default function MainExtraRound(props: Props) {
     const [state, setState] = useState<ExtraRoundState>(DEFAULT_EXTRA_ROUND_STATE);
     const [questions, setQuestions] = useState<Pick<ExtraRoundQuestion, 'number' | 'text' | 'answer' | 'altAnswer'>[]>([]);
     const [players, setPlayers] = useState<Player[]>([]);
+    // 進行状態は、この画面が表示された時点・つなぎ直した時点でサーバから取り直す(覆いが外れて画面が作り直されたとき用。2026-11-04)
+    useSocketSync(socket, ['request_extra_round_sync']);
 
     useEffect(() => {
         fetch('/api/secondRound/loadPlayers')

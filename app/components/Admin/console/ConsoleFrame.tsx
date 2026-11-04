@@ -2,8 +2,11 @@
 // 上に ON AIR バー（Main に出ている画面・Undo・次の操作）、中央に採点面、右に Main の確認の列を置く。
 // 進行レール（AdminRoundNav）は admin/page.tsx が左に置く。全ラウンドで押す場所をそろえるため、
 // Undo と次の操作は必ずこのバーに出す（各ラウンドの画面の中には置かない）。
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import styles from "./console.module.css";
+
+/** 進行ボタンを押してから、次に押せるようになるまでの時間 */
+const NEXT_COOLDOWN_MS = 700;
 
 export type ConsoleUndo = {
     /** 取り消す操作の説明（例「直前: 吉田 蓮 正解」）。分からなければ null */
@@ -30,11 +33,21 @@ export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, c
     side: ReactNode;
     children: ReactNode;
 }) {
+    // 進行ボタンは、押した直後の短い間だけ押せなくする(2026-11-04)。
+    // ボタンは押すと次の手順の名前に変わるので、二度押しが「次の手順」まで実行してしまうのを防ぐ
+    const [cooling, setCooling] = useState(false);
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+    const startCooling = () => {
+        setCooling(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCooling(false), NEXT_COOLDOWN_MS);
+    };
     return (
         <div className={styles.frame}>
             <header className={styles.bar}>
                 <div className={styles.air}>
-                    <span className={styles.lamp}><i />ON AIR</span>
+                    {/* 「ON AIR」の表示は出さない（2026-11-04 ユーザー指示） */}
                     <span className={styles.airTitle}>
                         {onAir}
                         {onAirDetail && <span className={styles.airDetail}>{onAirDetail}</span>}
@@ -47,7 +60,7 @@ export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, c
                     </button>
                 )}
                 {next.onClick
-                    ? <button type="button" className={styles.next} onClick={next.onClick}>{next.label}</button>
+                    ? <button type="button" className={styles.next} disabled={cooling} onClick={() => { startCooling(); next.onClick?.(); }}>{next.label}</button>
                     : <span className={styles.nextWait} role="status">{next.label}</span>}
             </header>
             <main className={styles.work}>{children}</main>
@@ -57,10 +70,11 @@ export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, c
 }
 
 /** 採点面の見出し（タイトル・状況・右端の道具） */
-export function WorkHead({ title, meta, tools }: { title: string; meta?: ReactNode; tools?: ReactNode }) {
+export function WorkHead({ title, meta, tools }: { title?: string; meta?: ReactNode; tools?: ReactNode }) {
     return (
         <div className={styles.workHead}>
-            <h1 className={styles.workTitle}>{title}</h1>
+            {/* 上のバーのタイトルと重なる見出しは出さない（2026-11-04 ユーザー指示。title を渡さない） */}
+            {title && <h1 className={styles.workTitle}>{title}</h1>}
             {meta && <div className={styles.meta}>{meta}</div>}
             {tools && <div className={styles.headTools}>{tools}</div>}
         </div>

@@ -1,3 +1,4 @@
+import { useSocketSync } from "../useSocketSync";
 import { Socket } from "socket.io-client";
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
@@ -39,6 +40,7 @@ const CLEAR_POINT = 5;
 export default function MainSecondRound(props: Props) {
     const { players, socket, setPlayers } = props
     const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
+    useSocketSync(socket, ['request_second_round_sync']);
 
     useEffect(() => {
         fetch('/api/secondRound/loadPlayers')
@@ -48,10 +50,12 @@ export default function MainSecondRound(props: Props) {
                     setPlayers(data.allPlayers);
                 }
             });
+        // 受け取り口は、片付けのときに外す(外さないと、覆いが外れて画面が作り直されるたびに増える)。
+        // 進行状態は、この画面が表示された時点・つなぎ直した時点でサーバから取り直す(下の useSocketSync)
         if (socket) {
-            socket.on("update_second_round_state", (state: SecondRoundState) => {
-                setSecondRoundState(state);
-            });
+            const onState = (state: SecondRoundState) => setSecondRoundState(state);
+            socket.on("update_second_round_state", onState);
+            return () => { socket.off("update_second_round_state", onState); };
         }
         // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
         // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。

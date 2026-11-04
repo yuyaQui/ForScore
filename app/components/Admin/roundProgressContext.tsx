@@ -4,6 +4,7 @@
 // admin/page.tsx が useRoundProgressSource で読み込み、RoundProgressProvider で配る。
 // 各ラウンドの Admin は useRoundProgress で受け取り、「○○へ ▶」ボタン・Undo の制限・リセットの確認文に使う。
 // 選手・3rd Round のコース・大会の状態を読み込み、Socket の更新に追従する（各画面と同じ配信を受ける）。
+import { notify } from '@/lib/adminNotice';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { Player, ThirdRoundCourse } from '@/lib/types';
@@ -58,8 +59,9 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
             }
         };
 
-        // 最初の読み込み（選手・コース・大会の状態）
-        (async () => {
+        // 選手・コースの読み込み。最初と、つなぎ直したときに行う。
+        // 切れている間に起きた変更の配信は受け取れていないので、DB から読み直して追いつく（2026-11-04）
+        const loadPlayersAndCourses = async () => {
             try {
                 const [pRes, cRes] = await Promise.all([fetch('/api/secondRound/loadPlayers'), fetch('/api/thirdRound/courses')]);
                 const [pData, cData] = await Promise.all([pRes.json(), cRes.json()]);
@@ -69,8 +71,10 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
             } catch (error) {
                 console.error('Round progress load failed', error);
             }
-        })();
-        loadTournamentState();
+        };
+        const reloadAll = () => { loadPlayersAndCourses(); loadTournamentState(); };
+        reloadAll();
+        socket.io.on('reconnect', reloadAll);
 
         const onPlayers = (next: Player[]) => setPlayers(next);
         const onCourses = (next: CourseRow[]) => setCourses(next);
@@ -79,6 +83,7 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
         socket.on('update_tournament_state', loadTournamentState);
         return () => {
             alive = false;
+            socket.io.off('reconnect', reloadAll);
             socket.off('update_players', onPlayers);
             socket.off('update_third_round_courses', onCourses);
             socket.off('update_tournament_state', loadTournamentState);
@@ -150,7 +155,7 @@ export function blockUndoIfLaterStarted(progress: RoundProgress | null, round: R
     if (!progress) return false;
     const later = laterRoundStarted(progress.statuses, round);
     if (!later) return false;
-    window.alert(undoBlockedMessage(round, later));
+    notify(undoBlockedMessage(round, later), 'error');
     return true;
 }
 

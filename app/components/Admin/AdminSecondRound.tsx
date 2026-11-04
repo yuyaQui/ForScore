@@ -9,6 +9,7 @@ import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
+import { toOrdinal } from "@/lib/ordinal";
 import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice, getRunnerUps, RUNNER_UP_RANK } from "@/lib/secondRound";
 import { useQuestionDisplay } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
@@ -19,8 +20,11 @@ import { ConsoleSide } from "./console/ConsoleSide";
 import { useActionLog } from "./console/useActionLog";
 import styles from "./console/console.module.css";
 import { useMainCover } from "../useMainCover";
-import { coverStartPrimary, ManualStandbyButton } from "./MainCoverControls";
-import { NO_COVER, BLANK_END_COVER, standbyCover, standbyAfterCover, coverBlocksRound, describeCover } from "@/lib/mainCover";
+import { coverStartPrimary, CoverButtons } from "./MainCoverControls";
+import { useSocketSync } from "../useSocketSync";
+import { useSingleFlight } from "../useSingleFlight";
+import { notify, errorText } from "@/lib/adminNotice";
+import { NO_COVER, BLANK_END_COVER, standbyCover, standbyAfterCover, coverBlocksRound, describeCover, rewindCover } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -42,9 +46,15 @@ export default function AdminSecondRound(props: Props) {
     // 開いている引き出し（表示の切り替え／データ修正）
     const [drawer, setDrawer] = useState<'view' | 'data' | null>(null);
     // Main を覆う表示（待機画面・ブランク。2026-11-04）
-    const [cover, setCover] = useMainCover(socket);
+    const [cover, setCover, coverControls] = useMainCover(socket);
     // 操作の記録（この画面の中だけ。Undo ボタンの説明にも使う）
     const actionLog = useActionLog();
+    // 2nd Round の進行（組・画面）はサーバが持つ。この画面を開いた時・つなぎ直した時に必ず取り直す（2026-11-04）。
+    // 取り直さないと、別のラウンドから戻ったとき・再読み込みしたときに「1組目」の仮の値のまま操作してしまい、
+    // Undo やリセットが別の組に効いてしまう
+    useSocketSync(socket, ['request_second_round_sync']);
+    // 採点・Undo・リセットは同時に1つだけ走らせる（応答待ちの押し直しで二重に効かない。2026-11-04）
+    const flight = useSingleFlight();
 
     useEffect(() => {
         // プレイヤーデータを持ってくる
@@ -53,6 +63,13 @@ export default function AdminSecondRound(props: Props) {
         })
 
         if (socket) {
+            // つなぎ直したときは選手データを読み直す（切れている間の更新の配信は受け取れていないため。2026-11-04）
+            const reloadPlayers = () => {
+                fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
+                    if (data.success) setPlayers(data.allPlayers);
+                }).catch(() => { /* つながっていなければ、つながったときにまた試す */ });
+            };
+            socket.io.on('reconnect', reloadPlayers);
             // プレイヤーデータ更新命令が来た時の処理
             const onPlayers = (allPlayers: Player[]) => setPlayers(allPlayers);
             // ラウンド状態更新命令が来た時の処理
@@ -62,6 +79,7 @@ export default function AdminSecondRound(props: Props) {
             // 外すのは自分の受け取り口だけ（2026-10-22。イベント名だけで off すると、
             // admin/page.tsx など同じイベントを受けている他の受け取り口まで外れてしまう）
             return () => {
+                socket.io.off('reconnect', reloadPlayers);
                 socket.off("update_players", onPlayers);
                 socket.off("update_second_round_state", onState);
             }
@@ -76,8 +94,18 @@ export default function AdminSecondRound(props: Props) {
     // 問題表示の操作の記録で「どの組の操作か」を表す（2026-10-29。Undo は組ごとなので、違う組の記録では問題を戻さない）
     const questionScope = `g${secondRoundState.group}`;
     const hasCursor = questionState.cursors.secondRound !== undefined;
+    // 直前の採点・スルーがどの組のものか（サーバの記録。再読み込みや再起動の後も残る）。
+    // 今の組と違えば「次の組へ進めた後の Undo」で、前の組まで戻して取り消す
+    const lastScopeMatch = /^g([1-4])$/.exec(questionState.lastEvents?.secondRound?.scope ?? '');
+    const lastGroup = lastScopeMatch ? Number(lastScopeMatch[1]) : null;
+    const undoCrossing = lastGroup !== null && lastGroup !== secondRoundState.group;
 
-    const handleScoreAction = async (player: Player, action: 'correct' | 'wrong') => {
+    const handleScoreAction = (player: Player, action: 'correct' | 'wrong') => flight.run(async () => {
+        // Main が待機画面・ブランクで「これから始まる場面」を覆っている間は採点しない（会場に出ていない問題が進むのを防ぐ）
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のため採点できません。上のバーの「○○を始める ▶」で画面を出してから採点してください。', 'error');
+            return;
+        }
         try {
             const res = await fetch('/api/secondRound/updateScores', {
                 method: 'POST',
@@ -97,20 +125,24 @@ export default function AdminSecondRound(props: Props) {
                     : (after && after.secondRoundRank < 0 && after.secondRoundWrongCount >= LOSE_WRONG ? '誤答（失格）' : '誤答');
                 actionLog.add({ who: player.name, what: note, tone: action === 'correct' ? 'ok' : 'ng', scope: questionScope });
             } else if (data.error) {
-                alert(data.error);
+                notify(data.error, 'error');
             }
         } catch (error) {
-            console.error('Score update failed', error);
+            notify(errorText(error, '通信に失敗しました。採点は反映されていません。画面を確かめてからやり直してください。'), 'error');
         }
-    };
+    });
 
     // スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22）
     const handleThrough = () => {
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のためスルーできません。上のバーの「○○を始める ▶」で画面を出してからにしてください。', 'error');
+            return;
+        }
         finishQuestion(questionScope, false);
         actionLog.add({ who: '', what: 'スルー', tone: 'through', scope: questionScope });
     };
 
-    const handleGroupReset = async (secondRoundState: { group: number, view: string }) => {
+    const handleGroupReset = (secondRoundState: { group: number, view: string }) => flight.run(async () => {
         try {
             const res = await fetch('/api/secondRound/resetScores', {
                 method: 'POST', // DB を書き換えるため POST
@@ -124,24 +156,32 @@ export default function AdminSecondRound(props: Props) {
                 broadcastAfterReset(socket, 'thirdRound', data);
                 actionLog.add({ who: '', what: `${secondRoundState.group}組目をリセット`, tone: 'other', scope: `reset-g${secondRoundState.group}` });
             } else if (data.error) {
-                alert(data.error);
+                notify(data.error, 'error');
             }
         } catch (error) {
-            console.error('Reset scores failed', error);
+            notify(errorText(error, '通信に失敗しました。リセットは反映されていません。'), 'error');
         }
-    };
+    });
 
-    // Undo。2026-10-29 から問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
-    const handleGroupUndo = async (secondRoundState: { group: number, view: string }) => {
+    // Undo。2026-10-29 から問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）。
+    // 2026-11-04: 直前の操作が「前の組」のものなら（次の組へ進めた後に、前の組の誤りに気づいたとき）、
+    // その組・クイズ画面まで戻して取り消す。取り消した先の画面をいきなり会場に出さないよう、Main はブランクにして
+    // 「クイズを再開する ▶」で出す。クイズの終了後（ブランク・待機画面 NEXT ○○）に戻したときも同じ。
+    const handleGroupUndo = (current: { group: number, view: string }) => flight.run(async () => {
         // 3rd Round が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'secondRound')) return;
-        const scope = `g${secondRoundState.group}`;
+        if (cover.at === 'manual') {
+            notify('手動の待機画面が出ています。「待機画面を消す ▶」を押してから Undo してください。', 'error');
+            return;
+        }
+        const targetGroup = undoCrossing && lastGroup !== null ? lastGroup : current.group;
+        const scope = `g${targetGroup}`;
         const undone = await undoWithQuestion(scope, async () => {
             try {
                 const res = await fetch('/api/secondRound/undo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ secondRoundState })
+                    body: JSON.stringify({ secondRoundState: { group: targetGroup, view: 'quiz' } })
                 });
                 const data = await res.json();
 
@@ -149,15 +189,20 @@ export default function AdminSecondRound(props: Props) {
                     socket.emit('broadcast_scores', data.allPlayers);
                     return true;
                 }
-                if (data.error) alert(data.error || 'Undo に失敗しました');
+                notify(data.error || 'Undo に失敗しました', 'error');
                 return false;
             } catch (error) {
-                console.error('Undo scores failed', error);
+                notify(errorText(error, '通信に失敗しました。Undo は反映されていません。'), 'error');
                 return false;
             }
         });
-        if (undone) actionLog.markUndone(scope);
-    };
+        if (!undone) return;
+        actionLog.markUndone(scope);
+        if (undoCrossing || cover.at === 'end') {
+            if (undoCrossing) handleStateChange({ group: targetGroup, view: 'quiz' });
+            setCover(rewindCover());
+        }
+    });
 
     const handleStateChange = (updates: Partial<typeof secondRoundState>) => {
         if (socket) {
@@ -397,10 +442,10 @@ export default function AdminSecondRound(props: Props) {
         // クイズ: 正誤判定
         work = (
             <>
-                <WorkHead title={`${secondRoundState.group}組目　正誤判定`}
+                <WorkHead
                     meta={<><MetaItem label="残り" value={`${activeCount}/${count}`} /><MetaItem label="勝ち抜け" value={`${winnerCount}/${GROUP_WINNERS}`} /></>}
                     tools={tools} />
-                <QuestionStrip round="secondRound" state={questionState} />
+                <QuestionStrip socket={socket} round="secondRound" state={questionState} />
                 {count === 0 ? <div className={styles.empty}>選手データがありません</div> : (
                     <SeatRow count={count}>
                         {filteredPlayers.map((p, i) => {
@@ -411,7 +456,7 @@ export default function AdminSecondRound(props: Props) {
                             const isEliminated = p.secondRoundRank < 0 && wrong >= LOSE_WRONG;
                             // 2nd Roundのポイント上限は5。表示上は5で頭打ちにする(2026-09-25、ユーザー指示)
                             const point = Math.min(CLEAR_POINT, p.secondRoundPoint || 0);
-                            const status: SeatStatus | null = p.secondRoundRank >= 1 ? { label: `勝抜${p.secondRoundRank}位`, tone: 'win' }
+                            const status: SeatStatus | null = p.secondRoundRank >= 1 ? { label: toOrdinal(p.secondRoundRank), tone: 'win' }
                                 : isEliminated ? { label: '失格', tone: 'lost' }
                                 : p.secondRoundRank < 0 ? { label: '終了', tone: 'info' }
                                 : p.secondRoundDoubleChance ? { label: '連答権', tone: 'dc' } : null;
@@ -434,8 +479,12 @@ export default function AdminSecondRound(props: Props) {
         <ConsoleFrame
             onAir={onAir}
             onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
-            barExtra={<ManualStandbyButton cover={cover} setCover={setCover} className={styles.btn} />}
-            undo={{ detail: isQuiz ? actionLog.lastLabel(questionScope) : null, onClick: () => handleGroupUndo(secondRoundState), disabled: !isQuiz }}
+            barExtra={<CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />}
+            undo={{
+                detail: isQuiz || undoCrossing ? actionLog.lastLabel(undoCrossing && lastGroup !== null ? `g${lastGroup}` : questionScope) : null,
+                onClick: () => handleGroupUndo(secondRoundState),
+                disabled: !(isQuiz || undoCrossing) || flight.pending,
+            }}
             next={{ label: primaryLabel, onClick: primaryAction }}
             side={
                 <ConsoleSide socket={socket} round="secondRound" state={questionState} log={actionLog.entries}

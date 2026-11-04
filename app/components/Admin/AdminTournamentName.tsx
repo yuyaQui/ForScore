@@ -14,6 +14,8 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
     const saved = progress?.tournamentName ?? '';
     // 入力中の大会名。保存済みの値が変わったら（他の Admin で保存されたときも）入力欄を合わせる
     const [input, setInput] = useState(saved);
+    // プルダウンが開いているか（2026-11-04）
+    const [open, setOpen] = useState(false);
     const [savedSeen, setSavedSeen] = useState(saved);
     if (savedSeen !== saved) {
         setSavedSeen(saved);
@@ -53,14 +55,14 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
 
     return (
         <div className="flex flex-col gap-4 bg-black p-6 w-full max-w-5xl" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div style={MANUAL_LABEL_STYLE}>大会名</div>
-                <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: saved ? '#7FE8FF' : '#FFC93C' }}>{saved ? `保存済み: ${saved}` : '未設定'}</span>
-            </div>
+            {/* 押すと開くプルダウン（2026-11-04 ユーザー指示）。説明文は出さない */}
+            <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
+                className="flex flex-wrap items-center justify-between gap-3 w-full" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                <div style={MANUAL_LABEL_STYLE}>{open ? '▾' : '▸'} 大会名</div>
+                <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: saved ? '#7FE8FF' : '#FFC93C' }}>{saved ? `✓ ${saved}` : '未設定'}</span>
+            </button>
+            {open && (<>
             <div style={{ ...MANUAL_PANEL_BASE, gap: 12 }}>
-                <p style={{ margin: 0, fontFamily: JP, fontWeight: 700, fontSize: 14, color: '#9FB4D6', lineHeight: 1.7 }}>
-                    このアプリを使う大会の名前です。Admin の左上に表示します。{TOURNAMENT_NAME_MAX}文字まで。空にして保存すると表示を消します。
-                </p>
                 <div className="flex flex-wrap items-center gap-3">
                     <input id="tournament-name" type="text" value={input} onChange={e => { setInput(e.target.value); setMessage(null); }}
                         onKeyDown={e => { if (e.key === 'Enter' && canSave) void handleSave(); }}
@@ -77,6 +79,7 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
                 {!check.ok && <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 13, color: '#FF6B85' }}>{check.error}</div>}
             </div>
             {message && <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: message.error ? '#FF6B85' : '#7FE8FF' }}>{message.text}</div>}
+            </>)}
         </div>
     );
 }

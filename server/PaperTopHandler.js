@@ -33,6 +33,14 @@ function applyUpdate(prev, update) {
     return next;
 }
 
+// 進行状態の保存と復元（2026-11-04）
+const store = require("./stateStore");
+store.register(
+    "paperTop",
+    () => paperTopState,
+    (saved) => { paperTopState = applyUpdate({ ...INITIAL_PAPER_TOP_STATE }, saved); }
+);
+
 module.exports = function PaperTopHandler(io, socket) {
     // 進行状態の切り替え（部分更新。applyUpdate で検証する）
     socket.on("change_paper_top_state", (newState) => {

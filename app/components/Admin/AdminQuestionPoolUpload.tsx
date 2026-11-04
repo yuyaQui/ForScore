@@ -16,9 +16,10 @@ function summaryText(s: QuestionPoolSummary | null): string {
 
 export default function AdminQuestionPoolUpload() {
     const [summary, setSummary] = useState<QuestionPoolSummary | null>(null);
+    // プルダウンが開いているか（2026-11-04）
+    const [open, setOpen] = useState(false);
     const [csvText, setCsvText] = useState('');
     const [preview, setPreview] = useState<{ questions: PoolQuestion[]; errors: string[] } | null>(null);
-    const [fileName, setFileName] = useState('');
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +37,6 @@ export default function AdminQuestionPoolUpload() {
         const file = e.target.files?.[0];
         if (!file) return;
         setMessage('');
-        setFileName(file.name);
         try {
             const text = await readCsvText(file);
             setCsvText(text);
@@ -67,7 +67,6 @@ export default function AdminQuestionPoolUpload() {
             if (res.ok && data.success) {
                 setSummary(data.summary);
                 setPreview(null);
-                setFileName('');
                 setMessage('登録しました');
             } else {
                 setMessage(Array.isArray(data.details) && data.details.length > 0 ? data.details.slice(0, 5).join(' / ') : (data.error || '登録に失敗しました'));
@@ -84,20 +83,19 @@ export default function AdminQuestionPoolUpload() {
 
     return (
         <div className="flex flex-col gap-4 bg-black p-6 w-full max-w-5xl" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div style={MANUAL_LABEL_STYLE}>問題データ（2nd Round 以降の共通問題）</div>
+            {/* 押すと開くプルダウン（2026-11-04 ユーザー指示）。列の説明・ファイル名は出さない */}
+            <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
+                className="flex flex-wrap items-center justify-between gap-3 w-full" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                <div style={MANUAL_LABEL_STYLE}>{open ? '▾' : '▸'} 問題データ</div>
                 <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: summary && summary.count > 0 ? '#7FE8FF' : '#FFC93C' }}>{summaryText(summary)}</span>
-            </div>
+            </button>
+            {open && (<>
             <div style={{ ...MANUAL_PANEL_BASE, gap: 12 }}>
-                <p style={{ margin: 0, fontFamily: JP, fontWeight: 700, fontSize: 14, color: '#9FB4D6', lineHeight: 1.7 }}>
-                    列: <b style={{ color: '#DFF7FF' }}>通し番号 / 問題文 / 解答 / 別解・正誤判定基準</b>（4列目は空可）。登録すると全件入れ替えます。
-                </p>
                 <div className="flex flex-wrap items-center gap-3">
                     <label style={manualBtnStyle(true)}>
-                        <span style={manualBtnTextStyle(true)}>CSVを選択</span>
+                        <span style={manualBtnTextStyle(true)}>ファイルを選択</span>
                         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} />
                     </label>
-                    {fileName && <span style={{ fontFamily: JP, fontSize: 13, color: '#7FA8D9' }}>{fileName}</span>}
                     <button onClick={() => { void handleSave(); }} disabled={!canSave} style={{ ...manualBtnStyle(canSave), opacity: canSave ? 1 : 0.35 }}>
                         <span style={manualBtnTextStyle(canSave)}>{saving ? '登録中...' : '登録'}</span>
                     </button>
@@ -142,6 +140,7 @@ export default function AdminQuestionPoolUpload() {
                     </div>
                 </div>
             )}
+            </>)}
         </div>
     );
 }

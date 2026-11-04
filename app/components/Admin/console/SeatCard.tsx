@@ -35,8 +35,9 @@ function VerticalName({ name, size }: { name: string; size: number }) {
     );
 }
 
-export function SeatCard({ seatNo, paperRank, name, school, nameSize, status, dimmed, highlighted, score, onCorrect, onWrong, canOperate }: {
-    seatNo: number;
+export function SeatCard({ paperRank, name, school, nameSize, status, dimmed, highlighted, score, onCorrect, onWrong, canOperate }: {
+    /** 席の番号（今は表示しない。2026-11-04） */
+    seatNo?: number;
     paperRank: number;
     name: string;
     /** 学校名・学年（幅に余裕があるときだけ渡す） */
@@ -58,7 +59,7 @@ export function SeatCard({ seatNo, paperRank, name, school, nameSize, status, di
     return (
         <div className={cls} style={{ '--tc': tier.color } as CSSProperties}>
             <div className={styles.seatHead}>
-                <span className={styles.seatNo}>{seatNo}</span>
+                {/* 席の番号は出さない（2026-11-04 ユーザー指示。並びは Main と同じ左から） */}
                 <span className={styles.seatRank}>{toOrdinal(paperRank)}</span>
                 {status ? <span className={BADGE_CLASS[status.tone]}>{status.label}</span> : <span className={styles.badge} />}
             </div>

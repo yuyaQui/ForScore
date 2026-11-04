@@ -20,7 +20,7 @@ import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import { useMainCover } from "../useMainCover";
-import { BLANK_END_COVER, blankStartCover, standbyCover, standbyAfterCover, coverBlocksRound } from "@/lib/mainCover";
+import { BLANK_END_COVER, blankStartCover, standbyCover, standbyAfterCover, coverBlocksRound, rewindCover } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -580,13 +580,23 @@ export default function AdminThirdRound(props: Props) {
         if (!quizCourse) return;
         // Extra Round が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'thirdRound')) return;
+        if (cover.at === 'manual') {
+            setErrorMessage('手動の待機画面が出ています。「待機画面を消す」を押してから Undo してください');
+            return;
+        }
 
         // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
-        const courseName = quizCourse.name;
+        // 2026-11-04: 直前の操作が「前のコース」のものなら（次のコースへ進めた後に、前のコースの誤りに気づいたとき）、
+        // そのコースまで戻して取り消す。取り消した先の画面をいきなり会場に出さないよう、Main はブランクにして
+        // 「クイズを再開する ▶」で出す。コースの終了後（ブランク・待機画面）に戻したときも同じ
+        const lastScope = questionState.lastEvents?.thirdRound?.scope;
+        const lastCourse = lastScope ? drawnCourses.find(c => c.name === lastScope) : undefined;
+        const crossing = !!lastCourse && lastCourse.playOrder !== thirdRoundState.quizOrder;
+        const courseName = crossing && lastCourse ? lastCourse.name : quizCourse.name;
         setIsBusy(true);
         setErrorMessage("");
         try {
-            await undoWithQuestion(courseName, async () => {
+            const undone = await undoWithQuestion(courseName, async () => {
                 try {
                     const res = await fetch('/api/thirdRound/undo', {
                         method: 'POST',
@@ -610,6 +620,10 @@ export default function AdminThirdRound(props: Props) {
                     return false;
                 }
             });
+            if (undone && (crossing || cover.at === 'end')) {
+                if (crossing && lastCourse && lastCourse.playOrder !== null) changeState({ phase: 'quiz', quizOrder: lastCourse.playOrder });
+                setCover(rewindCover());
+            }
         } finally {
             setIsBusy(false);
         }

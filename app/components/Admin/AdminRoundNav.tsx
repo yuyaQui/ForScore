@@ -21,7 +21,7 @@ const ROUND_NAV: { mode: string; label: string; rule: string; round: RoundKey | 
     { mode: 'waiting', label: '大会準備', rule: '大会名・問題データ', round: null },
     { mode: '1stRound', label: '1st Round', rule: '筆記クイズ', round: 'firstRound' },
     { mode: 'secondRound', label: '2nd Round', rule: '連答つき 5○2×', round: 'secondRound' },
-    { mode: 'thirdRound', label: '3rd Round', rule: '4コース', round: 'thirdRound' },
+    { mode: 'thirdRound', label: '3rd Round', rule: 'コース別', round: 'thirdRound' },
     { mode: 'extraRound', label: 'Extra Round', rule: '敗者復活', round: 'extraRound' },
     { mode: 'semifinal', label: 'Semi-Final', rule: 'Nine Hundred', round: 'semifinal' },
     { mode: 'final', label: 'Final', rule: 'Triple Seven', round: 'final' },
@@ -32,7 +32,7 @@ const AFTER_NAV = { mode: 'paperTop100', label: '上位100名発表', rule: '大
 export function AdminRoundSidebar({ currentMode, progress, onChangeMode }: {
     currentMode: string;
     progress: RoundProgress | null;
-    onChangeMode: (mode: string) => void;
+    onChangeMode: (mode: string, resume?: boolean) => void;
 }) {
     // 「1stRoundResult」は 1R のサブ画面なので、サイドバー上は親ラウンドをアクティブ表示にする
     const isActive = (mode: string) =>
@@ -49,13 +49,16 @@ export function AdminRoundSidebar({ currentMode, progress, onChangeMode }: {
                 `${ROUND_LABEL[round]} の画面に戻りますか？\nMain も ${ROUND_LABEL[round]} の画面に戻ります（${ROUND_LABEL[later]} 以降の結果はそのまま残ります）。`
             )) return;
         }
-        onChangeMode(mode);
+        // すでに結果が入っているラウンドへ移るときは、会場にいきなり画面を出さない（resume。2026-11-04）
+        const resume = !!(round && progress && progress.statuses[round].started);
+        onChangeMode(mode, resume);
     };
 
     return (
         <nav className={styles.rail} aria-label="ラウンドの選択">
             {/* 大会名（大会準備で入力。2026-11-02）。未設定なら何も出さない */}
-            <div className={styles.brand}>{progress?.tournamentName && <b>{progress.tournamentName}</b>}運営コンソール</div>
+            {/* 大会名だけを出す（「運営コンソール」の文字は出さない。2026-11-04 ユーザー指示） */}
+            <div className={styles.brand}>{progress?.tournamentName && <b>{progress.tournamentName}</b>}</div>
             {ROUND_NAV.map(({ mode, label, rule, round }) => {
                 const active = isActive(mode);
                 const status = round && progress ? progress.statuses[round] : null;
@@ -108,7 +111,6 @@ export function AdminResumeBanner({ progress, onChangeMode }: {
     // 何も始まっていない、または 1st Round だけ（選手登録のみ）のときは出さない
     if (!round || round === 'firstRound') return null;
     const status = progress.statuses[round];
-    const state = status.complete ? '終了' : status.started ? '進行中' : '開始前';
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-4 bg-black px-6 py-4 w-[90%]"
@@ -118,7 +120,8 @@ export function AdminResumeBanner({ progress, onChangeMode }: {
                     RESUME
                 </span>
                 <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 15, color: '#DFF7FF' }}>
-                    DB の結果では {ROUND_LABEL[round]} が{state}です（{status.detail}）
+                    {/* 進捗だけを短く（例「2nd Round 3組目」。2026-11-04 ユーザー指示） */}
+                    {ROUND_LABEL[round]} {status.detail}
                 </span>
             </div>
             <button
