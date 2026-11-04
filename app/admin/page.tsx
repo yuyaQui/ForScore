@@ -13,6 +13,7 @@ import AdminExtraRound from "../components/Admin/AdminExtraRound";
 import AdminSemifinal from "../components/Admin/AdminSemifinal";
 import AdminFinal from "../components/Admin/AdminFinal";
 import AdminPaperTop from "../components/Admin/AdminPaperTop";
+import { AdminMainCoverBar } from "../components/Admin/MainCoverControls";
 import type { SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { RoundProgressProvider, useRoundProgressSource } from "../components/Admin/roundProgressContext";
@@ -99,6 +100,9 @@ export default function AdminPage() {
 
       {/* 右側: ラウンドごとの操作画面。サイドバーとは別領域なので絶対に重ならない */}
       <div className={`flex-1 flex flex-col items-center justify-center gap-[3vh] p-[3vw] overflow-y-auto ${backgroundClass}`}>
+
+      {/* Main を覆う表示（待機画面・ブランク）の状況と操作。運営コンソールに載せ替えたラウンドは上のバーに出す（2026-11-04） */}
+      <AdminMainCoverBar socket={socket} />
 
       {/* // admin 画面の切り替え */}
       {currentMode === "1stRound" && (

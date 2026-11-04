@@ -23,6 +23,7 @@ const SemifinalHandler = require("./server/SemifinalHandler");
 const FinalHandler = require("./server/FinalHandler");
 const QuestionHandler = require("./server/QuestionHandler"); // 問題表示（2026-10-22）
 const PaperTopHandler = require("./server/PaperTopHandler"); // ペーパー上位100名の発表（2026-10-31）
+const MainCoverHandler = require("./server/MainCoverHandler"); // Main を覆う待機画面・ブランク（2026-11-04）
 
 // 4. アプリケーションの立ち上げ処理
 console.log("Next.jsを起動しています。しばらくお待ちください");
@@ -63,6 +64,7 @@ app.prepare().then(() => {
         FinalHandler(io, socket);
         QuestionHandler(io, socket);
         PaperTopHandler(io, socket);
+        MainCoverHandler(io, socket);
 
         socket.on('broadcast_scores', (allPlayers) => {
             io.emit('update_players', allPlayers);

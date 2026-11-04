@@ -13,6 +13,8 @@ import {
     primaryButtonStyle, secondaryActionStyle, dangerBtnStyle, DANGER_BTN_TEXT,
 } from "./adminCyberStyles";
 import { broadcastAfterReset } from "./roundProgressContext";
+import { useMainCover } from "../useMainCover";
+import { coverBlocksRound } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -50,6 +52,8 @@ export default function AdminFinal(props: Props) {
     const { socket } = props;
 
     const [players, setPlayers] = useState<Player[]>([]);
+    // Main を覆う表示（待機画面・ブランク。2026-11-04）
+    const [cover] = useMainCover(socket);
     const [finalState, setFinalState] = useState<FinalState>(DEFAULT_FINAL_STATE);
     // 写真・二つ名（選手紹介の確認用）
     const { profiles } = useSemifinalProfiles(socket);
@@ -244,6 +248,12 @@ export default function AdminFinal(props: Props) {
     } else {
         statusLabel = `FINAL · SET ${set} · クイズ`;
         primaryLabel = '採点は下の画面で行います';
+    }
+
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める（2026-11-04）
+    if (coverBlocksRound(cover)) {
+        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+        primaryAction = null;
     }
 
     return (

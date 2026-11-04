@@ -18,6 +18,9 @@ import { QuestionStrip } from "./console/QuestionStrip";
 import { ConsoleSide } from "./console/ConsoleSide";
 import { useActionLog } from "./console/useActionLog";
 import styles from "./console/console.module.css";
+import { useMainCover } from "../useMainCover";
+import { coverStartPrimary, ManualStandbyButton } from "./MainCoverControls";
+import { NO_COVER, BLANK_END_COVER, standbyCover, standbyAfterCover, coverBlocksRound, describeCover } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -38,6 +41,8 @@ export default function AdminSecondRound(props: Props) {
     const [turnOverTransitioning, setTurnOverTransitioning] = useState(false);
     // 開いている引き出し（表示の切り替え／データ修正）
     const [drawer, setDrawer] = useState<'view' | 'data' | null>(null);
+    // Main を覆う表示（待機画面・ブランク。2026-11-04）
+    const [cover, setCover] = useMainCover(socket);
     // 操作の記録（この画面の中だけ。Undo ボタンの説明にも使う）
     const actionLog = useActionLog();
 
@@ -199,6 +204,13 @@ export default function AdminSecondRound(props: Props) {
         if (secondRoundState.turnOverPhase === 'collapsed') {
             primaryLabel = '展開 ▶';
             primaryAction = () => handleStateChange({ turnOverPhase: 'expanded' });
+        } else if (cover.kind === 'none') {
+            // 発表が終わったら表示を消してブランクに（2026-11-04 ユーザー指示）
+            primaryLabel = '次点の表示を消す ▶';
+            primaryAction = () => setCover(BLANK_END_COVER);
+        } else if (cover.kind === 'blank') {
+            primaryLabel = '待機画面を表示する ▶';
+            primaryAction = () => setCover(standbyAfterCover('3rd Round'));
         } else {
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'secondRound'));
         }
@@ -234,19 +246,40 @@ export default function AdminSecondRound(props: Props) {
     } else {
         if (!allResolved) {
             primaryLabel = `進行中（残り ${activeCount}名）`;
+        } else if (cover.kind === 'none') {
+            // 組の決着。まず Main をブランクにする（早押しの場面の終わりは何も表示しない。2026-11-04 ユーザー指示）
+            primaryLabel = 'クイズを終了する ▶';
+            primaryAction = () => setCover(BLANK_END_COVER);
         } else if (secondRoundState.group < 4) {
             const nextGroup = secondRoundState.group + 1;
-            primaryLabel = `${nextGroup}組目へ ▶`;
-            // 次の組の発表(turnOver)は必ず1位からやり直すので、ここで turnOverStep/turnOverPhase をリセットする
-            primaryAction = () => handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
-        } else if (runnerUps.length > 0) {
-            // 4組目まで終わった。次点（49位）がいれば先に発表する（2026-10-30 項目6）
-            primaryLabel = `次点（${RUNNER_UP_RANK}位）を発表 ▶`;
-            primaryAction = startRunnerUp;
+            primaryLabel = '待機画面を表示する ▶';
+            // 待機画面 NEXT 2nd Round / Set N を出し、裏で次の組のターンオーバー（1位から）へ進めておく。
+            // 待機画面を消す → ブランク →「ターンオーバーを始める」で次の組の発表が始まる
+            primaryAction = () => {
+                handleStateChange({ group: nextGroup, view: 'turnOver', turnOverStep: 0, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
+                setCover(standbyCover('2nd Round', `Set ${nextGroup}`, 'ターンオーバーを始める'));
+            };
+        } else if (cover.kind === 'blank' && runnerUps.length > 0) {
+            // 4組目まで終わった。次点（49位）がいれば、ブランクから発表する（2026-10-30 項目6・2026-11-04）
+            primaryLabel = `次点（${RUNNER_UP_RANK}位）を発表する ▶`;
+            primaryAction = () => { startRunnerUp(); setCover(NO_COVER); };
+        } else if (cover.kind === 'blank') {
+            primaryLabel = '待機画面を表示する ▶';
+            primaryAction = () => setCover(standbyAfterCover('3rd Round'));
         } else {
-            // 4組目まで終わった。全20名の勝ち抜けが決まっていれば「3rd Round へ ▶」（提案A）
+            // 待機画面 NEXT 3rd Round。全20名の勝ち抜けが決まっていれば「3rd Round へ ▶」（提案A）
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'secondRound'));
         }
+    }
+
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、進行ボタンを覆いの操作にする
+    // （待機画面を消す → ターンオーバーを始める。裏で画面を進めてしまわないように。2026-11-04）
+    const coverStart = coverStartPrimary(cover, setCover);
+    if (coverStart) {
+        primaryLabel = coverStart.label;
+        primaryAction = coverStart.action;
+    } else if (coverBlocksRound(cover)) {
+        primaryAction = null;
     }
 
     // ---- 上のバー（Main に出ている画面） ----
@@ -400,7 +433,8 @@ export default function AdminSecondRound(props: Props) {
     return (
         <ConsoleFrame
             onAir={onAir}
-            onAirDetail={onAirDetail}
+            onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
+            barExtra={<ManualStandbyButton cover={cover} setCover={setCover} className={styles.btn} />}
             undo={{ detail: isQuiz ? actionLog.lastLabel(questionScope) : null, onClick: () => handleGroupUndo(secondRoundState), disabled: !isQuiz }}
             next={{ label: primaryLabel, onClick: primaryAction }}
             side={

@@ -19,6 +19,8 @@ import { toOrdinal } from "@/lib/ordinal";
 import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { useMainCover } from "../useMainCover";
+import { BLANK_END_COVER, blankStartCover, standbyCover, standbyAfterCover, coverBlocksRound } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -380,6 +382,8 @@ export default function AdminThirdRound(props: Props) {
         finishedOrder: null
     });
     const [courses, setCourses] = useState<Course[]>([]);
+    // Main を覆う表示（待機画面・ブランク。2026-11-04）
+    const [cover, setCover] = useMainCover(socket);
     const [winners, setWinners] = useState<Player[]>([]);
     // プレートを掲げていた人。Admin のローカル状態で、確定時にサーバへ送る
     const [raisedIds, setRaisedIds] = useState<number[]>([]);
@@ -865,6 +869,28 @@ export default function AdminThirdRound(props: Props) {
     let primaryLabel: string;
     let primaryAction: (() => void) | null = null;
 
+    // コースの決着の後（2026-11-04 ユーザー指示。早押しの場面の終わりは何も表示しない）:
+    //   「クイズを終了する」→ ブランク →「待機画面を表示する」→ 待機 NEXT 3rd Round / 次のコース名（裏で次のコースへ進める）
+    //   4コース目の後は 待機 NEXT Extra Round →「Extra Round へ ▶」
+    const courseEndPrimary = (): { label: string; action: (() => void) | null } => {
+        if (cover.kind === 'none') return { label: 'クイズを終了する ▶', action: () => setCover(BLANK_END_COVER) };
+        if (cover.kind === 'blank') {
+            if (thirdRoundState.quizOrder < 4) {
+                return {
+                    label: '待機画面を表示する ▶',
+                    action: () => {
+                        changeState({ phase: 'quiz', quizOrder: thirdRoundState.quizOrder + 1 });
+                        setCover(standbyCover('3rd Round', nextCourseName ?? `${nextOrder}コース目`, 'クイズを始める'));
+                    },
+                };
+            }
+            return { label: '待機画面を表示する ▶', action: () => setCover(standbyAfterCover('Extra Round')) };
+        }
+        if (thirdRoundState.quizOrder < 4) return { label: `${nextCourseLabel}へ ▶`, action: null };
+        // 4コース目まで終わった。8名の勝ち抜けが決まっていれば「Extra Round へ ▶」（提案A）
+        return nextRoundPrimary(socket, progress, 'thirdRound');
+    };
+
     if (thirdRoundState.phase === 'courseSelect') {
         statusLabel = `3RD ROUND · コース選択 · ${drawnCourses.length} / 4`;
         if (!currentCourse) {
@@ -885,7 +911,8 @@ export default function AdminThirdRound(props: Props) {
             // 2026-10-11 のユーザー指示で、2コース目以降と同じ「○コース目（コース名）へ ▶」にした
             const firstCourseName = drawnCourses.find(c => c.playOrder === 1)?.name;
             primaryLabel = `1コース目${firstCourseName ? `（${firstCourseName}）` : ''}へ ▶`;
-            primaryAction = () => changeState({ phase: 'quiz', quizOrder: 1 });
+            // クイズの場面の始まりは Main をブランクにし、上の帯の「クイズを始める」で出す（2026-11-04 ユーザー指示）
+            primaryAction = () => { changeState({ phase: 'quiz', quizOrder: 1 }); setCover(blankStartCover('クイズを始める')); };
         }
     } else if (thirdRoundState.phase === 'quiz') {
         statusLabel = `3RD ROUND · ${thirdRoundState.quizOrder}コース目${quizCourse ? ` · ${quizCourse.name}` : ''}`;
@@ -893,13 +920,7 @@ export default function AdminThirdRound(props: Props) {
             primaryLabel = `サドンデスへ（${playoffPlayers.length}名同点） ▶`;
             primaryAction = startPlayoff;
         } else if (finishState.finished) {
-            if (thirdRoundState.quizOrder < 4) {
-                primaryLabel = `${nextCourseLabel}へ ▶`;
-                primaryAction = () => changeState({ phase: 'quiz', quizOrder: thirdRoundState.quizOrder + 1 });
-            } else {
-                // 4コース目まで終わった。8名の勝ち抜けが決まっていれば「Extra Round へ ▶」（提案A）
-                ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'thirdRound'));
-            }
+            ({ label: primaryLabel, action: primaryAction } = courseEndPrimary());
         } else if (quizPlayers.length > 0 && finishState.activeCount > 0 && remaining === 0) {
             primaryLabel = 'コース終了 ▶';
             primaryAction = handleFinishCourse;
@@ -909,15 +930,17 @@ export default function AdminThirdRound(props: Props) {
     } else {
         statusLabel = `3RD ROUND · サドンデス${quizCourse ? `（${quizCourse.name}）` : ''}`;
         if (playoffPlayers.length === 0) {
-            if (thirdRoundState.quizOrder < 4) {
-                primaryLabel = `${nextCourseLabel}へ ▶`;
-                primaryAction = () => changeState({ phase: 'quiz', quizOrder: thirdRoundState.quizOrder + 1 });
-            } else {
-                ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'thirdRound'));
-            }
+            ({ label: primaryLabel, action: primaryAction } = courseEndPrimary());
         } else {
             primaryLabel = 'サドンデス中...';
         }
+    }
+
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める
+    // （進めるのは画面上の帯の「待機画面を消す」「○○を始める」。2026-11-04）
+    if (coverBlocksRound(cover)) {
+        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+        primaryAction = null;
     }
 
     const primaryButtonStyle: CSSProperties = primaryAction

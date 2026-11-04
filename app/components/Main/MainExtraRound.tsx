@@ -8,6 +8,7 @@ import {
     normalizeExtraRoundState,
 } from "@/lib/extraRound";
 import { ACCENT, TIER_PURPLE } from "@/lib/cyberpunkCard";
+import { StandbyStage } from "./StandbyScreen";
 import FixedStage from "@/app/components/FixedStage";
 import { RoundStage } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
@@ -104,7 +105,7 @@ export default function MainExtraRound(props: Props) {
     // setup / entrantSelect
     return (
         <FixedStage>
-            <StandbyView />
+            <StandbyView sub={state.stage === 'entrantSelect' ? 'Second Step' : null} />
         </FixedStage>
     );
 }
@@ -146,24 +147,10 @@ function Rule({ color }: { color: string }) {
 // 準備中（setup / entrantSelect）
 // ============================================================================
 
-function StandbyView() {
-    return (
-        <div style={STAGE_STYLE}>
-            {/* 進出者の選考中も First Step の一部として「Extra Round - First Step」と出す（2026-10-11 ユーザー指示） */}
-            <Header step="First Step" />
-            <Rule color={TIER_PURPLE} />
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
-                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 120, letterSpacing: 12, color: '#F3FAFF', textShadow: `0 0 28px ${ACCENT}66` }}>
-                        準備中
-                    </span>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: 10, color: '#5C7EA6' }}>
-                        STANDBY
-                    </span>
-                </div>
-            </div>
-        </div>
-    );
+function StandbyView({ sub }: { sub?: string | null }) {
+    // 共有の待機画面（2026-11-04 ユーザー指示。今までの「準備中 / STANDBY」を置き換え）。
+    // 問題の取り込み中は NEXT Extra Round、Second Step の進出者を選んでいる間は NEXT Extra Round / Second Step
+    return <StandbyStage title="Extra Round" sub={sub} />;
 }
 
 // ============================================================================

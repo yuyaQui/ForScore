@@ -20,6 +20,8 @@ import {
 import { getIntroOrder, getLineupOrder, lineupTotalMs, displayNickname } from "@/lib/semifinalProfile";
 import { useSemifinalProfiles, PrepPanel, IntroPanel, LineupPanel, FinishPanel } from "./AdminSemifinalPrep";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { useMainCover } from "../useMainCover";
+import { coverBlocksRound } from "@/lib/mainCover";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 
 type Props = {
@@ -100,6 +102,8 @@ export default function AdminSemifinal(props: Props) {
     const { profiles } = useSemifinalProfiles(socket);
     // 各ラウンドの状況（2026-10-22。「Final へ ▶」・Undo の制限・リセットの確認文に使う）
     const progress = useRoundProgress();
+    // Main を覆う表示（待機画面・ブランク。2026-11-04）
+    const [cover] = useMainCover(socket);
 
     const seats = getSemifinalSeats(players, courses);
     const entrants = seats.map(s => s.player);
@@ -570,6 +574,12 @@ export default function AdminSemifinal(props: Props) {
         }
     } else {
         primaryLabel = '手動操作で表示を選び直してください';
+    }
+
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める（2026-11-04）
+    if (coverBlocksRound(cover)) {
+        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+        primaryAction = null;
     }
 
     return (

@@ -10,6 +10,8 @@ import MainExtraRound from "../components/Main/MainExtraRound";
 import MainSemifinal from "../components/Main/MainSemifinal";
 import MainFinal from "../components/Main/MainFinal";
 import MainPaperTop from "../components/Main/MainPaperTop";
+import StandbyScreen, { BlankScreen } from "../components/Main/StandbyScreen";
+import { useMainCover } from "../components/useMainCover";
 // import type は型だけを読み込む書き方で、ビルド時に削除される
 import type { Player } from "@/lib/types";
 
@@ -19,6 +21,9 @@ export default function MainPage() {
   const [currentMode, setCurrentMode] = useState("waiting");
   const [displayText, setDisplayText] = useState("まだ変更されていません");
   const [players, setPlayers] = useState<Player[]>([]); // プレイヤー一覧状態
+  // Main を覆う表示（待機画面・ブランク。2026-11-04）。覆っている間はラウンドの画面を出さない。
+  // 覆いを外すとラウンドの画面がはじめから表示され、登場の演出もそのときに再生される
+  const [cover] = useMainCover(socket);
 
   useEffect(() => {
     // サーバーと同じホスト・ポートに接続
@@ -65,6 +70,7 @@ export default function MainPage() {
   // 直後の1フレームなど、FixedStage が覆う前に一瞬見える可能性はゼロではないため、
   // 安全側に倒して secondRound は view を問わず黒にしておく。
   const backgroundClass =
+    cover.kind !== "none" ||
     currentMode === "1stRound" ||
     currentMode === "1stRoundResult" ||
     currentMode === "secondRound" ||
@@ -77,9 +83,13 @@ export default function MainPage() {
 
   return (
     <div className={`flex flex-col items-center justify-center min-h-screen p-[3vw] ${backgroundClass} relative`}>
+      {/* 待機画面・ブランクで覆っている間は、ラウンドの画面を出さない */}
+      {cover.kind === "standby" && <StandbyScreen title={cover.title} sub={cover.sub} />}
+      {cover.kind === "blank" && <BlankScreen />}
+      {cover.kind === "none" && (<>
       {currentMode === "1stRound" && <MainFirstRound socket={socket} />}
-      {currentMode === "1stRoundResult"
-        && (<MainText text="集計中..." variant="cyberpunk" />)}
+      {/* 1st Round の集計中は、次の 2nd Round の待機画面（2026-11-04 ユーザー指示） */}
+      {currentMode === "1stRoundResult" && <StandbyScreen title="2nd Round" />}
       {currentMode === "secondRound" && <MainSecondRound players={players} socket={socket} setPlayers={setPlayers} />}
       {currentMode === "thirdRound" && <MainThirdRound players={players} socket={socket} setPlayers={setPlayers} />}
       {currentMode === "extraRound" && <MainExtraRound socket={socket} />}
@@ -88,6 +98,7 @@ export default function MainPage() {
       {/* ペーパークイズ上位100名の発表（大会終了後。2026-10-31） */}
       {currentMode === "paperTop100" && <MainPaperTop socket={socket} />}
       {currentMode === "waiting" && <MainText text={displayText} />}
+      </>)}
     </div>
   );
 }

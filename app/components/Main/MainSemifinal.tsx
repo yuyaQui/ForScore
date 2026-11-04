@@ -11,6 +11,7 @@ import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, displayNickname
 import type { PublicPoolQuestion } from "@/lib/questionPool";
 import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
+import { StandbyStage } from "./StandbyScreen";
 import FixedStage from "@/app/components/FixedStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { RoundStage } from "./RoundStage";
@@ -221,18 +222,8 @@ function BelowText({ text, color }: { text: React.ReactNode; color: string }) {
 // ============================================================================
 
 function StandbyView() {
-    return (
-        <div style={STAGE_STYLE}>
-            <Header />
-            <Rule color={ACCENT} />
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
-                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 120, letterSpacing: 12, color: '#F3FAFF', textShadow: `0 0 28px ${ACCENT}66` }}>準備中</span>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 22, letterSpacing: 10, color: '#5C7EA6' }}>STANDBY</span>
-                </div>
-            </div>
-        </div>
-    );
+    // 共有の待機画面 NEXT Semi-Final（2026-11-04 ユーザー指示。今までの「準備中 / STANDBY」を置き換え）
+    return <StandbyStage title="Semi-Final" />;
 }
 
 // ============================================================================

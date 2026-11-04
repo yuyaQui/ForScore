@@ -18,6 +18,8 @@ import AdminExtraRoundEntrants from "./AdminExtraRoundEntrants";
 import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
 import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { useMainCover } from "../useMainCover";
+import { BLANK_END_COVER, blankStartCover, standbyAfterCover, coverBlocksRound } from "@/lib/mainCover";
 import {
     MANUAL_LABEL_STYLE,
     DANGER_BTN_TEXT,
@@ -122,6 +124,8 @@ export default function AdminExtraRound(props: Props) {
 
     // 各ラウンドの状況（2026-10-22。「Semi-Final へ ▶」・Undo の制限・リセットの確認文・敗者復活者なしに使う）
     const progress = useRoundProgress();
+    // Main を覆う表示（待機画面・ブランク。2026-11-04）
+    const [cover, setCover] = useMainCover(socket);
     const noRevival = progress?.extraRoundNoRevival ?? false;
 
     // 問題表示（2026-10-22。Second Step のみ）。採点が成功したら、その問題を Main に表示して次の問題に進める
@@ -284,12 +288,28 @@ export default function AdminExtraRound(props: Props) {
         }
     } else {
         statusLabel = 'EXTRA ROUND · SECOND STEP';
-        if (winner) {
-            // 敗者復活者が決まった。Semi-Final へ（提案A）
+        if (winner && cover.kind === 'none') {
+            // 敗者復活者が決まった。まず Main をブランクにする（早押しの場面の終わりは何も表示しない。2026-11-04 ユーザー指示）
+            primaryLabel = 'クイズを終了する ▶';
+            primaryAction = () => setCover(BLANK_END_COVER);
+        } else if (winner && cover.kind === 'blank') {
+            primaryLabel = '待機画面を表示する ▶';
+            primaryAction = () => setCover(standbyAfterCover('Semi-Final'));
+        } else if (winner) {
+            // 待機画面 NEXT Semi-Final。Semi-Final へ（提案A）
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'extraRound'));
         } else {
             primaryLabel = '進行中...';
         }
+    }
+
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める（2026-11-04）
+    if (coverBlocksRound(cover)) {
+        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+        primaryAction = null;
+        secondaryLabel = null;
+        secondaryAction = null;
+        waitingNextLabel = null;
     }
 
     const canGoBack = state.stage === 'firstStep' && state.cursor > 0;
@@ -440,7 +460,12 @@ export default function AdminExtraRound(props: Props) {
                         <AdminExtraRoundEntrants
                             socket={socket}
                             players={players}
-                            onConfirmed={() => changeState({ stage: 'secondStep' })}
+                            onConfirmed={(single: boolean) => {
+                                changeState({ stage: 'secondStep' });
+                                // Second Step（早押し）の始まりは Main をブランクにし、上の帯の「クイズを始める」で出す（2026-11-04）。
+                                // 1名で敗者復活が決まったとき（早押しをしない）はブランクにしない
+                                if (!single) setCover(blankStartCover('クイズを始める'));
+                            }}
                         />
                     )
                 )}

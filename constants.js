@@ -38,6 +38,30 @@ const PAPER_TOP_FIRST_PAGE_SIZE = 4;
 const PAPER_TOP_PAGE_SIZE = 6;
 const PAPER_TOP_PAGE_MAX = 1 + Math.ceil((PAPER_TOP_COUNT - PAPER_TOP_FIRST_PAGE_SIZE) / PAPER_TOP_PAGE_SIZE);   // 17
 
+/**
+ * Main を覆う表示（待機画面・ブランク。2026-11-04 ユーザー承認）。
+ * ラウンドの画面の上に「覆い」を出し、準備が整う前に次の画面が Main に出るのを防ぐ。
+ *   kind … "none"（覆わない）| "blank"（何も表示しない）| "standby"（待機画面）
+ *   at   … "start"（これから始まる。Admin 上部の「待機画面を消す」「○○を始める」で進める）
+ *          | "end"（終わった後。各ラウンドの Admin のボタンで進める）
+ *          | "manual"（Admin 上部の「待機画面」ボタンで手動で出した。NEXT は出さない）
+ * 進行状態はサーバのメモリ（server/MainCoverHandler.js）。DB には書かない
+ */
+const MAIN_COVER_KINDS = ['none', 'blank', 'standby'];
+const MAIN_COVER_ATS = ['start', 'end', 'manual'];
+
+/**
+ * ラウンドを切り替えたとき、自動で出す待機画面（NEXT のあとのラウンド名）と、
+ * 待機画面を消したあとのブランクから進めるボタンの名前
+ */
+const MAIN_COVER_ON_MODE = {
+    secondRound: { title: '2nd Round', startLabel: 'ターンオーバーを始める' },
+    thirdRound: { title: '3rd Round', startLabel: 'コースの抽選を始める' },
+    extraRound: { title: 'Extra Round', startLabel: 'Extra Round を始める' },
+    semifinal: { title: 'Semi-Final', startLabel: 'Semi-Final を始める' },
+    final: { title: 'Final', startLabel: 'Final を始める' },
+};
+
 module.exports = {
     DEFAULT_COUNTDOWN,
     THIRD_ROUND_TIME_LIMIT,
@@ -49,5 +73,8 @@ module.exports = {
     PAPER_TOP_COUNT,
     PAPER_TOP_FIRST_PAGE_SIZE,
     PAPER_TOP_PAGE_SIZE,
-    PAPER_TOP_PAGE_MAX
+    PAPER_TOP_PAGE_MAX,
+    MAIN_COVER_KINDS,
+    MAIN_COVER_ATS,
+    MAIN_COVER_ON_MODE
 };

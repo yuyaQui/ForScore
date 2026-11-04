@@ -1,0 +1,16 @@
+/* 共有の待機画面（2026-11-04 ユーザー承認・キャンバス「00 共有の待機画面」の E 案） */
+@keyframes scan {
+    0% { transform: translateX(-420px); opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { transform: translateX(420px); opacity: 0; }
+}
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+.scan { animation: scan 2.8s cubic-bezier(.45, 0, .55, 1) infinite; }
+.blink { animation: blink 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+    .scan, .blink { animation: none; }
+}
