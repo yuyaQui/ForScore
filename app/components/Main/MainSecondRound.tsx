@@ -119,6 +119,12 @@ type TurnOverViewProps = {
     turnOverFinalRevealed: boolean;
     /** true なら段階に分けず、groupPlayers 全員を1本の帯にする（次点の発表。2026-10-30） */
     singleBand?: boolean;
+    /**
+     * 帯（段階）を外から渡す。渡したときは groupPlayers / groupNumber / singleBand を使わず、
+     * bands[turnOverStep] の帯を表示し、段階の切り替えは 2nd Round と同じ帯ごとのフェードにする
+     * （ペーパー上位100名の発表の全17画面。2026-11-04 ユーザー指示：2nd Round のターンオーバーと完全に同一に）
+     */
+    bands?: { label: string; slice: Player[] }[];
 };
 
 const CHAMFER = 16; // 角の斜めカット幅(px)。縦横比が変わっても常に45°の切り欠きになるよう両軸共通
@@ -129,7 +135,7 @@ const GAP = 20;
 const ROW_GAP = 20;
 
 // ペーパー上位100名の発表（MainPaperTop.tsx）でも同じ帯を使うので export する（2026-10-31 項目19）
-export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false }: TurnOverViewProps) {
+export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false, bands }: TurnOverViewProps) {
     // マウント時に一度だけ、カード全体がフェード＋ポップインする
     // （Design アーティファクトの componentDidMount と同じ手順。以降、発表ステップの
     // 切り替えはこのフラグに関係なく「帯(layer)ごとの不透明度フェード」だけで表現する）
@@ -176,7 +182,9 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
     }, [turnOverStep, turnOverPhase, turnOverFinalRevealed]);
 
     // 次点の発表（singleBand）は全員を1本の帯にする（同順位が複数いれば並べる）
-    const groupDefs = singleBand
+    const groupDefs = bands
+        ? bands.map((b) => ({ label: b.label, slice: b.slice, secondaryIndex: null as number | null }))
+        : singleBand
         ? [{ label: '次点', slice: groupPlayers, secondaryIndex: null as number | null }]
         : [0, 1, 2, 3].map((step) => ({
             label: TURN_OVER_STEP_LABELS[step],

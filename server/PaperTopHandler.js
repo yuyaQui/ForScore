@@ -5,7 +5,9 @@
 // サーバを再起動すると1画面目に戻るが、Admin から選び直せばよい。
 //
 // 進行状態（型と意味は lib/types.ts の PaperTopState）:
-//   page  … 何画面目か（0始まり。0〜PAPER_TOP_PAGE_MAX-1）
+//   page  … 何画面目か（0始まり。0〜PAPER_TOP_PAGE_MAX-1）。最後の画面の1つ先（画面の数と同じ値）は
+//           「発表を終えた」状態で、Main は帯を出さない（選手がフェードで消える。2026-11-04 ユーザー承認）。
+//           画面の数は選手から各画面が計算するので、サーバは PAPER_TOP_PAGE_MAX まで受け付ける
 //   phase … "collapsed"（順位だけ）| "expanded"（名前まで公開）
 const { PAPER_TOP_PAGE_MAX } = require("../constants.js");
 const { fromOf } = require("./roundOrder");
@@ -26,7 +28,7 @@ function isInt(v, min, max) {
 function applyUpdate(prev, update) {
     if (!update || typeof update !== "object") return prev;
     const next = { ...prev };
-    if (own(update, "page") && isInt(update.page, 0, PAPER_TOP_PAGE_MAX - 1)) next.page = update.page;
+    if (own(update, "page") && isInt(update.page, 0, PAPER_TOP_PAGE_MAX)) next.page = update.page;
     if (own(update, "phase") && PHASES.includes(update.phase)) next.phase = update.phase;
     return next;
 }

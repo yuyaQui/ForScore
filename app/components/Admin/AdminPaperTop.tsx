@@ -1,7 +1,7 @@
 // ペーパークイズ上位100名の発表の Admin 画面（2026-10-31 ユーザー承認・項目19）。
 // DB は読むだけ。進行（何画面目か・名前を出したか）はサーバのメモリ（server/PaperTopHandler.js）。
 //
-//   1本道: 「名前を発表 ▶」→「次の画面（5〜10位）▶」→「名前を発表 ▶」→ … → 「発表終了」
+//   1本道: 「名前を発表 ▶」→「次の画面（5〜10位）▶」→「名前を発表 ▶」→ … →「発表を終える ▶」→「発表終了」
 //   ◀ 戻る: 名前を出す前の状態 → 前の画面の名前を出した状態、の順に1つずつ戻る
 //   手動操作: 画面を直接選ぶ（順位だけの状態で表示する）
 import { Socket } from "socket.io-client";
@@ -19,6 +19,8 @@ const ORB = 'Orbitron, sans-serif';
 export default function AdminPaperTop({ socket }: { socket: Socket | null }) {
     const [players, setPlayers] = useState<Player[]>([]);
     const [state, setState] = useState<PaperTopState>(DEFAULT_PAPER_TOP_STATE);
+    // 「次の画面」の切り替え中（今の帯を順位だけに戻してから、1.3秒後に次の画面へ進める間）
+    const [transitioning, setTransitioning] = useState(false);
 
     useEffect(() => {
         fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
@@ -43,8 +45,10 @@ export default function AdminPaperTop({ socket }: { socket: Socket | null }) {
     // 画面ごとの選手（ペーパー順位から都度計算）
     const pages = getPaperTopPages(players);
     const pageIndex = Math.min(state.page, Math.max(0, pages.length - 1));
-    const current = pages[pageIndex] ?? [];
-    const next = pages[pageIndex + 1] ?? null;
+    // 最後の画面の1つ先 = 発表を終えた状態（Main は帯を出さず、選手がフェードで消える）
+    const done = pages.length > 0 && state.page >= pages.length;
+    const current = done ? [] : (pages[pageIndex] ?? []);
+    const next = done ? null : (pages[pageIndex + 1] ?? null);
     const expanded = state.phase === 'expanded';
 
     // ---- 1本道ボタン ----
@@ -52,22 +56,51 @@ export default function AdminPaperTop({ socket }: { socket: Socket | null }) {
     let primaryAction: (() => void) | null = null;
     if (pages.length === 0) {
         primaryLabel = '選手データがありません';
+    } else if (transitioning) {
+        // 帯を順位だけに戻す演出の最中は、進行ボタンを一時的に押せなくする（2nd Round の「次へ」と同じ）
+        primaryLabel = '切り替え中…';
+    } else if (done) {
+        primaryLabel = '発表終了';
     } else if (!expanded) {
         primaryLabel = '名前を発表 ▶';
         primaryAction = () => changeState({ phase: 'expanded' });
     } else if (next) {
         primaryLabel = `次の画面（${paperTopRangeLabel(next)}）▶`;
-        primaryAction = () => changeState({ page: pageIndex + 1, phase: 'collapsed' });
+        // 2nd Round のターンオーバーの「次へ」と同じ2段階（2026-11-04 ユーザー指示）:
+        // (1) まず今の画面を順位だけに戻す（Main はその帯の中で収縮アニメーションを再生）
+        // (2) 1300ms 後に次の画面へ進める（古い帯がフェードで消え、約1秒後に新しい帯が出る）
+        primaryAction = () => {
+            const page = pageIndex;
+            setTransitioning(true);
+            changeState({ phase: 'collapsed' });
+            setTimeout(() => {
+                changeState({ page: page + 1, phase: 'collapsed' });
+                setTransitioning(false);
+            }, 1300);
+        };
     } else {
-        primaryLabel = '発表終了';
+        // 最後の画面: 2nd Round の最後の帯と同じく、順位だけに戻してから 1300ms 後に帯を消す（2026-11-04 ユーザー指示）
+        primaryLabel = '発表を終える ▶';
+        primaryAction = () => {
+            const end = pages.length;
+            setTransitioning(true);
+            changeState({ phase: 'collapsed' });
+            setTimeout(() => {
+                changeState({ page: end, phase: 'collapsed' });
+                setTransitioning(false);
+            }, 1300);
+        };
     }
     // ◀ 戻る: 名前を出していれば順位だけに、順位だけなら前の画面の名前を出した状態に
     let backAction: (() => void) | null = null;
-    if (expanded) backAction = () => changeState({ phase: 'collapsed' });
+    if (transitioning) backAction = null;
+    else if (done) backAction = () => changeState({ page: pages.length - 1, phase: 'expanded' });
+    else if (expanded) backAction = () => changeState({ phase: 'collapsed' });
     else if (pageIndex > 0) backAction = () => changeState({ page: pageIndex - 1, phase: 'expanded' });
 
     const statusLabel = pages.length === 0
         ? 'PAPER TOP 100'
+        : done ? `PAPER TOP 100 · 全${pages.length}画面 · 発表終了`
         : `PAPER TOP 100 · ${pageIndex + 1} / ${pages.length}画面 · ${paperTopRangeLabel(current)} · ${expanded ? '名前を公開中' : '順位だけ表示中'}`;
 
     return (
@@ -92,7 +125,7 @@ export default function AdminPaperTop({ socket }: { socket: Socket | null }) {
             {/* 今の画面と次の画面の選手 */}
             {pages.length > 0 && (
                 <div className="grid gap-4 bg-black p-5" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-                    <PageList title={`Main に表示中（${paperTopRangeLabel(current)}）`} players={current} accent={ACCENT} />
+                    <PageList title={done ? 'Main に表示中（なし）' : `Main に表示中（${paperTopRangeLabel(current)}）`} players={current} accent={ACCENT} />
                     <PageList title={next ? `次の画面（${paperTopRangeLabel(next)}）` : '次の画面（なし）'} players={next ?? []} accent="#3A4B63" />
                 </div>
             )}
@@ -105,8 +138,8 @@ export default function AdminPaperTop({ socket }: { socket: Socket | null }) {
                     </summary>
                     <div className="flex flex-wrap gap-[8px] pt-4">
                         {pages.map((pg, i) => (
-                            <button key={i} onClick={() => changeState({ page: i, phase: 'collapsed' })} style={manualBtnStyle(i === pageIndex)}>
-                                <span style={manualBtnTextStyle(i === pageIndex)}>{paperTopRangeLabel(pg)}</span>
+                            <button key={i} onClick={() => changeState({ page: i, phase: 'collapsed' })} style={manualBtnStyle(!done && i === pageIndex)}>
+                                <span style={manualBtnTextStyle(!done && i === pageIndex)}>{paperTopRangeLabel(pg)}</span>
                             </button>
                         ))}
                     </div>
