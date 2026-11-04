@@ -82,7 +82,7 @@ function QuestionStrip({ socket, round }: { socket: Socket | null; round: Questi
                         {question.text}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, color: '#FFC93C' }}>A.</span>
+                        <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 26, color: '#FFC93C' }}>A.</span>
                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: ANSWER_FONT, lineHeight: 1.2, color: '#FFE28A', textShadow: '0 0 16px rgba(255,201,60,.4)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {question.answer}
                         </span>
@@ -119,7 +119,7 @@ export function RoundStage({ header, ruleColor, socket, round, contentW, content
     contentW: number; contentH: number; children: React.ReactNode;
 }) {
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: `${PAD_TOP}px ${PAD_X}px ${PAD_BOTTOM}px`, backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: `${PAD_TOP}px ${PAD_X}px ${PAD_BOTTOM}px`, backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
             <div style={{ height: HEADER_H, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>{header}</div>
             <QuestionStrip socket={socket} round={round} />
             <div style={{ height: 2, marginTop: RULE_GAP, background: ruleColor, boxShadow: `0 0 12px ${ruleColor}73`, flexShrink: 0 }} />
@@ -134,9 +134,10 @@ export function RoundStage({ header, ruleColor, socket, round, contentW, content
  */
 export function RemainingSlots({ active, slots }: { active: number; slots: number }) {
     return (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 44 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 44 }}>
             <span style={{ color: '#4FD8FF' }}>{active}</span>
-            <span style={{ fontSize: 28, color: '#5C7EA6' }}>→</span>
+            {/* 矢印は太く・大きく（2026-11-04 ユーザー指示。キャンバスの値） */}
+            <span style={{ fontSize: 40, fontWeight: 900, color: '#9FB4D6', WebkitTextStroke: '1.5px #9FB4D6' }}>→</span>
             <span style={{ color: '#FFC93C' }}>{slots}</span>
         </div>
     );

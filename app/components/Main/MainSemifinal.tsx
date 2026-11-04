@@ -185,7 +185,7 @@ export default function MainSemifinal(props: Props) {
 const STAGE_STYLE = {
     width: 1920, height: 1080, boxSizing: 'border-box' as const, padding: '56px 72px', backgroundColor: '#000000',
     display: 'flex', flexDirection: 'column' as const, position: 'relative' as const, overflow: 'hidden',
-    fontFamily: "'Rajdhani',sans-serif",
+    fontFamily: "'Rajdhani','Noto Sans JP',sans-serif",
 };
 
 /** 見出し。準備中は副題なし、それ以外は「Nine Hundred」（進出者紹介も同じ。2026-10-15 ユーザー指示） */
@@ -206,12 +206,12 @@ function Rule({ color }: { color: string }) {
 }
 
 function SetLabel({ set }: { set: number }) {
-    return <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 40, letterSpacing: 3, color: ACCENT }}>SET {set}</span>;
+    return <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>SET {set}</span>; // 白（2026-11-04 ユーザー指示）
 }
 
 function BelowText({ text, color }: { text: React.ReactNode; color: string }) {
     return (
-        <div style={{ marginTop: 16, fontFamily: 'Orbitron, sans-serif', fontSize: typeof text === 'string' || typeof text === 'number' ? belowFontSize(text) : BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, color, height: BELOW_H - 16, lineHeight: `${BELOW_H - 16}px`, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ marginTop: 16, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: typeof text === 'string' || typeof text === 'number' ? belowFontSize(text) : BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, color, height: BELOW_H - 16, lineHeight: `${BELOW_H - 16}px`, fontVariantNumeric: 'tabular-nums' }}>
             {text}
         </div>
     );
@@ -250,8 +250,7 @@ function IntroView({ player, index, step, profile }: { player: Player; index: nu
     return (
         <div style={STAGE_STYLE}>
             <style>{INTRO_CSS}</style>
-            <Header subtitle="Nine Hundred" />
-            <Rule color={ACCENT} />
+            {/* 選手紹介では見出し・仕切り線を出さない（2026-11-04 ユーザー指示） */}
             {/* 二つ名が未登録なら二つ名の画面は出さずプロフィールを出す（Admin も通常は飛ばす） */}
             {step === 'nickname' && nickname !== '' ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingBottom: 40 }}>
@@ -391,13 +390,14 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                         if (mode === 'tally') {
                             // 得点集計中: 決着済みの選手だけ WIN / LOST、他は空欄（得点はまだ出さない）
                             if (won) {
-                                pct = 100; below = 'WIN'; color = GOLD_SOFT;
+                                // 勝ち抜け者は WIN ではなく勝ち抜け順位（1st・2nd・3rd。セットごとに1名なので勝ち抜けたセット）を出す（2026-11-04 ユーザー指示）
+                                pct = 100; below = toOrdinal(p.semifinalRank); color = GOLD_SOFT;
                             } else if (lost) {
                                 below = 'LOST'; color = '#8A93A3';
                             }
                         } else if (mode === 'results') {
                             if (wonEarlier || won) {
-                                pct = 100; below = 'WIN'; color = GOLD_SOFT;
+                                pct = 100; below = toOrdinal(p.semifinalRank); color = GOLD_SOFT;
                             } else if (lost) {
                                 below = 'LOST'; color = '#8A93A3';
                             } else if (playing && animation && animation.plan.points[p.id] !== undefined) {
@@ -483,7 +483,7 @@ function ReviewView({ set, questions }: { set: number; questions: PublicPoolQues
                                 {q.text}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: 18 }}>
-                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 30, color: GOLD }}>A.</span>
+                                <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 30, color: GOLD }}>A.</span>
                                 <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 48, color: GOLD_SOFT, textShadow: `0 0 18px ${GOLD}66`, wordBreak: 'break-word' }}>
                                     {q.answer}
                                 </span>
@@ -519,7 +519,7 @@ function PlayoffView({ socket, seats, state, profileOf }: {
     // サドンデスも仕切り線は青（2026-10-29 ユーザー指示）
     return (
         <RoundStage socket={socket} round="semifinal" ruleColor={ACCENT} contentW={contentW} contentH={contentH}
-            header={<Header subtitle={isAdvance ? '勝ち抜けサドンデス' : '失格サドンデス'} right={<SetLabel set={state.set} />} />}>
+            header={<Header subtitle="Nine Hundred" right={<SetLabel set={state.set} />} />}>{/* 見出しはサドンデスの前後で変えない（2026-11-04 ユーザー指示） */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: PLAYOFF_GAP }}>
                     {candidates.map(p => {
                         const outcome = progress.outcomes[p.id];
@@ -527,7 +527,7 @@ function PlayoffView({ socket, seats, state, profileOf }: {
                         let below: React.ReactNode = '';
                         let color = '#EAF6FF';
                         if (outcome === 'win') {
-                            below = isAdvance ? 'WIN' : '○'; color = isAdvance ? GOLD_SOFT : '#EAF6FF';
+                            below = isAdvance ? toOrdinal(state.set) : '○'; color = isAdvance ? GOLD_SOFT : '#EAF6FF';
                         } else if (outcome === 'lose') {
                             below = isAdvance ? '×' : 'LOST'; color = '#8A93A3';
                         }

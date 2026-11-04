@@ -4,11 +4,14 @@
 import type { Player } from './types';
 import { toOrdinal } from './ordinal';
 
+/** 出ていないラウンドの表示（2026-11-04 ユーザー指示で「不参加」から変更） */
+const NO_ENTRY = 'No entry';
+
 /**
  * 成績1行の見た目の種類。
  *   rank    … 順位（1st / 22nd など）
  *   out     … 敗退
- *   none    … 不参加
+ *   none    … 不参加（表示は「No entry」。2026-11-04 ユーザー指示）
  *   revival … 敗者復活（Revival !!!）
  *   gold    … 優勝（Champion）
  */
@@ -27,7 +30,7 @@ export type RecordRow = {
 function rankCell(rank: number): { value: string; tone: RecordTone } {
     if (rank > 0) return { value: toOrdinal(rank), tone: 'rank' };
     if (rank < 0) return { value: '敗退', tone: 'out' };
-    return { value: '不参加', tone: 'none' };
+    return { value: NO_ENTRY, tone: 'none' };
 }
 
 /**
@@ -44,12 +47,12 @@ export function buildCareerRecords(p: Player, withFinal: boolean): RecordRow[] {
     const rows: RecordRow[] = [];
     rows.push({ label: '1st Round', sub: null, value: toOrdinal(p.paperRank), tone: 'rank' });
     rows.push({ label: '2nd Round', sub: null, ...rankCell(p.secondRoundRank) });
-    rows.push({ label: '3rd Round', sub: p.thirdRoundCourseName || null, ...(p.thirdRoundCourseName ? rankCell(p.thirdRoundRank) : { value: '不参加', tone: 'none' as const }) });
+    rows.push({ label: '3rd Round', sub: p.thirdRoundCourseName || null, ...(p.thirdRoundCourseName ? rankCell(p.thirdRoundRank) : { value: NO_ENTRY, tone: 'none' as const }) });
     rows.push({
         label: 'Extra Round', sub: null,
         ...(p.extraRoundRank === 1 ? { value: 'Revival !!!', tone: 'revival' as const }
             : p.extraRoundRank < 0 ? { value: '敗退', tone: 'out' as const }
-            : { value: '不参加', tone: 'none' as const }),
+            : { value: NO_ENTRY, tone: 'none' as const }),
     });
     rows.push({ label: 'Semi-Final', sub: null, ...rankCell(p.semifinalRank) });
     if (withFinal) {

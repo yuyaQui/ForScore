@@ -72,7 +72,7 @@ export function FinalProfile({ player, index, nickname, photo, place }: {
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: align, gap: 16, animation: `${photoLeft ? 'fpTextR' : 'fpTextL'} .6s ease-out .35s both` }}>
                         {/* 最終成績の見出し */}
                         {place !== null && (
-                            <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: place === 1 ? 64 : 48, letterSpacing: 8, color: place === 1 ? GOLD : '#DDE8F7', animation: place === 1 ? 'fpGlow 2.4s ease-in-out infinite' : undefined, textShadow: place === 1 ? undefined : '0 0 18px rgba(79,216,255,.35)' }}>
+                            <div style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: place === 1 ? 64 : 48, letterSpacing: 8, color: place === 1 ? GOLD : '#DDE8F7', animation: place === 1 ? 'fpGlow 2.4s ease-in-out infinite' : undefined, textShadow: place === 1 ? undefined : '0 0 18px rgba(79,216,255,.35)' }}>
                                 {finalPlaceLabel(place)}
                             </div>
                         )}
@@ -100,12 +100,12 @@ export function FinalProfile({ player, index, nickname, photo, place }: {
                                 animation: `fpRow .45s ease-out ${0.9 + i * 0.14}s both`,
                             }}>
                                 <span style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 24, letterSpacing: 2, color: '#9FB4D6' }}>{r.label}</span>
-                                    {r.sub && <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 24, color: '#7FA8D9' }}>（{r.sub}）</span>}
+                                    <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 24, letterSpacing: 2, color: '#9FB4D6' }}>{r.label}</span>
+                                    {r.sub && <span style={{ fontFamily: 'Rajdhani, "Noto Sans JP", sans-serif', fontWeight: 700, fontSize: 24, color: '#7FA8D9' }}>（{r.sub}）</span>}
                                 </span>
                                 <span style={{
-                                    fontFamily: r.tone === 'out' || r.tone === 'none' ? '"Noto Sans JP",sans-serif' : 'Orbitron, sans-serif',
-                                    fontWeight: 900, fontSize: r.tone === 'gold' || r.tone === 'revival' ? 32 : 30, letterSpacing: 1, color: TONE_COLOR[r.tone],
+                                    fontFamily: r.tone === 'out' || r.tone === 'none' ? '"Noto Sans JP",sans-serif' : 'Orbitron, "Noto Sans JP", sans-serif',
+                                    fontWeight: 900, fontSize: r.tone === 'gold' || r.tone === 'revival' ? 32 : 30, letterSpacing: 1, color: TONE_COLOR[r.tone], whiteSpace: 'nowrap',
                                     textShadow: r.tone === 'gold' ? `0 0 18px ${GOLD}99` : r.tone === 'revival' ? `0 0 16px ${REVIVAL}99` : undefined,
                                 }}>{r.value}</span>
                             </div>

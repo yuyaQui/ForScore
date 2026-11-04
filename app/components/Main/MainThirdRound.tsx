@@ -28,6 +28,7 @@ import {
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
+import { spacedName } from "@/lib/playerName";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 import { BELOW_NUMBER_FONT, belowFontSize, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
@@ -191,7 +192,7 @@ export default function MainThirdRound(props: Props) {
                         socket={socket}
                     />
                 ) : (
-                    <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', fontFamily: "'Rajdhani',sans-serif" }}>
+                    <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000000', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 36, color: '#5C7EA6' }}>
                             コースが確定していません
                         </span>
@@ -313,7 +314,7 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
     };
 
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
                 {/* 右上の「○ / 4 コース抽選済み」は 2026-10-11 のユーザー指示で削除した */}
@@ -397,7 +398,7 @@ function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCar
                         <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${frameColor}, transparent)`, opacity: 0.95 }} />
                         <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 5, backgroundImage: `linear-gradient(180deg, transparent, ${frameColor}, transparent)`, opacity: 0.95 }} />
                         <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, minWidth: 52, padding: '3px 10px', border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 20, color: '#FFFFFF', letterSpacing: 1, boxSizing: 'border-box' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, minWidth: 52, padding: '3px 10px', border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 20, color: '#FFFFFF', letterSpacing: 1, boxSizing: 'border-box' }}>
                                 {toOrdinal(p.paperRank)}
                             </span>
                             <span style={{ flex: 1, minWidth: 0, display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 17, color: '#DFEBFA', textShadow: outlineShadow(textOutlineColor, 0.7), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -406,7 +407,7 @@ function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCar
                         </div>
                         <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 2px' }}>
                             <span style={{ display: 'block', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 46, letterSpacing: 1, color: isDecided ? COURSE_DONE_NAME_COLOR : '#F3FAFF', textShadow: outlineShadow(textOutlineColor, 1.2), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', textAlign: 'center' }}>
-                                {p.name}
+                                {spacedName(p.name)}
                             </span>
                         </div>
                     </div>
@@ -419,7 +420,7 @@ function CourseSelectCard({ player: p, isElsewhere, isCurrent }: CourseSelectCar
 function EmptyCourseSelectSlot() {
     return (
         <div style={{ position: 'relative', height: '100%', minWidth: 0, opacity: 0.3, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed rgba(255,255,255,.15)' }}>
-            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, color: '#3A4B63' }}>?</span>
+            <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 20, color: '#3A4B63' }}>?</span>
         </div>
     );
 }
@@ -459,7 +460,7 @@ function FreezeOverlay({ remaining, opacity, transition }: { remaining: number; 
                 <path d="M10 460 L38 490 L20 520" {...crackStroke(1.3, 0.35)} />
                 <path d="M20 660 L45 685 L35 694" {...crackStroke(1.3, 0.35)} />
             </svg>
-            <span style={{ display: 'inline-block', transform: 'rotate(-14deg)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 104, color: '#EAF6FF', textShadow: '0 0 20px rgba(127,216,255,.7), 0 4px 12px rgba(0,0,0,.7)', lineHeight: 1 }}>
+            <span style={{ display: 'inline-block', transform: 'rotate(-14deg)', fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 104, color: '#EAF6FF', textShadow: '0 0 20px rgba(127,216,255,.7), 0 4px 12px rgba(0,0,0,.7)', lineHeight: 1 }}>
                 {remaining}
             </span>
         </div>
@@ -569,7 +570,8 @@ function TimerPanel({ remaining, playFillIntro }: { remaining: number; playFillI
 
     return (
         <div style={{ width: 520, flexShrink: 0, height: 660, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
-            <div className={urgent ? 'animate-pulse' : undefined} style={{ position: 'relative', width: 460, height: 460 }}>
+            {/* 全ルールでタイマーを約1.4倍に（2026-11-04 ユーザー指示。右の空いた場所に収まる大きさ） */}
+            <div className={urgent ? 'animate-pulse' : undefined} style={{ position: 'relative', width: 460, height: 460, transform: 'scale(1.38)' }}>
                 <svg width={460} height={460} viewBox="0 0 460 460" style={{ transform: 'rotate(-90deg)' }}>
                     <circle cx={230} cy={230} r={R} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth={24} />
                     <circle
@@ -580,7 +582,7 @@ function TimerPanel({ remaining, playFillIntro }: { remaining: number; playFillI
                 </svg>
                 <div style={{
                     position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 104, letterSpacing: 2,
+                    fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 104, letterSpacing: 2,
                     fontVariantNumeric: 'tabular-nums', color: '#FFFFFF', textShadow: `0 0 18px ${glow}`,
                 }}>
                     {formatTime(shownSeconds)}
@@ -626,7 +628,7 @@ const SWEDISH_PREVIEW_COLOR = '#FF9E9E';
 
 function BelowNumber({ text, color }: { text: string | number; color: string }) {
     return (
-        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(text), fontWeight: 800, letterSpacing: 1, color }}>
+        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: belowFontSize(text), fontWeight: 800, letterSpacing: 1, color }}>
             {text}
         </div>
     );
@@ -677,7 +679,7 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
                     BelowNumberと同じ書体・サイズに統一する(アーティファクトからの意図的な変更。
                     その後BelowNumber自体が2nd Round側の58pxに揃えられたため、本表示も追従)。 */}
                 <div style={{ marginTop: 4, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
+                    <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
                         {p.thirdRoundWrongCount}×
                     </span>
                 </div>
@@ -726,20 +728,11 @@ function QuizPlayerCard({ player: p, courseName, phase }: { player: Player; cour
                     忠実に再現する。34px・fontWeight 800・letterSpacing .5pxで、正解ptは淡い赤
                     (#FF9E9E)、区切りの「×」は淡い青(#7FA8D9)、誤答ptは淡い水色(#8FD4FF)と
                     3色に分かれている。 */}
-                <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 34, letterSpacing: 0.5 }}>
+                {/* 2026-11-04 ユーザー指示: 誤答数の×・のマスは出さず、その分「正解pt × 誤答pt」を 34px → 56px に大きくする */}
+                <div style={{ marginTop: 10, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 56, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
                     <span style={{ color: '#FF9E9E' }}>{p.thirdRoundCorrectCount}</span>
                     <span style={{ color: '#7FA8D9' }}> × </span>
                     <span style={{ color: '#8FD4FF' }}>{wrongPoints}</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', marginTop: 6, width: 172, boxSizing: 'border-box', overflow: 'hidden' }}>
-                    {Array.from({ length: 6 }).map((_, i) => {
-                        const filled = i < Math.min(6, p.thirdRoundWrongCount);
-                        return (
-                            <span key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', height: 34, fontSize: 26, lineHeight: 1, fontWeight: 700, color: filled ? '#FF4D6D' : '#3A5170' }}>
-                                {filled ? '×' : '・'}
-                            </span>
-                        );
-                    })}
                 </div>
             </>
         );
@@ -795,7 +788,8 @@ function PlayoffView({ quizCourse, quizPlayers, playoffIds, socket }: PlayoffVie
                 <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>3rd Round</div>
                 {/* 2行目: 左に見出し、右に「残り参加者数 → 残り勝ち抜け枠数」（2026-10-29。クイズ画面と同じ） */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>サドンデス{quizCourse ? `（${quizCourse.name}）` : ''}</div>
+                    {/* 見出しはルール名だけにし、サドンデスの前後で変えない（2026-11-04 ユーザー指示） */}
+                    <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>{quizCourse ? quizCourse.name : 'サドンデス'}</div>
                     <RemainingSlots {...remainingOf(quizPlayers)} />
                 </div>
             </div>

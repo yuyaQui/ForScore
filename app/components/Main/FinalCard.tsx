@@ -91,7 +91,7 @@ export function FinalCard({ paperRank, name, school, grade, photo, eliminated = 
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${(trackH * Math.max(0, Math.min(100, pct))) / 100}px`, background: barColor }} />
                     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: STRIP_H, backgroundImage: `linear-gradient(90deg, transparent, ${tier.color}, transparent)`, opacity: 0.95 }} />
                     <div style={{ position: 'absolute', top: F_PHOTO_H + BADGE_GAP, left: 0, right: 0, height: BADGE_H, display: 'flex', justifyContent: 'center' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', height: BADGE_H, padding: '0 12px', border: `3px solid ${metal}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 24, color: eliminated ? ELIMINATED_NAME_COLOR : '#FFFFFF', letterSpacing: 1 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', height: BADGE_H, padding: '0 12px', border: `3px solid ${metal}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 24, color: eliminated ? ELIMINATED_NAME_COLOR : '#FFFFFF', letterSpacing: 1 }}>
                             {toOrdinal(paperRank)}
                         </span>
                     </div>

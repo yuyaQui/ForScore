@@ -20,6 +20,8 @@ export const BELOW_MARK_H = BELOW_MARK_FONT + 6;
  */
 export function belowFontSize(text: string | number): number {
     const length = Array.from(String(text)).length;
+    // 「Revival」（Extra Round の敗者復活者。2026-11-04）のような長い語はカード幅に収まる大きさに
+    if (length >= 6) return Math.min(BELOW_NUMBER_FONT, 40);
     if (length >= 4) return Math.min(BELOW_NUMBER_FONT, 60);
     if (length === 3) return Math.min(BELOW_NUMBER_FONT, 76);
     return BELOW_NUMBER_FONT;

@@ -203,7 +203,7 @@ export function SemifinalCard({
                                     position: 'absolute', left: 0, right: 0, top: 0, height: SF_PHOTO_H, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 14, boxSizing: 'border-box',
                                     background: statusLabel !== 'LOST' ? 'linear-gradient(180deg, rgba(255,140,45,0) 35%, rgba(255,140,45,.55))' : undefined,
                                 }}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 30, letterSpacing: 2, color: statusLabel !== 'LOST' ? '#FFE28A' : '#8A93A3', textShadow: '0 2px 10px rgba(0,0,0,.8)' }}>{statusLabel}</span>
+                                    <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 30, letterSpacing: 2, color: statusLabel !== 'LOST' ? '#FFE28A' : '#8A93A3', textShadow: '0 2px 10px rgba(0,0,0,.8)' }}>{statusLabel}</span>
                                 </div>
                             )}
                             {/* ポイントバー（写真の下の領域だけを使う。100% で写真の下端まで） */}
@@ -212,7 +212,7 @@ export function SemifinalCard({
                             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: intro.stripH, backgroundImage: `linear-gradient(90deg, transparent, ${tier.color}, transparent)`, opacity: 0.95, transition: tr(`height .7s ${EASE}`) }} />
                             {/* 1st Round の順位（写真のすぐ下） */}
                             <div style={{ position: 'absolute', top: SF_PHOTO_H + BADGE_GAP, left: 0, right: 0, height: BADGE_H, display: 'flex', justifyContent: 'center', opacity: textOpacity, transition: TEXT_T }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', height: BADGE_H, padding: '0 12px', border: `3px solid ${metal}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 24, color: eliminated ? ELIMINATED_NAME_COLOR : '#FFFFFF', letterSpacing: 1 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', height: BADGE_H, padding: '0 12px', border: `3px solid ${metal}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 24, color: eliminated ? ELIMINATED_NAME_COLOR : '#FFFFFF', letterSpacing: 1 }}>
                                     {toOrdinal(paperRank)}
                                 </span>
                             </div>
@@ -261,7 +261,7 @@ export function NoPhoto({ color }: { color: string }) {
                 <circle cx="150" cy="150" r="62" fill="none" stroke={color} strokeOpacity=".55" strokeWidth="5" />
                 <path d="M40 400 C 52 290 100 240 150 240 C 200 240 248 290 260 400" fill="none" stroke={color} strokeOpacity=".55" strokeWidth="5" />
             </svg>
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 30, textAlign: 'center', fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 11, letterSpacing: 3, color, opacity: .8 }}>NO PHOTO</div>
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 30, textAlign: 'center', fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 11, letterSpacing: 3, color, opacity: .8 }}>NO PHOTO</div>
         </div>
     );
 }
@@ -272,8 +272,12 @@ export function NoPhoto({ color }: { color: string }) {
  * 上辺の中央から時計回りに伸び、残り時間が減るほど短くなる（色・下地・グロー・数値の書体も同じ）。
  * 残り1分を切ると赤（1セット5分なので、15分の 3rd Round の「残り2分」より短くしている）。
  */
-export function SemifinalTimerGauge({ remaining, total, width }: { remaining: number; total: number; width: number }) {
-    const W = width, H = 230, SW = 14, C = 30;          // 幅・高さ・縁の太さ・角の面取り
+export function SemifinalTimerGauge({ remaining, total, width, height = 230, fontSize = 112 }: {
+    remaining: number; total: number; width: number;
+    /** 高さ・数字の大きさ（1st Round のタイマーは大きく出す。2026-11-04） */
+    height?: number; fontSize?: number;
+}) {
+    const W = width, H = height, SW = 14, C = 30;          // 幅・高さ・縁の太さ・角の面取り
     const frac = Math.max(0, Math.min(1, remaining / total));
     const urgent = remaining <= 60;
     const ringColor = urgent ? '#FF3B5C' : '#4FD8FF';
@@ -294,7 +298,7 @@ export function SemifinalTimerGauge({ remaining, total, width }: { remaining: nu
             </svg>
             <div style={{
                 position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 112, letterSpacing: 2,
+                fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize, letterSpacing: 2,
                 fontVariantNumeric: 'tabular-nums', color: '#FFFFFF', textShadow: `0 0 18px ${glow}`,
             }}>
                 {mm}:{ss}

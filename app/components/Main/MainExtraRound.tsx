@@ -117,7 +117,7 @@ export default function MainExtraRound(props: Props) {
 const STAGE_STYLE = {
     width: 1920, height: 1080, boxSizing: 'border-box' as const, padding: '56px 72px', backgroundColor: '#000000',
     display: 'flex', flexDirection: 'column' as const, position: 'relative' as const, overflow: 'hidden',
-    fontFamily: "'Rajdhani',sans-serif",
+    fontFamily: "'Rajdhani','Noto Sans JP',sans-serif",
 };
 
 /**
@@ -205,10 +205,10 @@ function FirstStepView({ number, view, question, revealed }: {
                 {/* 問題番号と、フェーズ内の位置 */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 22 }}>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 40, letterSpacing: 4, color: isAnswer ? GOLD_SOFT : '#7FA8D9' }}>
+                        <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 40, letterSpacing: 4, color: isAnswer ? GOLD_SOFT : '#7FA8D9' }}>
                             {isAnswer ? 'ANSWER' : 'QUESTION'}
                         </span>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 150, lineHeight: 1, color: '#F3FAFF', textShadow: `0 0 26px ${lineColor}66` }}>
+                        <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 150, lineHeight: 1, color: '#F3FAFF', textShadow: `0 0 26px ${lineColor}66` }}>
                             {number}
                         </span>
                     </div>
@@ -240,7 +240,7 @@ function FirstStepView({ number, view, question, revealed }: {
                                 </p>
                                 {isAnswer && (
                                     <div style={{ borderTop: `2px solid ${GOLD}66`, paddingTop: 30, display: 'flex', alignItems: 'baseline', gap: 28 }}>
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, color: GOLD, flexShrink: 0 }}>A.</span>
+                                        <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, color: GOLD, flexShrink: 0 }}>A.</span>
                                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: answerFontSize(question.answer), lineHeight: 1.3, color: GOLD_SOFT, textShadow: '0 0 22px rgba(255,201,60,.45)', whiteSpace: 'pre-wrap' }}>
                                             {/* 解答は、Admin の「解答を表示」を押すと問題文と同じ動き（全体一度に）で現れる（2026-10-11 ユーザー指示） */}
                                             <RevealWhole text={question.answer} revealed={revealed} />
@@ -253,7 +253,7 @@ function FirstStepView({ number, view, question, revealed }: {
                                     左端は解答の文字とそろえるため、見えない「A.」を同じ幅で置く */}
                                 {isAnswer && question.altAnswer && (
                                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, marginTop: -8 }}>
-                                        <span aria-hidden style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, flexShrink: 0, visibility: 'hidden' }}>A.</span>
+                                        <span aria-hidden style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, flexShrink: 0, visibility: 'hidden' }}>A.</span>
                                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 32, lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
                                             <RevealWhole text={question.altAnswer} revealed={revealed} />
                                         </span>
@@ -312,8 +312,9 @@ function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Sock
                                 barColor={isWinner ? WINNER_BAR_COLOR : undefined}
                                 belowContent={
                                     <>
-                                        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(eliminated ? 'LOST' : isWinner ? 'WIN' : p.extraRoundCorrectCount), fontWeight: 800, letterSpacing: 1, color: resultColor }}>
-                                            {eliminated ? 'LOST' : isWinner ? 'WIN' : p.extraRoundCorrectCount}
+                                        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: belowFontSize(eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount), fontWeight: 800, letterSpacing: 1, color: resultColor, whiteSpace: 'nowrap' }}>
+                                            {/* 敗者復活者（1名まで）は順位でなく「Revival」（2026-11-04 ユーザー指示） */}
+                                            {eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount}
                                         </div>
                                     </>
                                 }

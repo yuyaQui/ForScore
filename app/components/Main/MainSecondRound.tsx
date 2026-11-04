@@ -23,7 +23,8 @@ import {
 import FixedStage from "@/app/components/FixedStage";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
-import { WINNER_BAR_COLOR, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE } from "@/app/components/Main/PlayerCardFrame";
+import { WINNER_BAR_COLOR, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE, VerticalSplitName, NAME_SPLIT_H } from "@/app/components/Main/PlayerCardFrame";
+import { spacedName } from "@/lib/playerName";
 import { belowFontSize, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
@@ -194,7 +195,7 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
         }));
 
     return (
-        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani',sans-serif" }}>
+        <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: '56px 72px', backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
             <div style={{ flex: 1, position: 'relative' }}>
                 {groupDefs.map((def, gi) => {
                     const n = def.slice.length;
@@ -306,7 +307,7 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: `${rankChipPadV}px ${rankChipPadH}px`,
                             background: 'transparent', border: `${rankChipBorder}px solid ${tier.color}`,
                             clipPath: 'polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)',
-                            fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: rankFontSize, lineHeight: 1, color: '#FFFFFF',
+                            fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: rankFontSize, lineHeight: 1, color: '#FFFFFF',
                         };
                         const styleNameCenter: CSSProperties = { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', padding: `0 ${NAME_PAD_SIDE}px`, opacity: revealOpacity, transition: `opacity ${textFadeDur} ease ${textFadeDelay}` };
                         const styleNameText: CSSProperties = {
@@ -328,7 +329,7 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                                             </div>
                                             <div style={styleCenterArea}>
                                                 <div style={styleRankCenter}><span style={styleRankChip}>{toOrdinal(p.paperRank)}</span></div>
-                                                <div style={styleNameCenter}><span style={styleNameText}>{p.name}</span></div>
+                                                <div style={styleNameCenter}><span style={styleNameText}>{spacedName(p.name)}</span></div>
                                             </div>
                                             <div style={styleLightning}>
                                                 <LightningBoltsHorizontal />
@@ -480,7 +481,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                         <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>2nd Round</div>
-                        <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>{groupNumber}組目</div>
+                        <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>Set {groupNumber}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 50, color: '#F3FAFF', letterSpacing: 1 }}>連答つき 5○2×</div>
@@ -542,7 +543,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                         const styleBadgeChip: CSSProperties = {
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', background: 'transparent',
                             border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)',
-                            fontFamily: 'Orbitron, sans-serif', fontWeight: 900, fontSize: 24, color: '#FFFFFF', letterSpacing: 1,
+                            fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 900, fontSize: 24, color: '#FFFFFF', letterSpacing: 1,
                         };
                         const textRevealStyle: CSSProperties = { opacity: revealOpacity, transition: REVEAL_TRANSITION };
                         // 名前は背景(暗い八角形)の左端、学校名・学年は右端にできるだけ
@@ -580,9 +581,10 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                             nameFontSize = Math.max(40, Math.floor(nameFontSize * shrink));
                             metaFontSize = Math.max(20, Math.floor(metaFontSize * shrink));
                         }
-                        const styleNameWrap: CSSProperties = { position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', ...textRevealStyle };
+                        // 名前は姓を上・名を下に分け、帯の上端からそろえる（2026-11-04 ユーザー指示。VerticalSplitName）
+                        const styleNameWrap: CSSProperties = { position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', ...textRevealStyle };
                         const styleName: CSSProperties = {
-                            writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1,
+                            fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900,
                             letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF',
                             // 失格者の名前は明るい灰色＋黒い縁（2026-10-29 案B。PlayerCardFrame と共通の値）
                             textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5),
@@ -615,7 +617,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                                                 <div style={stylePointBarWrap} />
                                                 <div style={styleTopStrip} />
                                                 <div style={styleBadge}><span style={styleBadgeChip}>{toOrdinal(p.paperRank)}</span></div>
-                                                <div style={styleNameWrap}><span style={styleName}>{p.name}</span></div>
+                                                <div style={styleNameWrap}><VerticalSplitName name={p.name} baseSize={nameFontSize} zoneH={NAME_SPLIT_H} style={styleName} /></div>
                                                 <div style={styleMeta}>
                                                     <span style={styleMetaText}>{p.school || '未登録'}</span>
                                                     <span style={styleMetaText}>{p.grade || '-'}</span>
@@ -628,7 +630,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                                     </div>
                                 </div>
                                 <div style={styleBelowWrap}>
-                                    <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, sans-serif', fontSize: belowFontSize(belowText), fontWeight: 800, letterSpacing: 1, color: belowColor }}>{belowText}</div>
+                                    <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: belowFontSize(belowText), fontWeight: 800, letterSpacing: 1, color: belowColor }}>{belowText}</div>
                                     <div style={{ display: 'flex', gap: 14, marginTop: 4, height: BELOW_MARK_H, alignItems: 'center' }}>
                                         {wrongMarks.map((_, i) => (
                                             <span key={`x-${i}`} style={{ width: BELOW_MARK_W, height: BELOW_MARK_H, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: BELOW_MARK_FONT, lineHeight: 1, fontWeight: 700, color: '#FF4D6D' }}>×</span>

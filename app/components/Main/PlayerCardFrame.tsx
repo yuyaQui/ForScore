@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import { splitName, splitNameFontSize } from "@/lib/playerName";
 import { toOrdinal } from "@/lib/ordinal";
 import {
     ACCENT,
@@ -197,14 +199,14 @@ export function PlayerCardFrame({ phase, paperRank, eliminated, winner, name, sc
                             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${pct}%`, background: barColor, opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }} />
                             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: phase.stripH, backgroundImage: `linear-gradient(90deg, transparent, ${tier.color}, transparent)`, opacity: 0.95, transition: phase.STRIP_POS_TRANSITION }} />
                             <div style={{ position: 'absolute', top: phase.badgeTop, left: 0, right: 0, display: 'flex', justifyContent: 'center', transition: phase.STRIP_POS_TRANSITION }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', background: 'transparent', border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,sans-serif', fontWeight: 900, fontSize: 24, color: '#FFFFFF', letterSpacing: 1 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', background: 'transparent', border: `3px solid ${tier.color}`, clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 24, color: '#FFFFFF', letterSpacing: 1 }}>
                                     {toOrdinal(paperRank)}
                                 </span>
                             </div>
-                            <div style={{ position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
-                                <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: nameFontSize, lineHeight: 1, letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5) }}>
-                                    {name}
-                                </span>
+                            {/* 名前は姓を上・名を下に分け、帯の上端からそろえる（2026-11-04 ユーザー指示） */}
+                            <div style={{ position: 'absolute', top: 105, left: 0, right: 0, bottom: 36, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', paddingLeft: 9, boxSizing: 'border-box', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
+                                <VerticalSplitName name={name} baseSize={nameFontSize} zoneH={NAME_SPLIT_H}
+                                    style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5) }} />
                             </div>
                             <div style={{ position: 'absolute', top: '16%', right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
                                 <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, textShadow: outlineShadow(textOutlineColor, 1.1) }}>
@@ -225,6 +227,25 @@ export function PlayerCardFrame({ phase, paperRank, eliminated, winner, name, sc
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
                 {belowContent}
             </div>
+        </div>
+    );
+}
+
+/** 縦書きの選手名で、姓の先頭から名の末尾までの高さ（全員そろえる。キャンバスの値） */
+export const NAME_SPLIT_H = 420;
+
+/**
+ * 縦書きの選手名（2026-11-04 ユーザー指示）。姓を帯の上端、名を下端に置き、全員の名前の先頭と末尾の高さをそろえる。
+ * 姓・名に分けられない名前は上端から1本で出す。文字の大きさは帯の高さに収まるよう splitNameFontSize で決める
+ */
+export function VerticalSplitName({ name, baseSize, zoneH, style }: { name: string; baseSize: number; zoneH: number; style: CSSProperties }) {
+    const { surname, given } = splitName(name);
+    const fontSize = splitNameFontSize(name, baseSize, zoneH);
+    const span: CSSProperties = { ...style, fontSize, display: 'block', writingMode: 'vertical-rl', textOrientation: 'upright', lineHeight: 1 };
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', height: given ? zoneH : 'auto', width: fontSize, flexShrink: 0 }}>
+            <span style={span}>{surname}</span>
+            {given && <span style={span}>{given}</span>}
         </div>
     );
 }
