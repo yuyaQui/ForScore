@@ -123,6 +123,8 @@ async function next(admin, re) {
     check('◀ 戻る は押せない(最初)', await admin.getByRole('button', { name: '◀ 戻る' }).isDisabled());
     check('Main に表示中は 1〜4位、次の画面は 5〜10位', /Main に表示中（1〜4位）/.test(await mainTxt()) && /次の画面（5〜10位）/.test(await mainTxt()), (await mainTxt()).slice(0, 200));
     check('1位〜4位の選手が並ぶ', /選手 1\b/.test(await mainTxt()) && /選手 4\b/.test(await mainTxt()));
+    // 会場に運営向けの「選手データがありません」が出ない（以前は選手がいても常に出ていた。2026-11-06）
+    check('会場に「選手データがありません」が出ない', await waitText(main, 'body', /選手 1\b/) && !/選手データがありません/.test(await text(main)), (await text(main)).slice(0, 200));
     check('画面が 1440×900 に収まる', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
     await shot('p1');
 

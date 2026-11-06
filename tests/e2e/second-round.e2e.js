@@ -131,6 +131,7 @@ function socketClient() {
     await sleep(650);
     await click(admin, /ターンオーバーを始める/);
     check('本編(ターンオーバー)が会場に出る', await waitText(main, 'body', /選手|Turn|位/));
+    check('会場に「選手データがありません」が出ない', !/選手データがありません/.test(await text(main)), (await text(main)).slice(0, 200));
 
     console.log('S2 組を切り替えて会場を再読み込み → 切り替えた組の表示(取り直し)');
     await click(admin, /表示の切り替え/);
@@ -138,6 +139,7 @@ function socketClient() {
     await click(admin, /^クイズ画面$/);
     await sleep(600);
     check('会場に Set 3 のクイズ画面', await waitText(main, 'body', /Set 3/));
+    check('クイズ画面にも「選手データがありません」が出ない', !/選手データがありません/.test(await text(main)), (await text(main)).slice(0, 200));
     await main.reload(); await main.waitForTimeout(2500);
     check('会場を再読み込みしても Set 3(初期値の Set 1 に戻らない)', /Set 3/.test(await text(main)) && !/Set 1/.test(await text(main)), (await text(main)).slice(0, 120));
 

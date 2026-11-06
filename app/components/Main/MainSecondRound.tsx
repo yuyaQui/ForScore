@@ -369,11 +369,9 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                     );
                 })}
 
-                {groupPlayers.length === 0 && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7FA8D9', fontSize: 28 }}>
-                        選手データがありません。CSVから1st Round結果を登録してください。
-                    </div>
-                )}
+                {/* 選手がいないときの案内は会場に出さない（運営向けの案内は Admin に出す。2026-11-06 ユーザー承認）。
+                    以前は groupPlayers だけで空を判定していたため、帯（bands）を渡す上位100名発表では
+                    選手がいても常に「選手データがありません」が出ていた */}
             </div>
         </div>
     );
@@ -648,9 +646,7 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                         );
                     })}
 
-                    {groupPlayers.length === 0 && (
-                        <div style={{ color: '#7FA8D9', fontSize: 28 }}>選手データがありません。</div>
-                    )}
+                    {/* 選手がいないときの案内は会場に出さない（Admin に出す。2026-11-06） */}
                 </div>
         </RoundStage>
     );
