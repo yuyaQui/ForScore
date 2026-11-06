@@ -1,6 +1,17 @@
+// 3rd Round（Number 10）の Admin。
+// 2026-11-05: 運営コンソール（console/）に載せ替え。2nd Round と同じ枠で、1440×900 の1画面に収める。
+//   上のバー … Main に出ている画面・15分タイマー・Undo（直前の操作名）・次の操作（1本道）
+//   採点面   … コース選択（実施順・エントリー）／クイズ（問題欄・5名を横一列・縦書き・スルー）／サドンデス
+//   右の列   … 開始番号・操作の記録
+//   引き出し … 「表示の切り替え」（フェーズ・コース）と「データ修正」（抽選・確定・タイマー・コース結果）
+// 採点・抽選・確定・Undo・リセットの処理と呼ぶ API は、載せ替え前と同じ。
+// 同時に、2nd Round と同じ堅牢化を入れた（2026-11-04 の docs/robust-flow-design.md）:
+//   ・採点・Undo・リセットは同時に1つだけ（useSingleFlight）。応答待ちの押し直しで二重に効かない
+//   ・Main が待機画面・ブランクで覆っている間は採点しない
+//   ・画面を開いた時・つなぎ直した時に、進行状態・コース・選手を取り直す
+//   ・失敗は画面の上の通知（notify）で知らせる
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
-import type { CSSProperties } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
 import {
     COURSE_TIME_LIMIT_SECONDS,
@@ -8,7 +19,6 @@ import {
     WINNERS_PER_COURSE,
     type ThirdRoundCourseName
 } from "@/lib/thirdRoundCourses";
-import { formatTime } from "@/lib/formatTime";
 import {
     getCourseFinishState,
     getTenByTenTotal,
@@ -16,11 +26,22 @@ import {
     getSwedishCrossToAdd
 } from "@/lib/thirdRoundScoring";
 import { toOrdinal } from "@/lib/ordinal";
-import { ACCENT, tierOf, fitFontSizeToWidth } from "@/lib/cyberpunkCard";
-import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
+import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
+import { useQuestionDisplay } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { ConsoleFrame, WorkHead, MetaItem, Drawer, DrawerGroup } from "./console/ConsoleFrame";
+import { SeatCard, SeatRow, Pips, WrongMarks, BigNumber, seatNameSize, type SeatStatus } from "./console/SeatCard";
+import { QuestionStrip } from "./console/QuestionStrip";
+import { ConsoleSide } from "./console/ConsoleSide";
+import { TimerChip } from "./console/TimerChip";
+import { useActionLog } from "./console/useActionLog";
+import styles from "./console/console.module.css";
 import { useMainCover } from "../useMainCover";
-import { BLANK_END_COVER, blankStartCover, standbyCover, standbyAfterCover, coverBlocksRound, rewindCover } from "@/lib/mainCover";
+import { coverStartPrimary, CoverButtons } from "./MainCoverControls";
+import { useSocketSync } from "../useSocketSync";
+import { useSingleFlight } from "../useSingleFlight";
+import { notify, errorText } from "@/lib/adminNotice";
+import { BLANK_END_COVER, blankStartCover, standbyCover, standbyAfterCover, coverBlocksRound, describeCover, rewindCover } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -56,313 +77,53 @@ type AssignedPlayer = {
     forced: boolean;
 }
 
-// ==================== デザイン実装: 共通スタイル ====================
-// 手動操作パネルは AdminSecondRound.tsx と同じ見た目(Cowork Design の
-// AdminManual.dc.html をレビューで確定した版)を複製している。lib/ 配下は
-// Main/Admin共通コードのみを置く方針のため、同じ定数をここでも用意する。
-const MANUAL_PANEL_BASE: CSSProperties = {
-    boxSizing: 'border-box', padding: '16px 20px 20px', background: 'rgba(12,22,40,.75)',
-    border: '1px solid rgba(79,216,255,.22)',
-    clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
-    display: 'flex', flexDirection: 'column', gap: 12,
-};
-const MANUAL_LABEL_STYLE: CSSProperties = {
-    fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 12, letterSpacing: 3, color: '#5C7EA6',
-};
-function manualPanelStyle(active: boolean, flex: number): CSSProperties {
-    return { ...MANUAL_PANEL_BASE, flex, ...(active ? {} : { opacity: 0.35, pointerEvents: 'none' as const }) };
-}
-function manualBtnStyle(selected: boolean): CSSProperties {
-    return {
-        padding: '9px 16px',
-        background: selected ? 'rgba(51,198,255,.14)' : 'rgba(255,255,255,.03)',
-        border: `1.5px solid ${selected ? ACCENT : 'rgba(79,216,255,.18)'}`,
-        clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)',
-        cursor: 'pointer',
-        boxShadow: selected ? '0 0 14px rgba(51,198,255,.14)' : undefined,
-    };
-}
-function manualBtnTextStyle(selected: boolean): CSSProperties {
-    return {
-        fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 14, letterSpacing: 1,
-        color: selected ? '#DFF7FF' : '#5C7EA6', whiteSpace: 'nowrap',
-    };
-}
-function dangerBtnStyle(): CSSProperties {
-    return {
-        padding: '9px 18px', background: 'rgba(255,59,92,.10)', border: '1.5px solid #FF3B5C',
-        clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)', cursor: 'pointer',
-    };
-}
-function neutralBtnStyle(): CSSProperties {
-    return {
-        padding: '9px 18px', background: 'rgba(255,255,255,.04)', border: '1.5px solid #3A4B63',
-        clipPath: 'polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)', cursor: 'pointer',
-    };
-}
+/** 1コースの出場者数 */
+const COURSE_SEATS = 5;
 
-// コース選択画面の統計カード(DRAWN / CURRENT COURSE / 選択中)。
-// Cowork Design の AdminThirdRoundCourseSelect.dc.html と同じ面取り(12px)。
-const STAT_CARD_STYLE: CSSProperties = {
-    flex: 1, boxSizing: 'border-box', padding: '14px 18px', background: 'rgba(12,22,40,.75)',
-    border: '1px solid rgba(79,216,255,.22)',
-    clipPath: 'polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px)',
-};
-const STAT_LABEL_STYLE: CSSProperties = { fontFamily: 'Orbitron, sans-serif', fontSize: 11, letterSpacing: 3, color: '#5C7EA6' };
-
-// クイズ画面の統計カード(残り勝抜枠 / 残り時間)。Cowork Design の
-// AdminThirdRound10UpDown.dc.html 等と同じ面取り(14px)。
-const QUIZ_STAT_CARD_STYLE: CSSProperties = {
-    flex: 1, boxSizing: 'border-box', padding: '18px 22px', background: 'rgba(12,22,40,.75)',
-    border: '1px solid rgba(79,216,255,.22)',
-    clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
-};
-const QUIZ_STAT_LABEL_STYLE: CSSProperties = { fontFamily: 'Orbitron, sans-serif', fontSize: 12, letterSpacing: 3, color: '#5C7EA6' };
-
-function timerBtnStyle(kind: 'start' | 'stop'): CSSProperties {
-    const base: CSSProperties = {
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 0',
-        clipPath: 'polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px)', cursor: 'pointer',
-    };
-    return kind === 'start'
-        ? { ...base, background: 'rgba(51,198,255,.12)', border: '1.5px solid #33C6FF' }
-        : { ...base, background: 'rgba(255,59,92,.10)', border: '1.5px solid #FF3B5C' };
-}
-function timerBtnTextStyle(kind: 'start' | 'stop'): CSSProperties {
-    return {
-        fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 12, letterSpacing: 0.5,
-        color: kind === 'start' ? '#DFF7FF' : '#FFE3E8',
-    };
-}
-
-// 正誤判定ボタン。4コース共通(Cowork Design の AdminThirdRound*.dc.html と同じ面取り)。
-function opBtnStyle(kind: 'correct' | 'wrong', enabled: boolean): CSSProperties {
-    return {
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '9px 0',
-        background: kind === 'correct' ? 'rgba(51,198,255,.12)' : 'rgba(255,59,92,.10)',
-        border: `1.5px solid ${kind === 'correct' ? '#33C6FF' : '#FF3B5C'}`,
-        clipPath: 'polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px)',
-        cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.35,
-    };
-}
-function opBtnTextStyle(kind: 'correct' | 'wrong'): CSSProperties {
-    return {
-        fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1,
-        color: kind === 'correct' ? '#DFF7FF' : '#FFE3E8',
-    };
-}
-
-// 残り時間のリング表示。Cowork Design の AdminThirdRound*.dc.html と同じ計算式
-// (半径19pxの円周を残り時間の割合で塗り分ける)。
-// EDIT(手動編集)はこのカードには置かず、下の「手動操作」パネルにまとめている
-// (フォーム入力はこの小さいカードに収まらないため。モックアップはSTART/STOP/EDITの
-// 3ボタンだが、ここではSTART/STOPの2つだけを常設し、EDITは手動操作パネル側に
-// 移した。見た目の配置のみの変更で、データ操作(タイマーの編集ロジック自体)は変えていない)。
-function TimerDisplay({ remaining, isRunning, onStart, onStop }: {
-    remaining: number; isRunning: boolean; onStart: () => void; onStop: () => void;
-}) {
-    const TOTAL = COURSE_TIME_LIMIT_SECONDS;
-    const R = 19;
-    const C = 2 * Math.PI * R;
-    const frac = Math.max(0, Math.min(1, remaining / TOTAL));
-    const filled = frac * C;
-    const urgent = remaining > 0 && remaining <= 120;
-    const ringColor = remaining === 0 || urgent ? '#FF3B5C' : '#4FD8FF';
-    const glow = remaining === 0 || urgent ? 'rgba(255,59,92,.65)' : 'rgba(79,216,255,.55)';
-
+/** 3rd Round の選手1人の、カード中央の点数まわり。コースごとに見せる物が変わる（Main の QuizPlayerCard と同じ考え方） */
+function courseScore(p: Player, courseName: ThirdRoundCourseName): React.ReactNode {
+    const isSettled = p.thirdRoundRank !== 0;
+    if (courseName === THIRD_ROUND_COURSES.TEN_BY_TEN) {
+        // 10 by 10: 正解pt × 誤答pt = 総合pt（100以上で勝ち抜け）
+        const total = getTenByTenTotal(p);
+        return (
+            <>
+                <BigNumber value={total} size={32} suffix="/ 100" />
+                <Pips value={Math.min(10, Math.floor(total / 10))} max={10} />
+                <span className={styles.formula}><b>{p.thirdRoundCorrectCount}</b> × <b>{getTenByTenWrongPoint(p)}</b></span>
+            </>
+        );
+    }
+    if (courseName === THIRD_ROUND_COURSES.UP_DOWN) {
+        // 10 up-down: ポイント/10、2誤答で失格
+        return (
+            <>
+                <BigNumber value={p.thirdRoundUpDownPoint} size={32} suffix="/ 10" />
+                <Pips value={Math.min(10, p.thirdRoundUpDownPoint)} max={10} />
+                <WrongMarks count={p.thirdRoundWrongCount} max={2} />
+            </>
+        );
+    }
+    if (courseName === THIRD_ROUND_COURSES.FREEZE) {
+        // Freeze 10: 正解数/10、誤答の回数（通算の誤答回数ぶん休み）
+        return (
+            <>
+                <BigNumber value={p.thirdRoundCorrectCount} size={32} suffix="/ 10" />
+                <Pips value={Math.min(10, p.thirdRoundCorrectCount)} max={10} />
+                <span className={p.thirdRoundWrongCount > 0 ? styles.crossOn : styles.crossOff}>誤答 {p.thirdRoundWrongCount}</span>
+            </>
+        );
+    }
+    // Swedish 10: 正解数/10、×の数（次に誤答したときに加わる×の数も出す）
     return (
         <>
-            <div className={remaining === 0 || urgent ? 'animate-pulse' : ''} style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ position: 'relative', width: 46, height: 46, flexShrink: 0 }}>
-                    <svg width={46} height={46} viewBox="0 0 46 46" style={{ transform: 'rotate(-90deg)' }}>
-                        <circle cx={23} cy={23} r={R} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth={5} />
-                        <circle
-                            cx={23} cy={23} r={R} fill="none" stroke={ringColor} strokeWidth={5} strokeLinecap="round"
-                            strokeDasharray={`${filled.toFixed(1)} ${(C - filled).toFixed(1)}`}
-                            style={{ filter: `drop-shadow(0 0 4px ${glow})` }}
-                        />
-                    </svg>
-                </div>
-                <span style={{
-                    fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 28, letterSpacing: 1, color: '#FFFFFF',
-                    fontVariantNumeric: 'tabular-nums', textShadow: `0 0 10px ${glow}`,
-                }}>
-                    {formatTime(remaining)}
-                </span>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button onClick={onStart} disabled={isRunning || remaining === 0} style={{ ...timerBtnStyle('start'), opacity: isRunning || remaining === 0 ? 0.35 : 1, cursor: isRunning || remaining === 0 ? 'default' : 'pointer' }}>
-                    <span style={timerBtnTextStyle('start')}>START</span>
-                </button>
-                <button onClick={onStop} disabled={!isRunning} style={{ ...timerBtnStyle('stop'), opacity: !isRunning ? 0.35 : 1, cursor: !isRunning ? 'default' : 'pointer' }}>
-                    <span style={timerBtnTextStyle('stop')}>STOP</span>
-                </button>
-            </div>
+            <BigNumber value={p.thirdRoundCorrectCount} size={32} suffix="/ 10" />
+            <Pips value={Math.min(10, p.thirdRoundCorrectCount)} max={10} />
+            <span className={p.thirdRoundSwedishCross > 0 ? styles.crossOn : styles.crossOff}>
+                × {p.thirdRoundSwedishCross}
+                {!isSettled && <small> (+{getSwedishCrossToAdd(p.thirdRoundCorrectCount)})</small>}
+            </span>
         </>
-    );
-}
-
-// クイズ実施中の選手カード。Cowork Design の AdminThirdRound10UpDown.dc.html /
-// AdminThirdRoundFreeze10.dc.html / AdminThirdRoundSwedish10.dc.html /
-// AdminThirdRound10by10.dc.html の見た目をそのまま移植し、下段の内訳表示だけを
-// コース名で出し分ける(Main側のQuizPlayerCardと同じ考え方)。
-// 失格と敗退の区別はMain画面のリデザイン時の決定(一律LOST表示)に合わせている。
-/** 選手枠1枚の幅の上限。スルーボタンの幅もこれから求める */
-const ADMIN_QUIZ_CARD_MAX_WIDTH = 220;
-/**
- * 選手名の欄（縦書き1列）の高さ。名前の長さに関係なくこの高さで固定し、下の表示がずれないようにする。
- * 2026-10-11 のユーザー指示で、ポイントバーを 2nd Round と同じ横向きにした分だけ欄を高くし、
- * 名前は折り返さずに、この高さに収まる最大の文字サイズで1列に表示する（2nd Round と同じ考え方）。
- */
-const NAME_ZONE_H = 210;
-
-/** 名前を1列に収める文字サイズと字間。長い名前は字間も詰める */
-function getNameFont(name: string): { fontSize: number; letterSpacing: number } {
-    const n = Array.from(name).length;
-    const letterSpacing = n > 8 ? 1 : 3;
-    // 実際の縦書きの描画はわずかに計算より長くなることがあるので、安全マージン(14px)を引いて計算する
-    return { fontSize: fitFontSizeToWidth(name, NAME_ZONE_H - 14, letterSpacing, 8, 46), letterSpacing };
-}
-
-function AdminQuizCard({ player: p, courseName, onScore, busy }: {
-    player: Player; courseName: ThirdRoundCourseName;
-    onScore: (playerId: number, action: 'correct' | 'wrong') => void; busy: boolean;
-}) {
-    const tier = tierOf(p.paperRank, ACCENT);
-    const isWinner = p.thirdRoundRank > 0;
-    const isEliminated = p.thirdRoundRank < 0;
-    const isSettled = p.thirdRoundRank !== 0;
-    const isUpDown = courseName === THIRD_ROUND_COURSES.UP_DOWN;
-    const isTenByTen = courseName === THIRD_ROUND_COURSES.TEN_BY_TEN;
-    const isSwedish = courseName === THIRD_ROUND_COURSES.SWEDISH;
-    const isFreeze = courseName === THIRD_ROUND_COURSES.FREEZE;
-    const isResting = isFreeze && p.thirdRoundFreezeRest > 0;
-    const canOperate = !isSettled && !isResting;
-
-    const dotColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : isResting ? '#7FE8FF' : '#35FFA0';
-    const barColor = isEliminated ? '#4A5568' : isWinner ? '#FFC93C' : '#4FD8FF';
-
-    // メインの数字とバーの分母はコースで変わる(Main画面と同じ考え方)。
-    // 10 up-down: ポイント/10、Freeze・Swedish: 正解数/10、10 by 10: 総合pt/100。
-    let mainValue: number;
-    let quota: number;
-    if (isTenByTen) {
-        mainValue = getTenByTenTotal(p);
-        quota = 100;
-    } else if (isUpDown) {
-        mainValue = p.thirdRoundUpDownPoint;
-        quota = 10;
-    } else {
-        mainValue = p.thirdRoundCorrectCount;
-        quota = 10;
-    }
-    const pct = Math.min(100, (mainValue / quota) * 100);
-    const statusStr = isEliminated ? 'LOST' : isWinner ? toOrdinal(p.thirdRoundRank) : '';
-    const nameFont = getNameFont(p.name);
-
-    return (
-        <div style={{
-            flex: '1 1 0', minWidth: 0, maxWidth: ADMIN_QUIZ_CARD_MAX_WIDTH, boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', background: 'rgba(12,22,40,.75)', border: '1px solid rgba(79,216,255,.22)',
-            borderTop: `3px solid ${tier.color}`, padding: '14px 8px 16px', gap: 12, overflow: 'hidden',
-        }}>
-            <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, letterSpacing: 1, color: tier.color }}>
-                {toOrdinal(p.paperRank)}
-            </div>
-            <span style={{ display: 'block', width: 9, height: 9, borderRadius: '50%', background: dotColor, boxShadow: `0 0 8px ${dotColor}` }} />
-            {/* 名前の欄は高さを固定し、名前は折り返さず1列に収める（getNameFont。2026-10-11 ユーザー指示） */}
-            <div style={{ height: NAME_ZONE_H, width: '100%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                <span style={{
-                    writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700,
-                    fontSize: nameFont.fontSize, letterSpacing: nameFont.letterSpacing, lineHeight: 1, color: '#E9F3FF', whiteSpace: 'nowrap',
-                }}>
-                    {p.name}
-                </span>
-            </div>
-            {/* 勝ち抜け順位/LOST・ポイント数・ポイントバー・誤答数は、2nd Round の Admin と同じく
-                上下の間隔を詰めて1かたまりにする（2026-10-11 ユーザー指示。詰めすぎとのことで、変更前(間隔12px)と
-                最初に詰めた版(4px)の中間の8pxにしている） */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: '100%' }}>
-                <div style={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {statusStr ? (
-                        <span style={{
-                            fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1,
-                            color: isEliminated ? '#8A93A3' : '#FFC93C',
-                            textShadow: isEliminated ? 'none' : '0 0 6px rgba(255,201,60,.6)', whiteSpace: 'nowrap',
-                        }}>
-                            {statusStr}
-                        </span>
-                    ) : isResting ? (
-                        // Freeze 10 の休み中の残り問数。休み中の選手は勝ち抜け/LOST が無いので同じ行に出す
-                        <span style={{
-                            whiteSpace: 'nowrap', fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, lineHeight: 1, color: '#7FE8FF',
-                            textShadow: '0 0 6px rgba(127,216,255,.5)', padding: '2px 10px', boxSizing: 'border-box',
-                            border: '1.5px solid #7FE8FF', background: 'rgba(12,22,40,.85)',
-                            clipPath: 'polygon(3px 0,100% 0,100% calc(100% - 3px),calc(100% - 3px) 100%,0 100%,0 3px)',
-                        }}>
-                            {p.thirdRoundFreezeRest}
-                        </span>
-                    ) : null}
-                </div>
-                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 24, lineHeight: 1, color: '#EAF6FF' }}>{mainValue}</span>
-                {/* ポイントバーは 2nd Round と同じ横向き */}
-                <div style={{ width: '80%', height: 7, background: 'rgba(255,255,255,.06)', position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${pct}%`, background: barColor, boxShadow: `0 0 6px ${barColor}` }} />
-                </div>
-
-                {/* コースごとの追加表示（誤答数など） */}
-                {isUpDown && (
-                    <div style={{ display: 'flex', gap: 3 }}>
-                        {Array.from({ length: 2 }).map((_, i) => {
-                            const isX = i < p.thirdRoundWrongCount;
-                            return (
-                                <span key={i} style={{ display: 'inline-block', width: 16, textAlign: 'center', fontSize: 16, lineHeight: 1, color: isX ? '#FF4D6D' : '#3A4B63' }}>
-                                    {isX ? '×' : '・'}
-                                </span>
-                            );
-                        })}
-                    </div>
-                )}
-                {/* Freeze 10 の誤答数。「誤答」のラベルは 2026-10-11 のユーザー指示で外した */}
-                {isFreeze && (
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 18, lineHeight: 1, color: p.thirdRoundWrongCount > 0 ? '#FF4D6D' : '#3A5170' }}>
-                            {p.thirdRoundWrongCount}
-                        </span>
-                    </div>
-                )}
-                {/* Swedish 10 の×の数。「×」のラベルは 2026-10-11 のユーザー指示で外した */}
-                {isSwedish && (
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 18, lineHeight: 1, color: p.thirdRoundSwedishCross > 0 ? '#FF4D6D' : '#3A5170' }}>
-                            {p.thirdRoundSwedishCross}
-                        </span>
-                        {/* 次に誤答したら加算される×の数（2026-10-11 ユーザー指示）。決着した選手には出さない */}
-                        {!isSettled && (
-                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 13, lineHeight: 1, color: '#FF9E9E' }}>
-                                (+{getSwedishCrossToAdd(p.thirdRoundCorrectCount)})
-                            </span>
-                        )}
-                    </div>
-                )}
-                {isTenByTen && (
-                    <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, lineHeight: 1, letterSpacing: 0.5 }}>
-                        <span style={{ color: '#FF9E9E' }}>{p.thirdRoundCorrectCount}</span>
-                        <span style={{ color: '#7FA8D9' }}> × </span>
-                        <span style={{ color: '#8FD4FF' }}>{getTenByTenWrongPoint(p)}</span>
-                    </div>
-                )}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', marginTop: 'auto' }}>
-                <button onClick={() => onScore(p.id, 'correct')} disabled={busy || !canOperate} style={opBtnStyle('correct', canOperate)}>
-                    <span style={opBtnTextStyle('correct')}>正解</span>
-                </button>
-                <button onClick={() => onScore(p.id, 'wrong')} disabled={busy || !canOperate} style={opBtnStyle('wrong', canOperate)}>
-                    <span style={opBtnTextStyle('wrong')}>誤答</span>
-                </button>
-            </div>
-        </div>
     );
 }
 
@@ -383,14 +144,18 @@ export default function AdminThirdRound(props: Props) {
     });
     const [courses, setCourses] = useState<Course[]>([]);
     // Main を覆う表示（待機画面・ブランク。2026-11-04）
-    const [cover, setCover] = useMainCover(socket);
+    const [cover, setCover, coverControls] = useMainCover(socket);
     const [winners, setWinners] = useState<Player[]>([]);
     // プレートを掲げていた人。Admin のローカル状態で、確定時にサーバへ送る
     const [raisedIds, setRaisedIds] = useState<number[]>([]);
     // 直前に確定した結果の内訳（掲げた／強制出場）
     const [lastAssigned, setLastAssigned] = useState<AssignedPlayer[]>([]);
-    const [isBusy, setIsBusy] = useState(false); // API と通信中かどうか
-    const [errorMessage, setErrorMessage] = useState("");
+    // 抽選・確定・採点・Undo・リセットは同時に1つだけ走らせる（応答待ちの押し直しで二重に効かない。2026-11-05）
+    const flight = useSingleFlight();
+    // 開いている引き出し（表示の切り替え／データ修正）
+    const [drawer, setDrawer] = useState<'view' | 'data' | null>(null);
+    // 操作の記録（この画面の中だけ。Undo ボタンの説明にも使う）
+    const actionLog = useActionLog();
     // 15分タイマー。サーバが唯一の時計で、ここは受け取った値を表示するだけ。
     // 接続直後にサーバから現在値が届くので、初期値は表示が一瞬崩れないための仮置き。
     const [timer, setTimer] = useState<ThirdRoundTimer>({
@@ -402,18 +167,24 @@ export default function AdminThirdRound(props: Props) {
     const [editMinutes, setEditMinutes] = useState(0);
     const [editSeconds, setEditSeconds] = useState(0);
 
+    // 進行状態・タイマーは、この画面を開いた時・つなぎ直した時に必ず取り直す（2026-11-04。server/ThirdRoundHandler.js）
+    useSocketSync(socket, ['request_third_round_sync']);
+
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
         // この時点では他の画面に配信すべき新しい情報がないため setState してよい。
-        fetch('/api/thirdRound/courses')
-            .then(res => res.json())
-            .then(data => { if (data.success) setCourses(data.courses); })
-            .catch(err => console.error("Failed to load third round courses", err));
+        const loadAll = () => {
+            fetch('/api/thirdRound/courses')
+                .then(res => res.json())
+                .then(data => { if (data.success) setCourses(data.courses); })
+                .catch(err => console.error("Failed to load third round courses", err));
 
-        fetch('/api/thirdRound/courseSelect')
-            .then(res => res.json())
-            .then(data => { if (data.success) setWinners(data.winners); })
-            .catch(err => console.error("Failed to load third round winners", err));
+            fetch('/api/thirdRound/courseSelect')
+                .then(res => res.json())
+                .then(data => { if (data.success) setWinners(data.winners); })
+                .catch(err => console.error("Failed to load third round winners", err));
+        };
+        loadAll();
 
         if (socket) {
             const handleStateUpdate = (state: ThirdRoundState) => setThirdRoundState(state);
@@ -448,16 +219,15 @@ export default function AdminThirdRound(props: Props) {
             socket.on("update_third_round_courses", handleCoursesUpdate);
             socket.on("update_players", handlePlayersUpdate);
             socket.on("update_third_round_timer", handleTimerUpdate);
-
-            // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で
-            // 現在の進行状態とタイマーを取り直す（server/ThirdRoundHandler.js）
-            socket.emit("request_third_round_sync");
+            // つなぎ直したときはコース・選手を読み直す（切れている間の更新の配信は受け取れていないため。2026-11-05）
+            socket.io.on("reconnect", loadAll);
 
             return () => {
                 socket.off("update_third_round_state", handleStateUpdate);
                 socket.off("update_third_round_courses", handleCoursesUpdate);
                 socket.off("update_players", handlePlayersUpdate);
                 socket.off("update_third_round_timer", handleTimerUpdate);
+                socket.io.off("reconnect", loadAll);
             };
         }
     }, [socket]);
@@ -495,19 +265,21 @@ export default function AdminThirdRound(props: Props) {
         setIsEditingTimer(false);
     };
 
-    // スコア更新。
+    // スコア更新。成功したら true。
     // fetch の結果を直接 setState せず、Socket で配って update_players 経由で
     // 自分の画面も更新する。自分だけ別経路で更新すると Main と表示がずれる。
     // playerId はスルーのとき null。スルーは「問題が1問終わった」というイベントで
     // 選手に紐づかないため、対象コースは常に courseName で伝える。
-    const handleScore = async (
+    const handleScore = (
         playerId: number | null,
         action: 'correct' | 'wrong' | 'through' | 'finish'
-    ) => {
-        if (!quizCourse) return;
-
-        setIsBusy(true);
-        setErrorMessage("");
+    ) => flight.run(async (): Promise<boolean> => {
+        if (!quizCourse) return false;
+        // Main が待機画面・ブランクで「これから始まる場面」を覆っている間は採点しない（会場に出ていない問題が進むのを防ぐ）
+        if (action !== 'finish' && coverBlocksRound(cover)) {
+            notify('Main が待機中のため採点できません。上のバーの「○○を始める ▶」で画面を出してから採点してください。', 'error');
+            return false;
+        }
         try {
             const res = await fetch('/api/thirdRound/updateScores', {
                 method: 'POST',
@@ -531,22 +303,37 @@ export default function AdminThirdRound(props: Props) {
                 const historyAdded = data.historyAdded !== false;
                 if (action !== 'finish') finishQuestion(quizCourse.name, historyAdded);
                 else if (historyAdded) recordEvent(quizCourse.name);
-            } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+
+                // 操作の記録（勝ち抜け・失格が決まったら添える）
+                if (action === 'finish') {
+                    actionLog.add({ who: '', what: 'コース終了', tone: 'other', scope: quizCourse.name });
+                } else if (action === 'through') {
+                    actionLog.add({ who: '', what: 'スルー', tone: 'through', scope: quizCourse.name });
+                } else {
+                    const after: Player | undefined = (data.allPlayers as Player[]).find(p => p.id === playerId);
+                    const who = after?.name ?? '';
+                    const note = action === 'correct'
+                        ? (after && after.thirdRoundRank > 0 ? '正解（勝ち抜け）' : '正解')
+                        : (after && after.thirdRoundRank < 0 ? '誤答（失格）' : '誤答');
+                    actionLog.add({ who, what: note, tone: action === 'correct' ? 'ok' : 'ng', scope: quizCourse.name });
+                }
+                return true;
             }
+            notify(data.error || '更新に失敗しました', 'error');
+            return false;
         } catch (error) {
-            console.error('Score update failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            notify(errorText(error, '通信に失敗しました。採点は反映されていません。画面を確かめてからやり直してください。'), 'error');
+            return false;
         }
-    };
+    });
 
     // サドンデスの採点部分
-    const handlePlayoffScore = async (playerId: number, action: 'correct' | 'wrong') => {
+    const handlePlayoffScore = (playerId: number, action: 'correct' | 'wrong') => flight.run(async () => {
         if (!quizCourse) return;
-        setIsBusy(true);
-        setErrorMessage("");
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のため採点できません。上のバーの「○○を始める ▶」で画面を出してから採点してください。', 'error');
+            return;
+        }
         try {
             const res = await fetch('/api/thirdRound/updateScores', {
                 method: 'POST',
@@ -563,102 +350,113 @@ export default function AdminThirdRound(props: Props) {
                 socket.emit('broadcast_scores', data.allPlayers)
                 // サドンデスも早押しの1問。Main に表示して次の問題へ
                 finishQuestion(quizCourse.name, data.historyAdded !== false);
+                const after: Player | undefined = (data.allPlayers as Player[]).find(p => p.id === playerId);
+                actionLog.add({
+                    who: after?.name ?? '',
+                    what: action === 'correct' ? 'サドンデス 正解' : 'サドンデス 誤答',
+                    tone: action === 'correct' ? 'ok' : 'ng',
+                    scope: quizCourse.name,
+                });
             } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                notify(data.error || '更新に失敗しました', 'error');
             }
         } catch (error) {
-            console.error('Playoff score update failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            notify(errorText(error, '通信に失敗しました。採点は反映されていません。画面を確かめてからやり直してください。'), 'error');
+        }
+    });
+
+    // スルー（誰も解答しなかった）。2026-10-22: 問題表示のため、スルーは全コースで出す。
+    // Freeze 10 では従来どおり API に記録し（休み中の選手の残り問数を減らす）、
+    // 他の3コースはスコアを変えずに問題だけ進める
+    const handleThrough = () => {
+        if (!quizCourse) return;
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のためスルーできません。上のバーの「○○を始める ▶」で画面を出してからにしてください。', 'error');
+            return;
+        }
+        if (quizCourse.name === THIRD_ROUND_COURSES.FREEZE) {
+            void handleScore(null, 'through');
+        } else {
+            finishQuestion(quizCourse.name, false);
+            actionLog.add({ who: '', what: 'スルー', tone: 'through', scope: quizCourse.name });
         }
     };
 
     // スコア更新を1手戻す。履歴はコース単位なので、いま実施中のコース名を送る。
     // タイマーと出場者の割当は戻らない（別系統）。
-    const handleScoreUndo = async () => {
+    // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
+    // 2026-11-04: 直前の操作が「前のコース」のものなら（次のコースへ進めた後に、前のコースの誤りに気づいたとき）、
+    // そのコースまで戻して取り消す。取り消した先の画面をいきなり会場に出さないよう、Main はブランクにして
+    // 「クイズを再開する ▶」で出す。コースの終了後（ブランク・待機画面）に戻したときも同じ
+    const handleScoreUndo = () => flight.run(async () => {
         if (!quizCourse) return;
         // Extra Round が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'thirdRound')) return;
         if (cover.at === 'manual') {
-            setErrorMessage('手動の待機画面が出ています。「待機画面を消す」を押してから Undo してください');
+            notify('手動の待機画面が出ています。「待機画面を消す ▶」を押してから Undo してください。', 'error');
             return;
         }
-
-        // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
-        // 2026-11-04: 直前の操作が「前のコース」のものなら（次のコースへ進めた後に、前のコースの誤りに気づいたとき）、
-        // そのコースまで戻して取り消す。取り消した先の画面をいきなり会場に出さないよう、Main はブランクにして
-        // 「クイズを再開する ▶」で出す。コースの終了後（ブランク・待機画面）に戻したときも同じ
-        const lastScope = questionState.lastEvents?.thirdRound?.scope;
-        const lastCourse = lastScope ? drawnCourses.find(c => c.name === lastScope) : undefined;
-        const crossing = !!lastCourse && lastCourse.playOrder !== thirdRoundState.quizOrder;
         const courseName = crossing && lastCourse ? lastCourse.name : quizCourse.name;
-        setIsBusy(true);
-        setErrorMessage("");
-        try {
-            const undone = await undoWithQuestion(courseName, async () => {
-                try {
-                    const res = await fetch('/api/thirdRound/undo', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ courseName })
-                    });
-                    const data = await res.json();
+        const undone = await undoWithQuestion(courseName, async () => {
+            try {
+                const res = await fetch('/api/thirdRound/undo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ courseName })
+                });
+                const data = await res.json();
 
-                    if (data.success && socket) {
-                        socket.emit('broadcast_scores', data.allPlayers);
-                        // 戻したのがコース終了だった可能性があるので、安全側に倒して解除する。
-                        // それ以外の操作を戻した場合でも、押し直せば同じ結果になる（終了処理は冪等）。
-                        changeState({ finishedOrder: null });
-                        return true;
-                    }
-                    setErrorMessage(data.error || 'Undo に失敗しました');
-                    return false;
-                } catch (error) {
-                    console.error('Undo failed', error);
-                    setErrorMessage('通信に失敗しました');
-                    return false;
+                if (data.success && socket) {
+                    socket.emit('broadcast_scores', data.allPlayers);
+                    // 戻したのがコース終了だった可能性があるので、安全側に倒して解除する。
+                    // それ以外の操作を戻した場合でも、押し直せば同じ結果になる（終了処理は冪等）。
+                    changeState({ finishedOrder: null });
+                    return true;
                 }
-            });
-            if (undone && (crossing || cover.at === 'end')) {
-                if (crossing && lastCourse && lastCourse.playOrder !== null) changeState({ phase: 'quiz', quizOrder: lastCourse.playOrder });
-                setCover(rewindCover());
+                notify(data.error || 'Undo に失敗しました', 'error');
+                return false;
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。Undo は反映されていません。'), 'error');
+                return false;
             }
-        } finally {
-            setIsBusy(false);
+        });
+        if (!undone) return;
+        actionLog.markUndone(courseName);
+        if (crossing || cover.at === 'end') {
+            if (crossing && lastCourse && lastCourse.playOrder !== null) changeState({ phase: 'quiz', quizOrder: lastCourse.playOrder });
+            setCover(rewindCover());
         }
-    };
+    });
 
     // 表示中のコースのスコアを初期状態に戻す（2026-10-11 ユーザー承認済み）。
     // 所属コース・抽選結果・タイマーはそのまま。そのコースの Undo 履歴は消える。
-    const handleScoreReset = async () => {
+    const handleScoreReset = () => {
         if (!quizCourse) return;
         if (!window.confirm(`${quizCourse.name} の結果をリセットしますか？（元に戻せません）${cascadeNotice(progress, 'extraRound', true)}`)) return;
+        const course = quizCourse;
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/thirdRound/resetScores', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ courseName: course.name })
+                });
+                const data = await res.json();
 
-        setIsBusy(true);
-        setErrorMessage("");
-        try {
-            const res = await fetch('/api/thirdRound/resetScores', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ courseName: quizCourse.name })
-            });
-            const data = await res.json();
-
-            if (data.success && socket) {
-                // Extra Round 以降も DB で初期化済み。選手を配り、Extra Round 以降の進行状態も戻す
-                broadcastAfterReset(socket, 'extraRound', data);
-                // コース終了の確定も無効になるので解除する（Undo と同じ扱い）
-                changeState({ finishedOrder: null });
-            } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                if (data.success && socket) {
+                    // Extra Round 以降も DB で初期化済み。選手を配り、Extra Round 以降の進行状態も戻す
+                    broadcastAfterReset(socket, 'extraRound', data);
+                    // コース終了の確定も無効になるので解除する（Undo と同じ扱い）
+                    changeState({ finishedOrder: null });
+                    actionLog.add({ who: '', what: `${course.name} をリセット`, tone: 'other', scope: `reset-${course.name}` });
+                    setDrawer(null);
+                } else {
+                    notify(data.error || '更新に失敗しました', 'error');
+                }
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。リセットは反映されていません。'), 'error');
             }
-        } catch (error) {
-            console.error('Reset failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
     // ---- ここから、表示に使う値を状態から導出する ----
@@ -678,6 +476,11 @@ export default function AdminThirdRound(props: Props) {
 
     // クイズ実施フェーズで対象になっているコース（Main 側と同じ導出）
     const quizCourse = drawnCourses.find(c => c.playOrder === thirdRoundState.quizOrder);
+    // 直前の採点がどのコースのものか（サーバの記録。再読み込みや再起動の後も残る）。
+    // 今のコースと違えば「次のコースへ進めた後の Undo」で、前のコースまで戻して取り消す
+    const lastScope = questionState.lastEvents?.thirdRound?.scope;
+    const lastCourse = lastScope ? drawnCourses.find(c => c.name === lastScope) : undefined;
+    const crossing = !!lastCourse && lastCourse.playOrder !== thirdRoundState.quizOrder;
     // 「次のコースへ」ボタンの表記。2026-10-11 のユーザー指示で「○コース目（コース名）」にした
     const nextOrder = thirdRoundState.quizOrder + 1;
     const nextCourseName = drawnCourses.find(c => c.playOrder === nextOrder)?.name;
@@ -693,13 +496,12 @@ export default function AdminThirdRound(props: Props) {
     const assignedToCurrent = currentCourse
         ? winners.filter(p => p.thirdRoundCourseName === currentCourse.name)
         : [];
-    const isCurrentAssigned = assignedToCurrent.length >= 5;
+    const isCurrentAssigned = assignedToCurrent.length >= COURSE_SEATS;
 
     // 3rd Round の進行は「4コースすべての参加者を先に決めてから、各コースを実施する」
     // 流れ(ユーザー指示)。下の primaryLabel/primaryAction の導出で、全コース確定前は
     // クイズ実施フェーズへの1本道ボタンを出さないことでこれを強制する。
-    // (手動操作パネルの直接切り替えはトラブル対応用の退避ハッチなので、あえて
-    // ここでは縛らない。2nd Round の手動操作パネルと同じ考え方。)
+    // (引き出しの直接切り替えはトラブル対応用の退避ハッチなので、あえてここでは縛らない。)
 
     // まだどのコースにも割り当てられていない選手（エントリー対象）
     const unassignedWinners = winners.filter(p => !p.thirdRoundCourseName);
@@ -711,9 +513,6 @@ export default function AdminThirdRound(props: Props) {
         ? winners.filter(p => p.thirdRoundCourseName === quizCourse.name)
         : [];
 
-    // コースごとの表示の出し分けは AdminQuizCard に移した(courseName を渡して
-    // そちら側で判定する)ので、ここでは isUpDown 等の個別フラグは持たない。
-
     // 終了条件を満たしたか。データは変えず、提示するだけ（決定事項5）
     const finishState = getCourseFinishState(quizPlayers);
 
@@ -721,9 +520,9 @@ export default function AdminThirdRound(props: Props) {
     // 最後に読まれていた問題の判定を入力できなくなるため。
     const handleFinishCourse = async () => {
         if (!window.confirm('コースを終了して順位を確定しますか？')) return;
-        await handleScore(null, 'finish');
-        // 「終了処理を走らせた」という事実はデータから復元できないので状態に残す
-        changeState({ finishedOrder: thirdRoundState.quizOrder });
+        const ok = await handleScore(null, 'finish');
+        // 「終了処理を走らせた」という事実はデータから復元できないので状態に残す（API が成功したときだけ）
+        if (ok) changeState({ finishedOrder: thirdRoundState.quizOrder });
     };
 
     // プレーオフの対象者。コース終了処理で決着した人には順位が入っているので、
@@ -751,9 +550,7 @@ export default function AdminThirdRound(props: Props) {
 
     // ---- 操作 ----
 
-    const handleDraw = async () => {
-        setIsBusy(true);
-        setErrorMessage("");
+    const handleDraw = () => flight.run(async () => {
         try {
             const res = await fetch('/api/thirdRound/draw', { method: 'POST' });
             const data = await res.json();
@@ -765,43 +562,37 @@ export default function AdminThirdRound(props: Props) {
                 // 新しいコースのエントリータイムが始まるので、締切状態を解除する
                 changeState({ step: 'entry' });
             } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                notify(data.error || '更新に失敗しました', 'error');
             }
         } catch (error) {
-            console.error('Draw failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            notify(errorText(error, '通信に失敗しました。抽選は反映されていません。'), 'error');
         }
-    };
+    });
 
-    const handleReset = async () => {
+    const handleReset = () => {
         if (!window.confirm(`抽選をリセットしますか？（元に戻せません）\n全コースの出場者と 3rd Round の結果もリセットされ、コース選択から始め直します。${cascadeNotice(progress, 'extraRound', true)}`)) return;
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/thirdRound/draw', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    // 確認ダイアログでOKされたときだけ force を送る
+                    body: JSON.stringify({ force: true })
+                });
+                const data = await res.json();
 
-        setIsBusy(true);
-        setErrorMessage("");
-        try {
-            const res = await fetch('/api/thirdRound/draw', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                // 確認ダイアログでOKされたときだけ force を送る
-                body: JSON.stringify({ force: true })
-            });
-            const data = await res.json();
-
-            if (data.success && socket) {
-                // 3rd Round 全体と Extra Round 以降を DB で初期化済み。
-                // コース情報・選手情報を配り、3rd Round 以降の進行状態（コース選択・エントリー中・タイマー）も戻す
-                broadcastAfterReset(socket, 'thirdRound', data);
-            } else {
-                setErrorMessage(data.error || 'リセットに失敗しました');
+                if (data.success && socket) {
+                    // 3rd Round 全体と Extra Round 以降を DB で初期化済み。
+                    // コース情報・選手情報を配り、3rd Round 以降の進行状態（コース選択・エントリー中・タイマー）も戻す
+                    broadcastAfterReset(socket, 'thirdRound', data);
+                    setDrawer(null);
+                } else {
+                    notify(data.error || 'リセットに失敗しました', 'error');
+                }
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。リセットは反映されていません。'), 'error');
             }
-        } catch (error) {
-            console.error('Reset failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
     const toggleRaised = (playerId: number) => {
@@ -813,11 +604,8 @@ export default function AdminThirdRound(props: Props) {
         );
     };
 
-    const handleAssign = async () => {
+    const handleAssign = () => flight.run(async () => {
         if (!currentCourse) return;
-
-        setIsBusy(true);
-        setErrorMessage("");
         try {
             const res = await fetch('/api/thirdRound/assignCourse', {
                 method: 'POST',
@@ -832,46 +620,41 @@ export default function AdminThirdRound(props: Props) {
                 // 選手データは Socket 経由で全画面に配る（Main の強調表示に必要）
                 socket.emit('broadcast_scores', data.allPlayers);
             } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                notify(data.error || '更新に失敗しました', 'error');
             }
         } catch (error) {
-            console.error('Assign failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            notify(errorText(error, '通信に失敗しました。出場者の確定は反映されていません。'), 'error');
         }
-    };
+    });
 
-    const handleUnassign = async () => {
+    const handleUnassign = () => {
         if (!currentCourse) return;
         if (!window.confirm(`${currentCourse.name} の出場者確定を取り消しますか？\nこのコースの結果もリセットされます。${cascadeNotice(progress, 'extraRound', true)}`)) return;
+        const course = currentCourse;
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/thirdRound/assignCourse', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ courseName: course.name, force: true })
+                });
+                const data = await res.json();
 
-        setIsBusy(true);
-        setErrorMessage("");
-        try {
-            const res = await fetch('/api/thirdRound/assignCourse', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ courseName: currentCourse.name, force: true })
-            });
-            const data = await res.json();
-
-            if (data.success && socket) {
-                setLastAssigned([]);
-                setRaisedIds([]);
-                // そのコースの結果と Extra Round 以降も DB で初期化済み
-                broadcastAfterReset(socket, 'extraRound', data);
-                // 締切前に戻して、エントリーからやり直せるようにする
-                changeState({ step: 'entry' });
-            } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                if (data.success && socket) {
+                    setLastAssigned([]);
+                    setRaisedIds([]);
+                    // そのコースの結果と Extra Round 以降も DB で初期化済み
+                    broadcastAfterReset(socket, 'extraRound', data);
+                    // 締切前に戻して、エントリーからやり直せるようにする
+                    changeState({ step: 'entry' });
+                    setDrawer(null);
+                } else {
+                    notify(data.error || '更新に失敗しました', 'error');
+                }
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。取り消しは反映されていません。'), 'error');
             }
-        } catch (error) {
-            console.error('Unassign failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
     // ==================== 進行の「次の一手」を導出する ====================
@@ -879,7 +662,6 @@ export default function AdminThirdRound(props: Props) {
     // 1本道で進める(2nd Round の Admin と同じ導線パターン)。ここではあくまで表示用の
     // ラベルとボタンの出し分けを決めているだけで、呼び出す先はすべて既存のハンドラの
     // ままであり、新しいデータ操作は増やしていない。
-    let statusLabel: string;
     let primaryLabel: string;
     let primaryAction: (() => void) | null = null;
 
@@ -906,7 +688,6 @@ export default function AdminThirdRound(props: Props) {
     };
 
     if (thirdRoundState.phase === 'courseSelect') {
-        statusLabel = `3RD ROUND · コース選択 · ${drawnCourses.length} / 4`;
         if (!currentCourse) {
             primaryLabel = `${drawnCourses.length + 1}番目のコースを抽選 ▶`;
             primaryAction = handleDraw;
@@ -915,7 +696,7 @@ export default function AdminThirdRound(props: Props) {
                 primaryLabel = 'エントリー締切 ▶';
                 primaryAction = () => changeState({ step: 'closed' });
             } else {
-                primaryLabel = `出場者を確定（挙手 ${raisedIds.length}名＋強制 ${Math.max(0, 5 - raisedIds.length)}名） ▶`;
+                primaryLabel = `出場者を確定（挙手 ${raisedIds.length}名＋強制 ${Math.max(0, COURSE_SEATS - raisedIds.length)}名） ▶`;
                 primaryAction = handleAssign;
             }
         } else if (!isAllDrawn) {
@@ -925,11 +706,10 @@ export default function AdminThirdRound(props: Props) {
             // 2026-10-11 のユーザー指示で、2コース目以降と同じ「○コース目（コース名）へ ▶」にした
             const firstCourseName = drawnCourses.find(c => c.playOrder === 1)?.name;
             primaryLabel = `1コース目${firstCourseName ? `（${firstCourseName}）` : ''}へ ▶`;
-            // クイズの場面の始まりは Main をブランクにし、上の帯の「クイズを始める」で出す（2026-11-04 ユーザー指示）
+            // クイズの場面の始まりは Main をブランクにし、上のバーの「クイズを始める」で出す（2026-11-04 ユーザー指示）
             primaryAction = () => { changeState({ phase: 'quiz', quizOrder: 1 }); setCover(blankStartCover('クイズを始める')); };
         }
     } else if (thirdRoundState.phase === 'quiz') {
-        statusLabel = `3RD ROUND · ${thirdRoundState.quizOrder}コース目${quizCourse ? ` · ${quizCourse.name}` : ''}`;
         if (needsPlayoff) {
             primaryLabel = `サドンデスへ（${playoffPlayers.length}名同点） ▶`;
             primaryAction = startPlayoff;
@@ -939,466 +719,275 @@ export default function AdminThirdRound(props: Props) {
             primaryLabel = 'コース終了 ▶';
             primaryAction = handleFinishCourse;
         } else {
-            primaryLabel = '進行中...';
+            primaryLabel = `進行中（残り ${finishState.activeCount}名）`;
         }
     } else {
-        statusLabel = `3RD ROUND · サドンデス${quizCourse ? `（${quizCourse.name}）` : ''}`;
         if (playoffPlayers.length === 0) {
             ({ label: primaryLabel, action: primaryAction } = courseEndPrimary());
         } else {
-            primaryLabel = 'サドンデス中...';
+            primaryLabel = `サドンデス中（残り ${playoffPlayers.length}名）`;
         }
     }
 
-    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める
-    // （進めるのは画面上の帯の「待機画面を消す」「○○を始める」。2026-11-04）
-    if (coverBlocksRound(cover)) {
-        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、進行ボタンを覆いの操作にする
+    // （待機画面を消す → クイズを始める。裏で画面を進めてしまわないように。2026-11-04）
+    const coverStart = coverStartPrimary(cover, setCover);
+    if (coverStart) {
+        primaryLabel = coverStart.label;
+        primaryAction = coverStart.action;
+    } else if (coverBlocksRound(cover)) {
         primaryAction = null;
     }
+    // 処理中は次の操作を受け付けない
+    if (flight.pending) primaryAction = null;
 
-    const primaryButtonStyle: CSSProperties = primaryAction
-        ? {
-            padding: '18px 40px', background: 'rgba(51,198,255,.14)', border: '2px solid #33C6FF',
-            clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
-            boxShadow: '0 0 22px rgba(51,198,255,.35)', cursor: 'pointer',
-            fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 20, letterSpacing: 2, color: '#DFF7FF',
-        }
-        : {
-            padding: '18px 40px', background: 'rgba(255,255,255,.04)', border: '2px solid #3A4B63',
-            clipPath: 'polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px)',
-            fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 18, letterSpacing: 1,
-            color: primaryLabel === '3rd Round 終了' ? '#FFE28A' : '#5C7EA6',
-            cursor: 'default',
-        };
+    // ---- 上のバー（Main に出ている画面） ----
+    const inPlay = thirdRoundState.phase !== 'courseSelect' && !!quizCourse;
+    const onAir = thirdRoundState.phase === 'courseSelect' ? '3rd Round' : `3rd Round　${thirdRoundState.quizOrder}コース目`;
+    const onAirDetail = thirdRoundState.phase === 'courseSelect'
+        ? `コース選択（抽選 ${drawnCourses.length}/4）`
+        : thirdRoundState.phase === 'playoff'
+            ? `サドンデス${quizCourse ? `（${quizCourse.name}）` : ''}`
+            : quizCourse?.name ?? '';
+    const undoScope = crossing && lastCourse ? lastCourse.name : quizCourse?.name ?? '';
 
-    return (
-        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md w-full max-w-[1900px]">
-            <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 border-b pb-4 border-zinc-200 dark:border-zinc-700">
-                3rd Round 管理画面
-            </h2>
+    // ---- 採点面の右上の道具（引き出しを開く） ----
+    const tools = (
+        <>
+            <button type="button" className={drawer === 'view' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'view' ? null : 'view')}>表示の切り替え</button>
+            <button type="button" className={drawer === 'data' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'data' ? null : 'data')}>データ修正</button>
+        </>
+    );
 
-            {errorMessage && (
-                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-sm font-bold">
-                    {errorMessage}
-                </div>
-            )}
-
-            {/* 進行フロー: ユーザー指示により「4コースすべての参加者を決めてから、各コースを
-                実施する」という1本道で進む。2nd Round の Admin と同じく、いま押すべき操作を
-                1つだけ大きく出す。裏側で呼ぶのは既存のハンドラ(handleDraw/handleAssign/...)
-                そのままなので、データ操作としての承認は不要(UI配線の変更のみ)。 */}
-            <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
-                <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
-                    {statusLabel}
-                </div>
-                <button onClick={() => primaryAction?.()} disabled={!primaryAction || isBusy} style={primaryButtonStyle}>
-                    {primaryLabel}
+    // ---- 引き出し ----
+    const drawerView = drawer === 'view' && (
+        <Drawer title="表示の切り替え" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="フェーズ・コース">
+                <button type="button" className={thirdRoundState.phase === 'courseSelect' ? styles.btnOn : styles.btn}
+                    onClick={() => changeState({ phase: 'courseSelect' })}>コース選択</button>
+                {[1, 2, 3, 4].map(order => {
+                    const on = thirdRoundState.phase === 'quiz' && thirdRoundState.quizOrder === order;
+                    return (
+                        <button key={order} type="button" className={on ? styles.btnOn : styles.btn}
+                            onClick={() => changeState({ phase: 'quiz', quizOrder: order })}>
+                            {drawnCourses.find(c => c.playOrder === order)?.name ?? `${order}コース目`}
+                        </button>
+                    );
+                })}
+                <button type="button" className={thirdRoundState.phase === 'playoff' ? styles.btnOn : styles.btn} onClick={startPlayoff}>サドンデス</button>
+            </DrawerGroup>
+            <div className={styles.note}>通常は使いません。進行は上のバーの右端のボタンで行います。</div>
+        </Drawer>
+    );
+    const drawerData = drawer === 'data' && (
+        <Drawer title="データ修正" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="抽選・出場者" disabled={thirdRoundState.phase !== 'courseSelect'}
+                note={thirdRoundState.phase === 'courseSelect' ? '抽選のやり直し・出場者の確定の取り消しは、元に戻せません。' : 'コース選択のときに使えます。'}>
+                <button type="button" className={styles.btnDanger} onClick={handleReset} disabled={flight.pending || drawnCourses.length === 0}>抽選をリセット</button>
+                <button type="button" className={styles.btn} onClick={handleUnassign} disabled={flight.pending || !currentCourse || !isCurrentAssigned}>確定を取り消す</button>
+            </DrawerGroup>
+            <DrawerGroup label="タイマー" disabled={!inPlay}
+                note={inPlay ? '編集すると時計は止まります。疑義で時間を戻すときや、開始を忘れたときに使います。' : 'クイズ・サドンデスのときに使えます。'}>
+                <button type="button" className={styles.btn} onClick={handleTimerReset}>RESET（15:00）</button>
+                {!isEditingTimer ? (
+                    <button type="button" className={styles.btn} onClick={handleTimerEditStart}>EDIT</button>
+                ) : (
+                    <>
+                        <input type="number" min={0} max={15} value={editMinutes} aria-label="分" className={styles.input} style={{ width: 64 }}
+                            onChange={e => setEditMinutes(Math.max(0, Number(e.target.value) || 0))} />
+                        <span className={styles.note}>分</span>
+                        <input type="number" min={0} max={59} value={editSeconds} aria-label="秒" className={styles.input} style={{ width: 64 }}
+                            onChange={e => setEditSeconds(Math.max(0, Number(e.target.value) || 0))} />
+                        <span className={styles.note}>秒</span>
+                        <button type="button" className={styles.btnOn} onClick={handleTimerEditSave}>SAVE</button>
+                        <button type="button" className={styles.btn} onClick={() => setIsEditingTimer(false)}>CANCEL</button>
+                    </>
+                )}
+            </DrawerGroup>
+            <DrawerGroup label={quizCourse ? `${quizCourse.name} の結果` : 'コースの結果'} disabled={!inPlay}
+                note={inPlay ? 'このコースの得点・判定と Undo の履歴を消して、コースの最初に戻します。所属コース・抽選・タイマーはそのままです。元に戻せません。' : 'クイズ・サドンデスのときに使えます。'}>
+                <button type="button" className={styles.btnDanger} onClick={handleScoreReset} disabled={flight.pending || !quizCourse}>
+                    リセット（{quizCourse ? quizCourse.name : 'コース未選択'}）
                 </button>
-            </div>
+            </DrawerGroup>
+            <div className={styles.note}>1手だけ戻すときは、上のバーの Undo を使ってください。</div>
+        </Drawer>
+    );
 
-            {/* 手動操作: 通常運用では触らない退避ハッチ。フェーズ/コースの直接切り替え、
-                抽選リセット・確定取り消し、タイマー操作・Undoをここにまとめる。
-                見た目は AdminSecondRound.tsx / Cowork Design(AdminManual.dc.html)と揃えている。 */}
-            <details className="group">
-                <summary
-                    className="flex cursor-pointer select-none items-center gap-[10px] bg-black px-5 py-4 [&::-webkit-details-marker]:hidden"
-                    style={{ listStyle: 'none' }}
-                >
-                    <span
-                        className="inline-block transition-transform duration-150 group-open:rotate-90"
-                        style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#7FA8D9' }}
-                    >
-                        ▸
-                    </span>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 3, color: '#7FA8D9' }}>
-                        手動操作
-                    </span>
-                </summary>
-                <div className="flex flex-col gap-[22px] bg-black px-5 pb-6 pt-4">
-                    <div style={{ height: 1, background: 'rgba(79,216,255,.22)', flexShrink: 0 }} />
-
-                    <div className="flex flex-wrap gap-[18px]">
-                        <div style={manualPanelStyle(true, 1.6)}>
-                            <div style={MANUAL_LABEL_STYLE}>フェーズ・コース</div>
-                            <div className="flex flex-wrap gap-[10px]">
-                                <button onClick={() => changeState({ phase: 'courseSelect' })} style={manualBtnStyle(thirdRoundState.phase === 'courseSelect')}>
-                                    <span style={manualBtnTextStyle(thirdRoundState.phase === 'courseSelect')}>コース選択</span>
-                                </button>
-                                {[1, 2, 3, 4].map((order) => (
-                                    <button key={order} onClick={() => changeState({ phase: 'quiz', quizOrder: order })} style={manualBtnStyle(thirdRoundState.phase === 'quiz' && thirdRoundState.quizOrder === order)}>
-                                        <span style={manualBtnTextStyle(thirdRoundState.phase === 'quiz' && thirdRoundState.quizOrder === order)}>{drawnCourses.find(c => c.playOrder === order)?.name ?? `${order}コース目`}</span>
-                                    </button>
-                                ))}
-                                <button onClick={startPlayoff} style={manualBtnStyle(thirdRoundState.phase === 'playoff')}>
-                                    <span style={manualBtnTextStyle(thirdRoundState.phase === 'playoff')}>サドンデス</span>
-                                </button>
+    // ---- 採点面 ----
+    let work: React.ReactNode;
+    if (thirdRoundState.phase === 'courseSelect') {
+        // コース選択: 実施順の4枠、確定した出場者、エントリーの確認リスト
+        const order = [1, 2, 3, 4];
+        work = (
+            <>
+                <WorkHead
+                    meta={<>
+                        <MetaItem label="抽選済み" value={`${drawnCourses.length}/4`} />
+                        <MetaItem label="抽選したコース" value={currentCourse ? currentCourse.name : '-'} />
+                        <MetaItem label="挙手" value={isClosed ? `${raisedIds.length}名` : '-'} />
+                        <MetaItem label="未割当" value={`${unassignedWinners.length}名`} />
+                    </>}
+                    tools={tools} />
+                <div className={styles.slots}>
+                    {order.map(o => {
+                        const course = drawnCourses.find(c => c.playOrder === o);
+                        const isCurrent = currentCourse?.playOrder === o;
+                        return (
+                            <div key={o} className={isCurrent ? styles.slotNow : styles.slot}>
+                                <span className={styles.slotNo}>{o}番目</span>
+                                <span className={course ? styles.slotName : styles.slotEmpty}>{course ? course.name : '？'}</span>
                             </div>
-                        </div>
-
-                        <div style={manualPanelStyle(thirdRoundState.phase === 'courseSelect', 1)}>
-                            <div style={MANUAL_LABEL_STYLE}>抽選・出場者</div>
-                            <div className="flex flex-wrap gap-[10px]">
-                                <button onClick={handleReset} disabled={isBusy || drawnCourses.length === 0} style={dangerBtnStyle()}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>抽選をリセット</span>
-                                </button>
-                                <button onClick={handleUnassign} disabled={isBusy || !currentCourse || !isCurrentAssigned} style={neutralBtnStyle()}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#9FB4D6' }}>確定を取り消す</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div style={manualPanelStyle(thirdRoundState.phase === 'quiz' || thirdRoundState.phase === 'playoff', 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>タイマー・データ操作</div>
-                            <div className="flex flex-wrap items-center gap-[10px]">
-                                <button onClick={handleTimerReset} style={neutralBtnStyle()}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#9FB4D6' }}>RESET（15:00）</span>
-                                </button>
-                                {!isEditingTimer ? (
-                                    <button onClick={handleTimerEditStart} style={neutralBtnStyle()}>
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#9FB4D6' }}>EDIT</span>
-                                    </button>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="number" min={0} max={15} value={editMinutes}
-                                            onChange={e => setEditMinutes(Math.max(0, Number(e.target.value) || 0))}
-                                            className="w-16 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono"
-                                        />
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 12, color: '#9FB4D6' }}>分</span>
-                                        <input
-                                            type="number" min={0} max={59} value={editSeconds}
-                                            onChange={e => setEditSeconds(Math.max(0, Number(e.target.value) || 0))}
-                                            className="w-16 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono"
-                                        />
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 12, color: '#9FB4D6' }}>秒</span>
-                                        <button onClick={handleTimerEditSave} style={manualBtnStyle(true)}>
-                                            <span style={manualBtnTextStyle(true)}>SAVE</span>
-                                        </button>
-                                        <button onClick={() => setIsEditingTimer(false)} style={manualBtnStyle(false)}>
-                                            <span style={manualBtnTextStyle(false)}>CANCEL</span>
-                                        </button>
-                                    </div>
-                                )}
-                                <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(79,216,255,.18)', margin: '0 4px' }} />
-                                <button onClick={handleScoreReset} disabled={isBusy || !quizCourse} style={dangerBtnStyle()}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>リセット（{quizCourse ? quizCourse.name : 'コース未選択'}）</span>
-                                </button>
-                                <button onClick={handleScoreUndo} disabled={isBusy || !quizCourse} style={dangerBtnStyle()}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: 1, color: '#FFE3E8' }}>Undo</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-[10px]">
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
-                            通常は閉じたまま。進行は上のボタンで完結します
-                        </span>
-                    </div>
+                        );
+                    })}
                 </div>
-            </details>
-
-            <hr className="border-zinc-200 dark:border-zinc-700" />
-
-            {/* ===== コース選択フェーズ ===== */}
-            {thirdRoundState.phase === 'courseSelect' && (
-                <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 20, color: '#F3FAFF' }}>
-                            コース抽選・エントリー
-                        </span>
-                        <span className="font-mono text-xs" style={{ color: '#5C7EA6' }}>
-                            実施順: {[1, 2, 3, 4].map(o => drawnCourses.find(c => c.playOrder === o)?.name ?? '？').join(' → ')}
-                        </span>
+                {!currentCourse ? (
+                    <div className={styles.empty}>上のバーのボタンで抽選してください</div>
+                ) : isCurrentAssigned ? (
+                    <>
+                        <div className={styles.sectionLabel}>{currentCourse.playOrder}番目 {currentCourse.name} の出場者</div>
+                        <SeatRow count={assignedToCurrent.length}>
+                            {assignedToCurrent.map((p, i) => {
+                                const detail = lastAssigned.find(a => a.id === p.id);
+                                const status: SeatStatus | null = detail ? (detail.forced ? { label: '強制', tone: 'dc' } : { label: '挙手', tone: 'win' }) : null;
+                                return (
+                                    <SeatCard key={p.id} seatNo={i + 1} paperRank={p.paperRank} name={p.name} nameSize={seatNameSize(assignedToCurrent.length, p.name)}
+                                        status={status}
+                                        score={<span className={styles.seatNo}>2R {p.secondRoundRank}位</span>} />
+                                );
+                            })}
+                        </SeatRow>
+                        {lastAssigned.length === 0 && <div className={styles.hint}>挙手／強制の内訳は確定した直後だけ表示します（再読み込みで消えます）。</div>}
+                    </>
+                ) : (
+                    <>
+                        <div className={styles.sectionHead}>
+                            <span className={styles.sectionLabel}>エントリー（優先順位順・締切後にチェックできます）</span>
+                            <span className={isClosed ? styles.stateClosed : styles.stateOpen}>{isClosed ? 'エントリー締切済み' : 'エントリータイム中'}</span>
+                        </div>
+                        <div className={isClosed ? styles.entryList : styles.entryListOff}>
+                            {unassignedWinners.map((p, index) => {
+                                const checked = raisedIds.includes(p.id);
+                                return (
+                                    <button key={p.id} type="button" className={checked ? styles.entryRowOn : styles.entryRow}
+                                        onClick={() => toggleRaised(p.id)} disabled={!isClosed} aria-pressed={checked}>
+                                        <span className={styles.check}>{checked ? '✓' : ''}</span>
+                                        <span className={styles.entryNo}>#{index + 1}</span>
+                                        <span className={styles.entryRank} style={{ color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</span>
+                                        <span className={styles.entryName}>{p.name}</span>
+                                        <span className={styles.entrySub}>2R {p.secondRoundRank}位</span>
+                                        <span className={checked ? styles.entryTagOn : styles.entryTag}>{checked ? '挙手' : '未挙手'}</span>
+                                    </button>
+                                );
+                            })}
+                            {unassignedWinners.length === 0 && <div className={styles.empty}>未割当の選手がいません</div>}
+                        </div>
+                    </>
+                )}
+            </>
+        );
+    } else if (thirdRoundState.phase === 'quiz') {
+        // クイズ: 5名の正誤判定
+        work = (
+            <>
+                <WorkHead
+                    meta={<>
+                        <MetaItem label="勝ち抜け" value={`${finishState.winnersCount}/${WINNERS_PER_COURSE}`} />
+                        <MetaItem label="敗退" value={finishState.eliminatedCount} />
+                        <MetaItem label="解答席" value={finishState.activeCount} />
+                        <MetaItem label="残り勝抜枠" value={`${finishState.activeCount}→${Math.max(0, WINNERS_PER_COURSE - finishState.winnersCount)}`} />
+                    </>}
+                    tools={tools} />
+                <QuestionStrip socket={socket} round="thirdRound" state={questionState} />
+                {finishState.finished && (
+                    <div className={styles.bannerFinish}>
+                        終了条件成立{finishState.reason === 'allWinnersDecided'
+                            ? `：${finishState.winnersCount}名が勝ち抜け`
+                            : `：${finishState.eliminatedCount}名が失格（残り${finishState.activeCount}名＝残り枠）`}
                     </div>
-
-                    <div className="flex gap-[14px] flex-wrap">
-                        <div style={STAT_CARD_STYLE}>
-                            <div style={STAT_LABEL_STYLE}>抽選済み</div>
-                            <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 24, color: '#F3FAFF' }}>
-                                {drawnCourses.length} <span style={{ fontSize: 14, color: '#5C7EA6' }}>/ 4</span>
-                            </div>
-                        </div>
-                        <div style={STAT_CARD_STYLE}>
-                            <div style={STAT_LABEL_STYLE}>抽選したコース</div>
-                            <div style={{ marginTop: 4, fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 20, color: '#4FD8FF' }}>
-                                {currentCourse ? currentCourse.name : '-'}
-                            </div>
-                        </div>
-                        <div style={STAT_CARD_STYLE}>
-                            <div style={STAT_LABEL_STYLE}>挙手</div>
-                            <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 24, color: '#EAF6FF' }}>
-                                {isClosed ? raisedIds.length : '-'} <span style={{ fontSize: 13, color: '#5C7EA6' }}>名 / 未割当 {unassignedWinners.length}名</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {errorMessage === '' ? null : null /* エラーは上部の共通バナーで表示済み */}
-
-                    {/* 確定済みの出場者(掲げた／強制出場の内訳) */}
-                    {currentCourse && isCurrentAssigned && (
-                        <div className="flex flex-col gap-[8px]">
-                            <div style={MANUAL_LABEL_STYLE}>{currentCourse.playOrder}番目 {currentCourse.name} の出場者</div>
-                            <div className="grid grid-cols-5 gap-[8px]">
-                                {assignedToCurrent.map((p) => {
-                                    const detail = lastAssigned.find(a => a.id === p.id);
-                                    const forced = detail?.forced;
-                                    return (
-                                        <div key={p.id} style={{
-                                            boxSizing: 'border-box', padding: '10px 12px',
-                                            background: forced ? 'rgba(255,201,60,.08)' : 'rgba(53,255,160,.08)',
-                                            border: `1px solid ${forced ? 'rgba(255,201,60,.35)' : 'rgba(53,255,160,.3)'}`,
-                                        }}>
-                                            <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: 14, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {p.name}
-                                            </div>
-                                            <div style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 10, color: '#5C7EA6', marginTop: 2 }}>
-                                                2R{p.secondRoundRank}位 / 1R{p.paperRank}位
-                                            </div>
-                                            {detail && (
-                                                <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 10, color: forced ? '#FFC93C' : '#35FFA0' }}>
-                                                    {forced ? '強制' : '挙手'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            {lastAssigned.length === 0 && (
-                                <p style={{ fontFamily: 'Rajdhani, sans-serif', fontSize: 11, color: '#5C7EA6' }}>
-                                    ※ 挙手／強制の内訳は確定直後のみ表示（リロードで消えます）
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {/* 実施順(4枠)の一覧 */}
-                    <div className="grid grid-cols-4 gap-[10px]">
-                        {[1, 2, 3, 4].map((order) => {
-                            const course = drawnCourses.find(c => c.playOrder === order);
-                            const isCurrent = currentCourse?.playOrder === order;
+                )}
+                {needsPlayoff && (
+                    <div className={styles.bannerPlayoff}>同点のためサドンデス（{playoffPlayers.length}名・残り{playoffSeats}枠）</div>
+                )}
+                {quizCourse && quizPlayers.length > 0 ? (
+                    <SeatRow count={quizPlayers.length}>
+                        {quizPlayers.map((p, i) => {
+                            const isEliminated = p.thirdRoundRank < 0;
+                            const isWinner = p.thirdRoundRank > 0;
+                            const isSettled = p.thirdRoundRank !== 0;
+                            const isResting = quizCourse.name === THIRD_ROUND_COURSES.FREEZE && p.thirdRoundFreezeRest > 0;
+                            const status: SeatStatus | null = isEliminated ? { label: 'LOST', tone: 'lost' }
+                                : isWinner ? { label: toOrdinal(p.thirdRoundRank), tone: 'win' }
+                                : isResting ? { label: `休み ${p.thirdRoundFreezeRest}`, tone: 'now' } : null;
                             return (
-                                <div key={order} style={{
-                                    boxSizing: 'border-box', padding: '10px 12px',
-                                    background: isCurrent ? 'rgba(51,198,255,.10)' : 'rgba(255,255,255,.02)',
-                                    border: `1px solid ${isCurrent ? '#33C6FF' : 'rgba(79,216,255,.14)'}`,
-                                    display: 'flex', flexDirection: 'column', gap: 4,
-                                }}>
-                                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 10, letterSpacing: 2, color: '#5C7EA6' }}>{order}番目</span>
-                                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: 15, color: course ? (isCurrent ? '#DFF7FF' : '#E9F3FF') : '#3A4B63' }}>
-                                        {course ? course.name : '？'}
-                                    </span>
-                                </div>
+                                <SeatCard key={p.id} seatNo={i + 1} paperRank={p.paperRank} name={p.name} nameSize={seatNameSize(quizPlayers.length, p.name)}
+                                    status={status} dimmed={isSettled}
+                                    score={courseScore(p, quizCourse.name as ThirdRoundCourseName)}
+                                    onCorrect={() => handleScore(p.id, 'correct')} onWrong={() => handleScore(p.id, 'wrong')}
+                                    canOperate={!isSettled && !isResting && !flight.pending} />
                             );
                         })}
-                    </div>
-
-                    {/* エントリー確認リスト(締切後に操作可) */}
-                    {currentCourse && !isCurrentAssigned && (
-                        <div className="flex flex-col gap-2" style={{ background: 'rgba(8,15,28,.65)', border: '1px solid rgba(79,216,255,.18)', boxSizing: 'border-box', padding: '14px 16px' }}>
-                            <div className="flex items-center justify-between">
-                                <span style={MANUAL_LABEL_STYLE}>エントリー（優先順位順・締切後に操作可）</span>
-                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 11, color: isClosed ? '#4FD8FF' : '#FFC93C' }}>
-                                    {isClosed ? 'エントリー締切済み' : 'エントリータイム中'}
-                                </span>
-                            </div>
-                            <div className="flex flex-col gap-1" style={{ maxHeight: 420, overflowY: 'auto', opacity: isClosed ? 1 : 0.4, pointerEvents: isClosed ? 'auto' : 'none' }}>
-                                {unassignedWinners.map((p, index) => {
-                                    const checked = raisedIds.includes(p.id);
-                                    return (
-                                        <div
-                                            key={p.id}
-                                            onClick={() => toggleRaised(p.id)}
-                                            className="flex items-center gap-3 cursor-pointer"
-                                            style={{ padding: '8px 10px', background: checked ? 'rgba(51,198,255,.07)' : 'transparent', border: `1px solid ${checked ? 'rgba(51,198,255,.2)' : 'rgba(255,255,255,.06)'}` }}
-                                        >
-                                            <span style={{ width: 16, height: 16, flexShrink: 0, border: `1.5px solid ${checked ? '#33C6FF' : '#3A4B63'}`, background: checked ? '#33C6FF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#04121F' }}>
-                                                {checked ? '✓' : ''}
-                                            </span>
-                                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 12, color: '#5C7EA6', width: 30, flexShrink: 0 }}>
-                                                #{index + 1}
-                                            </span>
-                                            {/* 1st Round の順位（Extra Round の進出者選択と同じ形式。2026-10-11 ユーザー指示） */}
-                                            <span style={{ width: 56, flexShrink: 0, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, color: tierOf(p.paperRank, ACCENT).color }}>
-                                                {toOrdinal(p.paperRank)}
-                                            </span>
-                                            <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: 15, color: '#F3FAFF', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {p.name}
-                                            </span>
-                                            <span style={{ fontFamily: 'Rajdhani, sans-serif', fontSize: 12, color: '#7FA8D9', flexShrink: 0 }}>
-                                                2R {p.secondRoundRank}位 / 1R {p.paperRank}位
-                                            </span>
-                                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 11, padding: '3px 10px', flexShrink: 0, background: checked ? 'rgba(51,198,255,.18)' : 'rgba(255,255,255,.05)', color: checked ? '#DFF7FF' : '#5C7EA6' }}>
-                                                {checked ? '挙手' : '未挙手'}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                                {unassignedWinners.length === 0 && (
-                                    <div className="py-6 text-center" style={{ color: '#5C7EA6', fontFamily: 'Rajdhani, sans-serif' }}>
-                                        未割当の選手がいません
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {!currentCourse && (
-                        <div className="py-10 text-center" style={{ color: '#5C7EA6', fontFamily: 'Rajdhani, sans-serif', border: '1px dashed rgba(79,216,255,.18)' }}>
-                            上のボタンで抽選してください
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ===== クイズ実施フェーズ ===== */}
-            {thirdRoundState.phase === 'quiz' && (
-                <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 20, color: '#F3FAFF' }}>
-                            {thirdRoundState.quizOrder}コース目{quizCourse && ` · ${quizCourse.name}`}
-                        </span>
-                        <span className="font-mono text-xs" style={{ color: '#5C7EA6' }}>
-                            勝ち抜け {finishState.winnersCount} / 敗退 {finishState.eliminatedCount} / 解答席 {finishState.activeCount}
-                        </span>
-                    </div>
-
-                    <div className="flex gap-[18px] flex-wrap">
-                        <div style={QUIZ_STAT_CARD_STYLE}>
-                            <div style={QUIZ_STAT_LABEL_STYLE}>残り勝抜枠</div>
-                            <div style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 30, color: '#FFC93C', marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                                <span style={{ color: '#4FD8FF' }}>{finishState.activeCount}</span>
-                                <span style={{ fontSize: 18, color: '#5C7EA6' }}>→</span>
-                                <span>{Math.max(0, WINNERS_PER_COURSE - finishState.winnersCount)}</span>
-                            </div>
-                        </div>
-                        <div style={QUIZ_STAT_CARD_STYLE}>
-                            <div style={QUIZ_STAT_LABEL_STYLE}>残り時間</div>
-                            <TimerDisplay
-                                remaining={remaining}
-                                isRunning={isTimerRunning}
-                                onStart={() => changeTimer('start')}
-                                onStop={() => changeTimer('stop')}
-                            />
-                        </div>
-                    </div>
-
-                    {finishState.finished && (
-                        <div style={{ padding: '14px 18px', border: '1.5px solid #FFC93C', background: 'rgba(255,201,60,.08)' }}>
-                            <p style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, color: '#FFC93C', margin: 0 }}>
-                                終了条件成立
-                                {finishState.reason === 'allWinnersDecided'
-                                    ? `：${finishState.winnersCount}名が勝ち抜け`
-                                    : `：${finishState.eliminatedCount}名が失格（残り${finishState.activeCount}名＝残り枠）`}
-                            </p>
-                        </div>
-                    )}
-
-                    {needsPlayoff && (
-                        <div style={{ padding: '14px 18px', border: '1.5px solid #B98BFF', background: 'rgba(185,139,255,.08)' }}>
-                            <p style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, color: '#D9BBFF', margin: 0 }}>
-                                同点のためサドンデス（{playoffPlayers.length}名・残り{playoffSeats}枠）
-                            </p>
-                        </div>
-                    )}
-
-                    <div className="flex flex-col gap-[10px]" style={{ background: 'rgba(8,15,28,.65)', border: '1px solid rgba(79,216,255,.18)', boxSizing: 'border-box', padding: 16 }}>
-                        <div className="flex gap-[10px]">
-                            {quizCourse && quizPlayers.map((p) => (
-                                <AdminQuizCard
-                                    key={p.id}
-                                    player={p}
-                                    courseName={quizCourse.name as ThirdRoundCourseName}
-                                    onScore={(id, action) => handleScore(id, action)}
-                                    busy={isBusy}
-                                />
-                            ))}
-                            {quizPlayers.length === 0 && (
-                                <div className="w-full py-10 text-center" style={{ color: '#5C7EA6' }}>
-                                    出場者が未確定です
-                                </div>
-                            )}
-                        </div>
-
-                        {/* スルーを API に記録するのは Freeze 10 だけ（決定事項2。休み中の選手の残り問数を減らす契機）。
-                            2026-10-11 のユーザー指示で、左右の端を選手枠の列（カード幅の上限
-                            ADMIN_QUIZ_CARD_MAX_WIDTH × 人数＋間隔）とそろえている。 */}
-                        {/* 2026-10-22: 問題表示のため、スルーは全コースで出す。Freeze 10 では従来どおり API に記録し
-                            （休み中の選手の残り問数を減らす）、他の3コースはスコアを変えずに問題だけ進める */}
-                        {quizPlayers.length > 0 && (
-                            <button
-                                onClick={() => { if (quizCourse?.name === THIRD_ROUND_COURSES.FREEZE) void handleScore(null, 'through'); else if (quizCourse) finishQuestion(quizCourse.name, false); }}
-                                disabled={isBusy}
-                                style={{
-                                    width: `min(100%, ${quizPlayers.length * ADMIN_QUIZ_CARD_MAX_WIDTH + (quizPlayers.length - 1) * 10}px)`,
-                                    boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF',
-                                    clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer',
-                                }}
-                            >
-                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
-                            </button>
-                        )}
-                        <AdminQuestionPanel socket={socket} round="thirdRound" state={questionState} />
-                    </div>
-                </div>
-            )}
-
-            {/* ===== プレーオフ ===== */}
-            {thirdRoundState.phase === 'playoff' && (
-                <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 20, color: '#F3FAFF' }}>
-                            サドンデス{quizCourse && `（${quizCourse.name}）`}
-                        </span>
-                        <span className="font-mono text-xs" style={{ color: '#B98BFF' }}>
-                            残り {playoffSeats} 枠
-                        </span>
-                    </div>
-
-                    <div className="flex gap-[10px]" style={{ background: 'rgba(8,15,28,.65)', border: '1px solid rgba(79,216,255,.18)', boxSizing: 'border-box', padding: 16 }}>
-                        {playoffShown.map((p) => {
+                    </SeatRow>
+                ) : (
+                    <div className={styles.empty}>出場者が未確定です</div>
+                )}
+                <button type="button" className={styles.through} onClick={handleThrough} disabled={flight.pending || quizPlayers.length === 0}>スルー（誰も答えなかった）</button>
+                <div className={styles.hint}>並びは Main と同じ（左から優先順位）。正解・誤答・スルーで、その問題を Main に出して次の問題へ進みます。</div>
+            </>
+        );
+    } else {
+        // サドンデス: 同点の選手だけの早押し
+        work = (
+            <>
+                <WorkHead
+                    meta={<><MetaItem label="残り枠" value={playoffSeats} /><MetaItem label="対象" value={`${playoffPlayers.length}名`} /></>}
+                    tools={tools} />
+                <QuestionStrip socket={socket} round="thirdRound" state={questionState} />
+                {playoffShown.length === 0 ? (
+                    <div className={styles.empty}>サドンデスの対象者がいません</div>
+                ) : (
+                    <SeatRow count={playoffShown.length}>
+                        {playoffShown.map((p, i) => {
                             const isWinner = p.thirdRoundRank > 0;
                             const isUndecided = p.thirdRoundRank === 0;
+                            const status: SeatStatus | null = isWinner ? { label: toOrdinal(p.thirdRoundRank), tone: 'win' }
+                                : isUndecided ? null : { label: 'LOST', tone: 'lost' };
                             return (
-                                <div key={p.id} style={{
-                                    flex: '1 1 0', minWidth: 0, maxWidth: 220, boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
-                                    alignItems: 'center', background: 'rgba(12,22,40,.75)', border: '1px solid rgba(185,139,255,.3)',
-                                    padding: '14px 8px 16px', gap: 12,
-                                }}>
-                                    <div style={{
-                                        writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700,
-                                        fontSize: 20, letterSpacing: 4, color: '#E9F3FF', minHeight: 110, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                                    }}>
-                                        {p.name}
-                                    </div>
-                                    {isUndecided ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', marginTop: 'auto' }}>
-                                            <button onClick={() => handlePlayoffScore(p.id, 'correct')} disabled={isBusy} style={opBtnStyle('correct', true)}>
-                                                <span style={opBtnTextStyle('correct')}>正解</span>
-                                            </button>
-                                            <button onClick={() => handlePlayoffScore(p.id, 'wrong')} disabled={isBusy} style={opBtnStyle('wrong', true)}>
-                                                <span style={opBtnTextStyle('wrong')}>誤答</span>
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, color: isWinner ? '#FFC93C' : '#8A93A3', marginTop: 'auto' }}>
-                                            {isWinner ? toOrdinal(p.thirdRoundRank) : 'LOST'}
-                                        </span>
-                                    )}
-                                </div>
+                                <SeatCard key={p.id} seatNo={i + 1} paperRank={p.paperRank} name={p.name} nameSize={seatNameSize(playoffShown.length, p.name)}
+                                    status={status} dimmed={!isUndecided}
+                                    onCorrect={() => handlePlayoffScore(p.id, 'correct')} onWrong={() => handlePlayoffScore(p.id, 'wrong')}
+                                    canOperate={isUndecided && !flight.pending} />
                             );
                         })}
-                        {playoffShown.length === 0 && (
-                            <div className="w-full py-10 text-center" style={{ color: '#5C7EA6' }}>
-                                サドンデスの対象者がいません
-                            </div>
-                        )}
-                    </div>
-                    <AdminQuestionPanel socket={socket} round="thirdRound" state={questionState} />
-                </div>
-            )}
-        </div>
+                    </SeatRow>
+                )}
+                <div className={styles.hint}>サドンデスは1問ごとに決着します。正解で勝ち抜け、誤答で失格です。</div>
+            </>
+        );
+    }
+
+    const showTimer = thirdRoundState.phase === 'quiz';
+    return (
+        <ConsoleFrame
+            onAir={onAir}
+            onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
+            barExtra={<>
+                {showTimer && (
+                    <TimerChip remaining={remaining} isRunning={isTimerRunning} urgentAt={120} onStart={() => changeTimer('start')} onStop={() => changeTimer('stop')} />
+                )}
+                <CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />
+            </>}
+            undo={{
+                detail: inPlay ? actionLog.lastLabel(undoScope) : null,
+                onClick: () => { void handleScoreUndo(); },
+                disabled: !inPlay || flight.pending,
+            }}
+            next={{ label: primaryLabel, onClick: primaryAction }}
+            side={<ConsoleSide socket={socket} round="thirdRound" state={questionState} log={actionLog.entries} />}
+        >
+            {work}
+            {drawerView}
+            {drawerData}
+        </ConsoleFrame>
     );
 }

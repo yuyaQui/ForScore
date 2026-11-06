@@ -27,6 +27,8 @@ import {
     outlineShadow,
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
+import { BlankScreen } from "./StandbyScreen";
+import { useReadyGate } from "../useReadyGate";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { spacedName } from "@/lib/playerName";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
@@ -71,26 +73,22 @@ export default function MainThirdRound(props: Props) {
         runningOrder: null
     });
 
+    // 進行状態・選手・コース・タイマーがそろうまでは黒い舞台だけを出す（既定の状態＝コース選択の画面が1コマ映るのを防ぐ。2026-11-06）
+    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses', 'timer']);
+
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
         //
         // 選手データも自分で取りに行く。親（app/main/page.tsx）は Socket の
         // update_players しか見ていないため、これがないと投影画面を開いた直後は
         // 誰かが操作するまで選手が表示されない。
-        fetch('/api/secondRound/loadPlayers')
-            .then(res => res.json())
-            .then(data => { if (data.success) setPlayers(data.allPlayers); })
-            .catch(err => console.error("Failed to load players", err));
-
-        fetch('/api/thirdRound/courses')
-            .then(res => res.json())
-            .then(data => { if (data.success) setCourses(data.courses); })
-            .catch(err => console.error("Failed to load third round courses", err));
+        const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));
+        const stopCourses = load('courses', '/api/thirdRound/courses', data => setCourses(data.courses));
 
         if (socket) {
-            const handleStateUpdate = (state: ThirdRoundState) => setThirdRoundState(state);
+            const handleStateUpdate = (state: ThirdRoundState) => { setThirdRoundState(state); mark('state'); };
             const handleCoursesUpdate = (courses: Course[]) => setCourses(courses);
-            const handleTimerUpdate = (next: ThirdRoundTimer) => setTimer(next);
+            const handleTimerUpdate = (next: ThirdRoundTimer) => { setTimer(next); mark('timer'); };
 
             socket.on("update_third_round_state", handleStateUpdate);
             socket.on("update_third_round_courses", handleCoursesUpdate);
@@ -101,14 +99,17 @@ export default function MainThirdRound(props: Props) {
             socket.emit("request_third_round_sync");
 
             return () => {
+                stopPlayers();
+                stopCourses();
                 socket.off("update_third_round_state", handleStateUpdate);
                 socket.off("update_third_round_courses", handleCoursesUpdate);
                 socket.off("update_third_round_timer", handleTimerUpdate);
             };
         }
+        return () => { stopPlayers(); stopCourses(); };
         // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
         // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。
-    }, [socket, setPlayers]);
+    }, [socket, setPlayers, mark, load]);
 
     // ---- 表示に使う値を導出する（Admin と同じ規則）----
 
@@ -148,6 +149,7 @@ export default function MainThirdRound(props: Props) {
         : [];
 
 
+    if (!ready) return <BlankScreen />;
 
     // ===== プレーオフ =====
     //

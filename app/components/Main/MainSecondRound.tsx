@@ -22,6 +22,8 @@ import {
     fitFontSizeToWidth,
 } from "@/lib/cyberpunkCard";
 import FixedStage from "@/app/components/FixedStage";
+import { BlankScreen } from "./StandbyScreen";
+import { useReadyGate } from "../useReadyGate";
 import { LightningBoltsVertical, LightningBoltsHorizontal } from "@/app/components/LightningBolts";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { WINNER_BAR_COLOR, ELIMINATED_FRAME_FILTER, ELIMINATED_NAME_COLOR, ELIMINATED_NAME_OUTLINE, VerticalSplitName, NAME_SPLIT_H } from "@/app/components/Main/PlayerCardFrame";
@@ -41,25 +43,22 @@ export default function MainSecondRound(props: Props) {
     const { players, socket, setPlayers } = props
     const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
     useSocketSync(socket, ['request_second_round_sync']);
+    // 進行状態と選手がそろうまでは黒い舞台だけを出す（既定の組・画面が1コマ映る／組が変わって作り直される、のを防ぐ。2026-11-06）
+    const { ready, mark, load } = useReadyGate(['state', 'players']);
 
     useEffect(() => {
-        fetch('/api/secondRound/loadPlayers')
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    setPlayers(data.allPlayers);
-                }
-            });
+        const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));
         // 受け取り口は、片付けのときに外す(外さないと、覆いが外れて画面が作り直されるたびに増える)。
         // 進行状態は、この画面が表示された時点・つなぎ直した時点でサーバから取り直す(下の useSocketSync)
         if (socket) {
-            const onState = (state: SecondRoundState) => setSecondRoundState(state);
+            const onState = (state: SecondRoundState) => { setSecondRoundState(state); mark('state'); };
             socket.on("update_second_round_state", onState);
-            return () => { socket.off("update_second_round_state", onState); };
+            return () => { stopPlayers(); socket.off("update_second_round_state", onState); };
         }
+        return stopPlayers;
         // setPlayers は親（app/main/page.tsx）の useState の setter で、React が
         // 参照の同一性を保証している。依存配列に加えても実行回数は変わらない。
-    }, [socket, setPlayers])
+    }, [socket, setPlayers, mark, load])
 
     // その組の選手を取り出す（Admin と同じ規則）。
     //
@@ -76,6 +75,7 @@ export default function MainSecondRound(props: Props) {
     // Quiz View の額縁展開）を毎回はじめから再生させている。turnOverStep /
     // turnOverPhase の変化だけでは再マウントしない（段階発表の演出は同じ
     // マウント内で state が変わることを前提にしている）。
+    if (!ready) return <BlankScreen />;
     return (
         <FixedStage>
             {secondRoundState.view === 'runnerUp' ? (

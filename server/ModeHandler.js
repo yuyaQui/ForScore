@@ -2,6 +2,7 @@ const { isResetTarget, fromOf } = require("./roundOrder");
 const { MODES } = require("../constants.js");
 const store = require("./stateStore");
 const MainCover = require("./MainCoverHandler");
+const MainReady = require("./MainReadyHandler");
 
 let currentMode = "waiting";
 // turnOverFinalRevealed: 4組目の最終ステップ(7〜12位)だけ、48位を他の5人より
@@ -69,8 +70,11 @@ module.exports = function ModeHandler(io, socket) {
         console.log('Mode changed to:', mode);
         // 覆いを先に配る。ラウンドの画面が覆いなしで一瞬だけ出るのを防ぐため
         if (mode !== currentMode) MainCover.onModeChange(io, mode, { resume });
+        const changed = mode !== currentMode;
         currentMode = mode;
         io.emit('mode_update', currentMode);
+        // Main の準備の確認をやり直す（「なしで進める」の許可はモードが変わったら消える。2026-11-06）
+        if (changed) MainReady.onModeChange(io, mode);
     })
 
     socket.on('change_2nd_round_state', (newState) => {
@@ -108,3 +112,6 @@ module.exports = function ModeHandler(io, socket) {
 }
 
 module.exports.applySecondRoundUpdate = applySecondRoundUpdate;
+
+/** いまのモード（server/MainReadyHandler.js が使う） */
+module.exports.getCurrentMode = () => currentMode;

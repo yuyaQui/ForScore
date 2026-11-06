@@ -9,8 +9,9 @@ import {
     normalizeExtraRoundState,
 } from "@/lib/extraRound";
 import { ACCENT, TIER_PURPLE } from "@/lib/cyberpunkCard";
-import { StandbyStage } from "./StandbyScreen";
+import { StandbyStage, BlankScreen } from "./StandbyScreen";
 import FixedStage from "@/app/components/FixedStage";
+import { useReadyGate } from "../useReadyGate";
 import { RoundStage } from "@/app/components/Main/RoundStage";
 import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
 import { RevealWhole } from "@/app/components/Main/RevealText";
@@ -48,37 +49,38 @@ export default function MainExtraRound(props: Props) {
     // 進行状態は、この画面が表示された時点・つなぎ直した時点でサーバから取り直す(覆いが外れて画面が作り直されたとき用。2026-11-04)
     useSocketSync(socket, ['request_extra_round_sync']);
 
+    // 状態・選手（First Step では問題も）がそろうまでは黒い舞台だけを出す（既定の状態の画面が1コマ映るのを防ぐ。2026-11-06）
+    const isFirstStep = state.stage === 'firstStep';
+    const { ready, mark, load } = useReadyGate(isFirstStep ? ['state', 'players', 'questions'] : ['state', 'players']);
+
     useEffect(() => {
-        fetch('/api/secondRound/loadPlayers')
-            .then(res => res.json())
-            .then(data => { if (data.success) setPlayers(data.allPlayers); })
-            .catch(err => console.error('Failed to load players', err));
+        const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));
 
         if (socket) {
-            const handleStateUpdate = (next: ExtraRoundState) => setState(normalizeExtraRoundState(next));
+            const handleStateUpdate = (next: ExtraRoundState) => { setState(normalizeExtraRoundState(next)); mark('state'); };
             const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
 
             socket.on('update_extra_round_state', handleStateUpdate);
             socket.on('update_players', handlePlayersUpdate);
 
             return () => {
+                stopPlayers();
                 socket.off('update_extra_round_state', handleStateUpdate);
                 socket.off('update_players', handlePlayersUpdate);
             };
         }
-    }, [socket]);
+        return stopPlayers;
+    }, [socket, mark, load]);
 
     // 問題は First Step に入るたびに取り直す。Main を開いたまま、Admin で問題CSVを
     // 取り込み直すことがあるため（準備中の間に取り込まれた問題を確実に拾う）。
     // public=1 で、Main で使う項目（問題文・解答・別解・正誤判定基準）だけを受け取る。
-    const isFirstStep = state.stage === 'firstStep';
     useEffect(() => {
         if (!isFirstStep) return;
-        fetch('/api/extraRound/questions?public=1')
-            .then(res => res.json())
-            .then(data => { if (data.success) setQuestions(data.questions); })
-            .catch(err => console.error('Failed to load extra round questions', err));
-    }, [isFirstStep]);
+        return load('questions', '/api/extraRound/questions?public=1', data => setQuestions(data.questions));
+    }, [isFirstStep, load]);
+
+    if (!ready) return <BlankScreen />;
 
     if (state.stage === 'firstStep') {
         const item = getFirstStepItem(state.cursor);

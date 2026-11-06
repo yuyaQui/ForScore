@@ -13,6 +13,7 @@ const FinalHandler = require("./FinalHandler");
 const QuestionHandler = require("./QuestionHandler");       // 問題表示（2026-10-22）
 const PaperTopHandler = require("./PaperTopHandler");       // ペーパー上位100名の発表（2026-10-31）
 const MainCoverHandler = require("./MainCoverHandler");     // Main を覆う待機画面・ブランク（2026-11-04）
+const MainReadyHandler = require("./MainReadyHandler");     // Main の表示の準備の報告（2026-11-06）
 
 /** 選手の一覧として配ってよい値か（中身の細部は見ない。配列で、各要素がオブジェクトで、多すぎないこと） */
 function isPlayerList(v) {
@@ -38,6 +39,7 @@ function registerHandlers(io, socket) {
     QuestionHandler(io, socket);
     PaperTopHandler(io, socket);
     MainCoverHandler(io, socket);
+    MainReadyHandler(io, socket);
 
     // 選手データの更新の中継。形が違う値は配らない（Main の画面が壊れるのを防ぐ）
     socket.on('broadcast_scores', (allPlayers) => {

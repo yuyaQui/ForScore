@@ -1,153 +1,18 @@
-import type { CSSProperties } from "react";
+// 準決勝 Admin の作業面の部品（運営コンソール。2026-11-05 に載せ替え）。
+// 選手のカードは 2nd / 3rd Round と同じ縦書きの SeatCard を使う。進行のボタンは上のバー（AdminSemifinal）に出す。
+// 写真・二つ名の登録（PrepPanel）は AdminSemifinalPrep.tsx。
 import type { Player } from "@/lib/types";
 import type { PoolQuestion } from "@/lib/questionPool";
-import type { SemifinalPlayoff, PlayoffProgress } from "@/lib/semifinalPlayoff";
-import { formatTime } from "@/lib/formatTime";
-import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
-import { toOrdinal } from "@/lib/ordinal";
-import { SET_TIME_LIMIT_SECONDS, type SemifinalSeatAssignment } from "@/lib/semifinal";
-import {
-    MANUAL_LABEL_STYLE, STAT_CARD_STYLE, STAT_LABEL_STYLE,
-    neutralBtnStyle, NEUTRAL_BTN_TEXT, opBtnStyle, opBtnTextStyle,
-} from "./adminCyberStyles";
-
-// 準決勝 Admin の部品。見た目は 3rd Round / Extra Round の Admin と同じ定数・形を使う。
-
-const JP = '"Noto Sans JP",sans-serif';
-const ORB = 'Orbitron, sans-serif';
-const GOLD = '#FFC93C';
-const RED = '#FF3B5C';
+import type { PlayoffProgress, SemifinalPlayoff } from "@/lib/semifinalPlayoff";
+import type { SemifinalSeatAssignment } from "@/lib/semifinal";
+import { displayNickname, photoUrl, type SemifinalProfile } from "@/lib/semifinalProfile";
+import { NoPhoto } from "@/app/components/Main/SemifinalCard";
+import { courseLabel } from "./AdminSemifinalPrep";
+import { SeatCard, SeatRow, BigNumber, seatNameSize, type SeatStatus } from "./console/SeatCard";
+import styles from "./console/console.module.css";
 
 // ---------------------------------------------------------------------------
-// タイマー（3rd Round Admin の TimerDisplay と同じ形。残り1分で警告色）
-// ---------------------------------------------------------------------------
-
-function timerBtnStyle(kind: 'start' | 'stop', enabled: boolean): CSSProperties {
-    return {
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 0',
-        clipPath: 'polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px)',
-        background: kind === 'start' ? 'rgba(51,198,255,.12)' : 'rgba(255,59,92,.10)',
-        border: `1.5px solid ${kind === 'start' ? '#33C6FF' : RED}`,
-        opacity: enabled ? 1 : 0.35, cursor: enabled ? 'pointer' : 'default',
-    };
-}
-
-export function SemifinalTimerCard({ remaining, isRunning, onStart, onStop }: {
-    remaining: number; isRunning: boolean; onStart: () => void; onStop: () => void;
-}) {
-    const R = 19;
-    const C = 2 * Math.PI * R;
-    const filled = Math.max(0, Math.min(1, remaining / SET_TIME_LIMIT_SECONDS)) * C;
-    const urgent = remaining <= 60;
-    const ringColor = urgent ? RED : '#4FD8FF';
-    const glow = urgent ? 'rgba(255,59,92,.65)' : 'rgba(79,216,255,.55)';
-    const canStart = !isRunning && remaining > 0;
-
-    return (
-        <div style={STAT_CARD_STYLE}>
-            <div style={STAT_LABEL_STYLE}>残り時間</div>
-            <div className={urgent ? 'animate-pulse' : ''} style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 14 }}>
-                <svg width={46} height={46} viewBox="0 0 46 46" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
-                    <circle cx={23} cy={23} r={R} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth={5} />
-                    <circle
-                        cx={23} cy={23} r={R} fill="none" stroke={ringColor} strokeWidth={5} strokeLinecap="round"
-                        strokeDasharray={`${filled.toFixed(1)} ${(C - filled).toFixed(1)}`}
-                        style={{ filter: `drop-shadow(0 0 4px ${glow})` }}
-                    />
-                </svg>
-                <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 28, letterSpacing: 1, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', textShadow: `0 0 10px ${glow}` }}>
-                    {formatTime(remaining)}
-                </span>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button onClick={onStart} disabled={!canStart} style={timerBtnStyle('start', canStart)}>
-                    <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: '#DFF7FF' }}>START</span>
-                </button>
-                <button onClick={onStop} disabled={!isRunning} style={timerBtnStyle('stop', isRunning)}>
-                    <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: '#FFE3E8' }}>STOP</span>
-                </button>
-            </div>
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 選手一覧（席順）。Admin は常にポイントが見える
-// ---------------------------------------------------------------------------
-
-export function SemifinalStandings({ entrants }: { entrants: Player[] }) {
-    return (
-        <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${Math.max(1, entrants.length)}, minmax(0, 1fr))` }}>
-            {entrants.map(p => {
-                const won = p.semifinalRank > 0;
-                const lost = p.semifinalRank === -1;
-                const color = lost ? '#4A5568' : won ? GOLD : '#4FD8FF';
-                return (
-                    <div key={p.id} style={{
-                        boxSizing: 'border-box', padding: '10px 8px', minWidth: 0, textAlign: 'center',
-                        background: 'rgba(12,22,40,.75)', borderTop: `3px solid ${color}`, opacity: lost ? 0.55 : 1,
-                    }}>
-                        <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</div>
-                        <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 14, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                        <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 24, color: '#EAF6FF', marginTop: 4 }}>{p.semifinalPoint}</div>
-                        <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, letterSpacing: 1, color, minHeight: 16 }}>
-                            {won ? 'WIN' : lost ? 'LOST' : ''}
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 振り返り範囲（通し番号）
-// ---------------------------------------------------------------------------
-
-const NUM_INPUT_CLASS = "w-24 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono";
-
-/** 振り返る問題の通し番号の入力。タイムアップ後に本文へ大きく出す（2026-10-17 の流れ） */
-export function ReviewRangeForm({ from, to, onFrom, onTo }: {
-    from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void;
-}) {
-    return (
-        <div style={{ ...STAT_CARD_STYLE, flex: 1.4, border: `1px solid ${GOLD}`, boxShadow: `0 0 14px ${GOLD}33` }}>
-            <div style={{ ...STAT_LABEL_STYLE, color: GOLD }}>TIME UP — 振り返る問題の通し番号を入力</div>
-            <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
-                <input type="text" inputMode="numeric" value={from} onChange={e => onFrom(e.target.value)} className={NUM_INPUT_CLASS} aria-label="開始の通し番号" />
-                <span style={{ fontFamily: JP, color: '#9FB4D6' }}>〜</span>
-                <input type="text" inputMode="numeric" value={to} onChange={e => onTo(e.target.value)} className={NUM_INPUT_CLASS} aria-label="終了の通し番号" />
-            </div>
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 振り返り中の問題（Main に出している3問。別解・正誤判定基準は Admin だけ）
-// ---------------------------------------------------------------------------
-
-export function ReviewPreview({ questions, page, pageCount }: { questions: PoolQuestion[]; page: number; pageCount: number }) {
-    return (
-        <div className="flex flex-col gap-[8px]">
-            <div style={MANUAL_LABEL_STYLE}>Main 表示中（{page + 1} / {pageCount}）</div>
-            {questions.map(q => (
-                <div key={q.serial} style={{ padding: '10px 14px', background: 'rgba(12,22,40,.75)', border: '1px solid rgba(79,216,255,.18)' }}>
-                    <div className="flex items-baseline gap-3">
-                        <span style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, color: '#5C7EA6', flexShrink: 0 }}>No.{q.serial}</span>
-                        <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 15, color: '#F3FAFF' }}>{q.text}</span>
-                    </div>
-                    <div className="flex items-baseline gap-3" style={{ marginTop: 4 }}>
-                        <span style={{ fontFamily: JP, fontWeight: 900, fontSize: 16, color: GOLD }}>{q.answer}</span>
-                        {q.altAnswer && <span style={{ fontFamily: JP, fontSize: 13, color: '#9FB4D6' }}>{q.altAnswer}</span>}
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------------
-// セットの得点入力
+// セットの得点入力の検証
 // ---------------------------------------------------------------------------
 
 /** 「5」「-3」「＋２」「−1」などを整数にする。整数でなければ null */
@@ -164,86 +29,194 @@ export function allPointsValid(players: Player[], values: Record<number, string>
     return players.length > 0 && players.every(p => parsePointInput(values[p.id] ?? '') !== null);
 }
 
-/** 得点集計の入力欄。確定は上の1本道ボタン（「得点を確定 ▶」）で行う（2026-10-17） */
-export function PointsForm({ players, values, onChange, entered, busy }: {
-    players: Player[]; values: Record<number, string>; onChange: (id: number, v: string) => void;
-    entered: boolean; busy: boolean;
+// ---------------------------------------------------------------------------
+// 選手の並び（席順・累計ポイント）。Admin は常にポイントが見える。
+// points を渡すと、勝ち抜け・敗退が決まっていない選手のカードに、このセットの得点の入力欄を出す
+// ---------------------------------------------------------------------------
+
+export function StandingsRow({ entrants, points, showSet }: {
+    entrants: Player[];
+    points?: { values: Record<number, string>; onChange: (id: number, v: string) => void; disabled: boolean };
+    /** 勝ち抜けの印に、勝ち抜けたセットを出す（決勝進出者の確認用） */
+    showSet?: boolean;
+}) {
+    if (entrants.length === 0) return <div className={styles.empty}>出場者が未確定です</div>;
+    return (
+        <SeatRow count={entrants.length}>
+            {entrants.map(p => {
+                const won = p.semifinalRank > 0;
+                const lost = p.semifinalRank === -1;
+                const status: SeatStatus | null = lost ? { label: 'LOST', tone: 'lost' }
+                    : won ? { label: showSet ? `SET ${p.semifinalRank}` : 'WIN', tone: 'win' } : null;
+                const raw = points?.values[p.id] ?? '';
+                const invalid = raw.trim() !== '' && parsePointInput(raw) === null;
+                return (
+                    <SeatCard key={p.id} paperRank={p.paperRank} name={p.name} nameSize={seatNameSize(entrants.length, p.name)}
+                        status={status} dimmed={lost}
+                        score={<>
+                            <BigNumber value={p.semifinalPoint} size={32} />
+                            {points && !won && !lost && (
+                                <input type="text" inputMode="numeric" value={raw} disabled={points.disabled}
+                                    className={invalid ? styles.pointInputBad : styles.pointInput}
+                                    placeholder="±"
+                                    onChange={e => points.onChange(p.id, e.target.value)}
+                                    aria-label={`${p.name} の得点`} />
+                            )}
+                        </>} />
+                );
+            })}
+        </SeatRow>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 振り返る問題の通し番号の入力（タイムアップ後。2026-10-17 の流れ）
+// ---------------------------------------------------------------------------
+
+export function RangeForm({ from, to, onFrom, onTo }: {
+    from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void;
 }) {
     return (
-        <div className="flex flex-col gap-[10px]">
-            <div style={MANUAL_LABEL_STYLE}>このセットの得点{entered ? '（確定済み・入れ直すときは手動操作の「得点を入力し直す」）' : '（入力したら上の「得点を確定」）'}</div>
-            <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${Math.max(1, players.length)}, minmax(0, 1fr))` }}>
-                {players.map(p => {
-                    const raw = values[p.id] ?? '';
-                    const invalid = raw.trim() !== '' && parsePointInput(raw) === null;
-                    return (
-                        <label key={p.id} style={{ boxSizing: 'border-box', padding: '8px', minWidth: 0, background: 'rgba(12,22,40,.75)', border: `1px solid ${invalid ? RED : 'rgba(79,216,255,.18)'}` }}>
-                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 13, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                            <input
-                                type="text" inputMode="numeric" value={raw} disabled={entered || busy}
-                                onChange={e => onChange(p.id, e.target.value)}
-                                className="w-full mt-1 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono disabled:opacity-50"
-                                aria-label={`${p.name} の得点`}
-                            />
-                        </label>
-                    );
-                })}
-            </div>
+        <div className={styles.rangeBox}>
+            <span className={styles.rangeLabel}>TIME UP — 振り返る問題の通し番号を入力</span>
+            <input type="text" inputMode="numeric" value={from} onChange={e => onFrom(e.target.value)} className={styles.rangeInput} aria-label="開始の通し番号" />
+            <span className={styles.rangeLabel}>〜</span>
+            <input type="text" inputMode="numeric" value={to} onChange={e => onTo(e.target.value)} className={styles.rangeInput} aria-label="終了の通し番号" />
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 振り返り中の問題（Main に出している3問。別解・正誤判定基準は Admin だけ）
+// ---------------------------------------------------------------------------
+
+export function ReviewList({ questions }: { questions: PoolQuestion[] }) {
+    return (
+        <div className={styles.revList}>
+            {questions.map(q => (
+                <div key={q.serial} className={styles.revCard}>
+                    <div className={styles.revHead}>No.{q.serial}</div>
+                    <p className={styles.revText}>{q.text}</p>
+                    <div className={styles.revAns}>
+                        <span>{q.answer}</span>
+                        {q.altAnswer && <span className={styles.revAlt}>別解: {q.altAnswer}</span>}
+                    </div>
+                </div>
+            ))}
         </div>
     );
 }
 
 // ---------------------------------------------------------------------------
 // サドンデス（2026-10-15 に「プレーオフ」から呼び名を変更）
+// 対象の選手だけを Main と同じ席番号順に並べ、正解・誤答を押す。Undo・スルーは上のバー／下のボタン
 // ---------------------------------------------------------------------------
 
-export function PlayoffPanel({ playoff, progress, seats, busy, canUndo, onMark, onUndo }: {
+export function PlayoffRow({ playoff, progress, seats, busy, onMark }: {
     playoff: SemifinalPlayoff; progress: PlayoffProgress;
     /** 出場者の席（席番号順。Main と同じ getSemifinalSeats から作ったもの） */
     seats: SemifinalSeatAssignment[]; busy: boolean;
-    /** Undo できるか（取り消す採点がある、または直前がスルー。2026-10-30） */
-    canUndo: boolean;
-    onMark: (playerId: number, action: 'correct' | 'wrong') => void; onUndo: () => void;
+    onMark: (playerId: number, action: 'correct' | 'wrong') => void;
 }) {
     const isAdvance = playoff.purpose === 'advance';
     const winLabel = isAdvance ? 'WIN' : 'SAFE';
     const loseLabel = isAdvance ? '敗退' : 'LOST';
+    // 並びは Main と同じ席番号順（2026-10-29 修正。以前は対象者を決めた順＝ポイント順で、Main と違っていた）
+    const candidates = seats.filter(s => playoff.candidateIds.includes(s.player.id));
     return (
-        <div className="flex flex-col gap-[10px]">
-            <div style={MANUAL_LABEL_STYLE}>
-                {isAdvance ? '勝ち抜け' : '失格'}サドンデス（{isAdvance ? '勝ち抜け' : '失格'} {playoff.slots}名）
+        <SeatRow count={candidates.length}>
+            {candidates.map(({ seat, player: p }) => {
+                const outcome = progress.outcomes[p.id];
+                const canOperate = !progress.resolved && outcome === undefined && !busy;
+                const status: SeatStatus | null = outcome === 'win' ? { label: winLabel, tone: 'win' }
+                    : outcome === 'lose' ? { label: loseLabel, tone: 'lost' } : null;
+                return (
+                    <SeatCard key={p.id} seatNo={seat} paperRank={p.paperRank} name={p.name} nameSize={seatNameSize(candidates.length, p.name)}
+                        status={status} dimmed={outcome === 'lose'}
+                        score={<BigNumber value={p.semifinalPoint} size={32} />}
+                        onCorrect={() => onMark(p.id, 'correct')} onWrong={() => onMark(p.id, 'wrong')} canOperate={canOperate} />
+                );
+            })}
+        </SeatRow>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 進出者紹介の進行（1人ずつ 二つ名 → プロフィール）
+// ---------------------------------------------------------------------------
+
+export function IntroView({ introOrder, index, step, profiles }: {
+    introOrder: Player[]; index: number; step: 'nickname' | 'profile'; profiles: SemifinalProfile[];
+}) {
+    const cur = introOrder[index];
+    if (!cur) return null;
+    const profile = profiles.find(p => p.playerId === cur.id);
+    const photo = photoUrl(profile);
+    const isNick = step === 'nickname';
+    const nick = displayNickname(cur, profile);
+    return (
+        <>
+            <div className={styles.introBox}>
+                <div className={isNick ? styles.introPhotoDim : styles.introPhoto}>
+                    {photo
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <NoPhoto color="#5C7EA6" />}
+                </div>
+                <div className={styles.introText}>
+                    <span className={styles.sectionLabel}>Main に表示中</span>
+                    <span className={nick ? styles.introNick : styles.introNickNone}>{nick || '（二つ名なし）'}</span>
+                    <span className={isNick ? styles.introSubDim : styles.introSub}>
+                        {cur.school} {cur.grade}　{cur.name}{isNick ? '（次に表示）' : ''}
+                    </span>
+                </div>
             </div>
-            <div className="flex gap-[10px] flex-wrap">
-                {/* 並びは Main と同じ席番号順（2026-10-29 修正。以前は対象者を決めた順＝ポイント順で、Main と違っていた） */}
-                {seats.filter(s => playoff.candidateIds.includes(s.player.id)).map(({ seat, player: p }) => {
-                    const id = p.id;
-                    const outcome = progress.outcomes[id];
-                    const canOperate = !progress.resolved && outcome === undefined && !busy;
-                    const color = outcome === 'win' ? GOLD : outcome === 'lose' ? '#4A5568' : '#4FD8FF';
+            <OrderCells players={introOrder} index={index} />
+        </>
+    );
+}
+
+/** 紹介順の一覧（いま・済み・これから） */
+function OrderCells({ players, index }: { players: Player[]; index: number }) {
+    return (
+        <div className={styles.cells} style={{ gridTemplateColumns: `repeat(${Math.max(1, players.length)}, minmax(0, 1fr))` }}>
+            {players.map((p, i) => {
+                const done = i < index;
+                const now = i === index;
+                return (
+                    <div key={p.id} className={now ? styles.cellNow : done ? styles.cellDone : styles.cell}>
+                        <span className={styles.cellNo}>{String(i + 1).padStart(2, '0')}</span>
+                        <span className={styles.cellSub}>{courseLabel(p)}</span>
+                        <span className={styles.cellName}>{p.name}</span>
+                        <span className={styles.cellMark}>{now ? 'NOW' : done ? 'DONE' : ''}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 選手カード表示（紹介順に1枚ずつ、最後に敗者復活者）
+// ---------------------------------------------------------------------------
+
+export function LineupView({ lineupOrder, revived, allShown }: { lineupOrder: Player[]; revived: Player | null; allShown: boolean }) {
+    return (
+        <>
+            <div className={styles.hint}>
+                紹介順に1枚ずつ表示し、最後に敗者復活者を表示します。全員そろったら「クイズ画面へ」で、カードが縮んでタイマーが現れます。
+            </div>
+            <div className={styles.cells} style={{ gridTemplateColumns: `repeat(${Math.max(1, lineupOrder.length)}, minmax(0, 1fr))` }}>
+                {lineupOrder.map((p, i) => {
+                    const isRev = revived !== null && p.id === revived.id;
                     return (
-                        <div key={id} style={{ width: 180, boxSizing: 'border-box', padding: 10, background: 'rgba(12,22,40,.75)', borderTop: `3px solid ${color}` }}>
-                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 11, letterSpacing: 2, color: '#5C7EA6', textAlign: 'center' }}>SEAT {seat}</div>
-                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 15, color: '#F3FAFF', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 13, color, textAlign: 'center', minHeight: 18, margin: '4px 0' }}>
-                                {outcome === 'win' ? winLabel : outcome === 'lose' ? loseLabel : ''}
-                            </div>
-                            <div className="grid grid-cols-2 gap-[6px]">
-                                <button onClick={() => onMark(id, 'correct')} disabled={!canOperate} style={opBtnStyle('correct', canOperate)}>
-                                    <span style={opBtnTextStyle('correct')}>正解</span>
-                                </button>
-                                <button onClick={() => onMark(id, 'wrong')} disabled={!canOperate} style={opBtnStyle('wrong', canOperate)}>
-                                    <span style={opBtnTextStyle('wrong')}>誤答</span>
-                                </button>
-                            </div>
+                        <div key={p.id} className={allShown ? styles.cellNow : styles.cell}>
+                            <span className={isRev ? styles.cellNoRev : styles.cellNo}>{isRev ? 'EXTRA' : String(i + 1).padStart(2, '0')}</span>
+                            <span className={styles.cellName}>{p.name}</span>
                         </div>
                     );
                 })}
             </div>
-            <div>
-                <button onClick={onUndo} disabled={!canUndo} style={{ ...neutralBtnStyle(), opacity: canUndo ? 1 : 0.35 }}>
-                    <span style={NEUTRAL_BTN_TEXT}>Undo</span>
-                </button>
-            </div>
-        </div>
+        </>
     );
 }

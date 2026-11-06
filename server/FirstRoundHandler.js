@@ -17,6 +17,12 @@ store.register(
 module.exports = function firstRoundHandlers(io, socket) {
     socket.emit('1R_update_timer', countdown);
 
+    // 画面を開いたとき・つなぎ直したときに残り時間を取り直す（読み取りだけ。他のラウンドの request_*_sync と同じ。2026-11-05 追加）。
+    // 接続した瞬間の送信は、画面がまだ受信の準備をしていないと失われる（再読み込み後に残り時間が 20:00 に見えていた）
+    socket.on('request_first_round_sync', () => {
+        socket.emit('1R_update_timer', countdown);
+    });
+
     socket.on('1R_start_timer', () => {
         if (!timerInterval) { // 稼働しているタイマーがなかったら中に入る
             timerInterval = setInterval(() => {

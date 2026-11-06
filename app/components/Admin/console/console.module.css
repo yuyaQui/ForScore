@@ -46,7 +46,7 @@
 .railSep { height: 1px; background: var(--line); margin: 8px 6px; }
 
 /* ---- コンソール（バー＋採点＋右の列） ---- */
-.frame { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: 64px minmax(0, 1fr); height: 100vh; }
+.frame { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: 64px auto minmax(0, 1fr); height: 100vh; }
 .bar { grid-column: 1 / 3; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
 .air { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
 .lamp { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px 5px 8px; border-radius: 5px; background: var(--air); color: #1B1300; font: 700 12px var(--num); letter-spacing: .08em; flex-shrink: 0; }
@@ -64,7 +64,7 @@
 .undo:focus-visible, .next:focus-visible, .btn:focus-visible, .ok:focus-visible, .ng:focus-visible, .through:focus-visible { outline: 2px solid var(--cue); outline-offset: 2px; }
 
 /* ---- 採点面 ---- */
-.work { padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; position: relative; }
+.work { grid-row: 3; padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; position: relative; }
 .workHead { display: flex; align-items: center; gap: 16px; min-height: 34px; }
 .workTitle { margin: 0; font: 700 20px var(--ui); white-space: nowrap; }
 .meta { display: flex; gap: 14px; font: 500 13px var(--ui); color: var(--sub); flex-wrap: wrap; }
@@ -149,7 +149,7 @@
 .groupDisabled { opacity: .4; pointer-events: none; }
 
 /* ---- 右の列（Main の確認） ---- */
-.side { border-left: 1px solid var(--line); background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
+.side { grid-row: 3; border-left: 1px solid var(--line); background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 .sideTitle { margin: 0; font: 700 12.5px var(--ui); color: var(--sub); }
 .onair { border: 1px solid rgba(244, 178, 62, .45); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background: rgba(244, 178, 62, .05); }
 .onairOff { composes: onair; border-color: var(--line); background: transparent; }
@@ -172,3 +172,174 @@
 .logEmpty { font: 500 12.5px var(--ui); color: var(--faint); }
 .rules { margin-top: auto; font: 500 12.5px/1.7 var(--ui); color: var(--sub); border-top: 1px solid #1F2E44; padding-top: 10px; }
 .rules b { color: var(--text); }
+
+/* ---- 3rd Round（2026-11-05）: バーのタイマー、コース選択、バナー ---- */
+.timer { display: flex; align-items: center; gap: 8px; flex-shrink: 0; height: 42px; padding: 0 6px 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: var(--panel2); }
+.timerTime { font: 700 24px var(--num); font-variant-numeric: tabular-nums; letter-spacing: .02em; min-width: 66px; color: var(--text); }
+.timerUrgent { composes: timerTime; color: var(--ng); }
+.formula { font: 700 14px var(--num); color: var(--sub); }
+.formula b { color: var(--text); }
+.crossOn { font: 700 14px var(--num); color: var(--ng); }
+.crossOn small { font: 600 12px var(--num); color: #FF9E9E; }
+.crossOff { font: 700 14px var(--num); color: #4A5E78; }
+.crossOff small { font: 600 12px var(--num); color: #7F94AF; }
+
+.slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex-shrink: 0; }
+.slot { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.slotNow { composes: slot; border-color: var(--cue); background: rgba(60, 200, 242, .08); }
+.slotNo { font: 600 11px var(--num); color: var(--faint); letter-spacing: .08em; }
+.slotName { font: 800 16px var(--ui); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slotEmpty { font: 800 16px var(--ui); color: #3A4D68; }
+.sectionHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.sectionLabel { font: 700 12.5px var(--ui); color: var(--sub); flex-shrink: 0; }
+.stateOpen { font: 700 12px var(--ui); color: var(--air); }
+.stateClosed { font: 700 12px var(--ui); color: var(--cue); }
+
+.entryList { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 38px; gap: 6px; align-content: start; }
+.entryListOff { composes: entryList; opacity: .4; }
+.entryRow { display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.entryRow:hover:not(:disabled) { border-color: var(--sub); }
+.entryRow:disabled { cursor: default; }
+.entryRowOn { composes: entryRow; border-color: var(--cue); background: rgba(60, 200, 242, .09); }
+.entryRow:focus-visible { outline: 2px solid var(--cue); outline-offset: 1px; }
+.check { width: 16px; height: 16px; flex-shrink: 0; border: 1.5px solid var(--line2); border-radius: 3px; display: grid; place-items: center; font: 700 11px var(--ui); color: #04202B; }
+.entryRowOn .check { background: var(--cue); border-color: var(--cue); }
+.entryNo { font: 700 12px var(--num); color: var(--faint); width: 30px; flex-shrink: 0; }
+.entryRank { font: 800 13px var(--num); width: 44px; flex-shrink: 0; }
+.entryName { font: 700 15px var(--ui); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entrySub { font: 500 12px var(--ui); color: var(--sub); flex-shrink: 0; }
+.entryTag { font: 700 11px var(--ui); padding: 3px 9px; border-radius: 4px; background: rgba(156, 176, 201, .12); color: var(--faint); flex-shrink: 0; }
+.entryTagOn { composes: entryTag; background: rgba(60, 200, 242, .18); color: var(--cue); }
+
+.bannerFinish { flex-shrink: 0; padding: 8px 14px; border: 1px solid var(--air); background: rgba(244, 178, 62, .08); border-radius: 6px; font: 700 14px var(--ui); color: var(--air); }
+.bannerPlayoff { flex-shrink: 0; padding: 8px 14px; border: 1px solid #B98BFF; background: rgba(185, 139, 255, .08); border-radius: 6px; font: 700 14px var(--ui); color: #D9BBFF; }
+
+/* ---- Extra Round（2026-11-05）: First Step の進行バー・問題と解答、進出者選択、取込 ---- */
+.stepBarBox { flex-shrink: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 8px; }
+.stepBar { display: flex; gap: 3px; align-items: center; height: 20px; }
+.stepBar > span { flex: 1; height: 10px; border-radius: 1px; background: rgba(255, 255, 255, .07); }
+.stepPastQ { background: #1F4A7A !important; }
+.stepPastAns { background: #8A6A1E !important; }
+.stepNowQ { background: var(--cue) !important; height: 18px !important; box-shadow: 0 0 10px var(--cue); }
+.stepNowAns { background: var(--air) !important; height: 18px !important; box-shadow: 0 0 10px var(--air); }
+.stepFuture { }
+.stepDecision { outline: 1px solid var(--air); outline-offset: 1px; }
+.stepLegend { display: flex; justify-content: space-between; margin-top: 6px; font: 500 12px var(--ui); color: var(--faint); }
+.bannerError { flex-shrink: 0; padding: 8px 14px; border: 1px solid var(--ng); background: rgba(242, 85, 122, .08); border-radius: 6px; font: 700 14px var(--ui); color: #FFB3C0; }
+.bannerInfo { flex-shrink: 0; padding: 8px 14px; border: 1px solid var(--cue); background: rgba(60, 200, 242, .07); border-radius: 6px; font: 700 14px var(--ui); color: #BFE3FF; }
+.qaCard { flex: 1; min-height: 0; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.qaCardAns { composes: qaCard; border-color: rgba(244, 178, 62, .5); }
+.qaLabel { font: 700 12px var(--ui); letter-spacing: .06em; color: var(--faint); }
+.qaLabelOn { composes: qaLabel; color: var(--air); }
+.qaText { margin: 6px 0 0; font: 700 22px/1.7 var(--ui); color: var(--text); white-space: pre-wrap; }
+.qaDivider { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.qaAnswer { margin: 6px 0 0; font: 900 26px/1.4 var(--ui); color: #FFE08A; white-space: pre-wrap; }
+.qaAlt { margin: 4px 0 0; font: 500 16px/1.7 var(--ui); color: #C9D8EE; white-space: pre-wrap; }
+.qaAltNone { margin: 4px 0 0; font: 500 16px/1.7 var(--ui); color: #4A5E78; }
+
+.chipBox { flex-shrink: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; max-height: 76px; overflow-y: auto; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--cue); border-radius: 6px; background: rgba(60, 200, 242, .1); color: var(--text); font: 700 13.5px var(--ui); cursor: pointer; }
+.chip b { font: 800 12px var(--num); }
+.chip:focus-visible { outline: 2px solid var(--cue); outline-offset: 1px; }
+.chipX { color: var(--faint); font-size: 14px; }
+.chipHint { font: 500 13px var(--ui); color: var(--faint); }
+.search { flex-shrink: 0; width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--line2); background: var(--ink); color: var(--text); font: 500 14px var(--ui); }
+.search:focus-visible { outline: 2px solid var(--cue); outline-offset: 1px; }
+.scrollBox { flex: 1; min-height: 0; overflow-y: auto; }
+.waitNote { font: 600 12.5px var(--ui); color: var(--faint); white-space: nowrap; }
+
+/* ---- Semi-Final（2026-11-05 載せ替え） ---- */
+.pointInput { width: 100%; box-sizing: border-box; padding: 5px 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--ink); color: var(--text); font: 700 18px var(--num); text-align: right; }
+.pointInput:focus { outline: 2px solid var(--cue); outline-offset: 0; }
+.pointInput:disabled { opacity: .5; }
+.pointInputBad { composes: pointInput; border-color: var(--ng); }
+.rangeBox { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--air); background: rgba(244, 178, 62, .07); border-radius: 8px; }
+.rangeLabel { font: 700 13px var(--ui); color: var(--air); }
+.rangeInput { width: 96px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line2); background: var(--ink); color: var(--text); font: 700 18px var(--num); text-align: right; }
+.revList { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.revCard { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 18px; flex-shrink: 0; }
+.revHead { font: 700 12px var(--num); color: var(--faint); letter-spacing: .06em; }
+.revText { margin: 4px 0 0; font: 700 19px/1.6 var(--ui); color: var(--text); white-space: pre-wrap; }
+.revAns { margin: 6px 0 0; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; font: 900 21px/1.4 var(--ui); color: #FFE08A; }
+.revAlt { font: 500 14px var(--ui); color: var(--sub); }
+.introBox { flex-shrink: 0; display: flex; gap: 20px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; }
+.introPhoto { width: 90px; height: 120px; flex-shrink: 0; position: relative; overflow: hidden; background: #0B0F16; border: 1px solid var(--line2); }
+.introPhotoDim { composes: introPhoto; opacity: .45; }
+.introText { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.introNick { font: 900 24px var(--ui); color: var(--text); }
+.introNickNone { font: 900 24px var(--ui); color: var(--faint); }
+.introSub { font: 600 15px var(--ui); color: var(--sub); }
+.introSubDim { font: 600 15px var(--ui); color: var(--faint); }
+.cells { flex-shrink: 0; display: grid; gap: 6px; }
+.cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border: 1px solid var(--line); border-top: 3px solid var(--line2); border-radius: 6px; background: var(--panel); min-width: 0; text-align: center; }
+.cellNow { composes: cell; border-top-color: var(--cue); background: rgba(60, 200, 242, .08); }
+.cellDone { composes: cell; opacity: .5; }
+.cellNo { font: 700 12px var(--num); color: var(--sub); }
+.cellNoRev { font: 700 12px var(--num); color: #B98BFF; }
+.cellSub { font: 600 11px var(--ui); color: var(--faint); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cellName { font: 700 14px var(--ui); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cellMark { font: 700 11px var(--num); letter-spacing: .08em; color: var(--cue); min-height: 14px; }
+
+/* ---- Final（2026-11-05 載せ替え） ---- */
+.introGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex-shrink: 0; }
+.introBoxNow { composes: introBox; border-color: var(--cue); background: rgba(60, 200, 242, .08); }
+.introBoxDone { composes: introBox; opacity: .55; }
+.resultBtn { height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--cue); background: var(--cue); color: #04202B; font: 700 14px var(--ui); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.resultBtn:disabled { opacity: .4; cursor: default; }
+.resultBtnOn { composes: resultBtn; background: transparent; color: var(--text); }
+
+/* ---- 1st Round（2026-11-05 載せ替え） ---- */
+.bigTimer { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.bigTimerState { font: 700 14px var(--num); letter-spacing: .14em; color: var(--sub); }
+.bigTimerNum { font: 700 150px/1 var(--num); font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--text); }
+.bigTimerNumUrgent { composes: bigTimerNum; color: var(--ng); }
+.bigTimerBar { width: min(720px, 80%); height: 8px; border-radius: 4px; background: var(--panel2); overflow: hidden; }
+.bigTimerFill { height: 100%; background: var(--cue); transition: width .9s linear; }
+.bigTimerFillUrgent { composes: bigTimerFill; background: var(--ng); }
+.bigTimerBtns { display: flex; gap: 12px; }
+.bigTimerBtns button { font-size: 18px; padding: 10px 34px; }
+.csvTable { width: 100%; border-collapse: collapse; font: 500 13px var(--ui); }
+.csvTable th { position: sticky; top: 0; background: var(--panel2); text-align: left; font: 700 12px var(--ui); color: var(--sub); padding: 6px 10px; }
+.csvTable td { padding: 5px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.csvBad td { background: rgba(242, 85, 122, .14); color: #FFD9E2; }
+
+/* ---- ペーパー上位100名の発表（2026-11-05 載せ替え） ---- */
+.ptGrid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.ptCol { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.ptColOn { composes: ptCol; border-color: rgba(244, 178, 62, .55); }
+.ptList { flex: 1; min-height: 0; overflow-y: auto; }
+.ptRow { display: flex; align-items: baseline; gap: 12px; padding: 9px 4px; border-top: 1px solid var(--line); }
+.ptRank { width: 60px; flex-shrink: 0; font: 700 16px var(--num); }
+.ptName { font: 700 17px var(--ui); white-space: nowrap; }
+.ptSchool { font: 500 13px var(--ui); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptNone { padding: 12px 4px; color: var(--faint); font: 500 14px var(--ui); }
+
+/* ---- 大会準備（2026-11-05 載せ替え） ---- */
+.prepGrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 14px; }
+.prepCol { display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 0; }
+.pnl { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.pnlTall { composes: pnl; min-height: 0; overflow: hidden; }
+.pnlHead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pnlTitle { font: 700 15px var(--ui); }
+.pnlOk { font: 700 13px var(--ui); color: var(--ok); }
+.pnlWarn { font: 700 13px var(--ui); color: var(--air); }
+.pnlRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pnlInput { flex: 1 1 200px; min-width: 0; font: 500 15px var(--ui); color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; }
+.pnlInputBad { composes: pnlInput; border-color: var(--ng); }
+.pnlInput:focus, .pnlInputBad:focus, .pnlTextarea:focus { outline: 2px solid var(--cue); outline-offset: 1px; }
+.pnlCount { font: 600 12px var(--num); color: var(--faint); white-space: nowrap; }
+.pnlCountBad { composes: pnlCount; color: var(--ng); }
+.pnlError { font: 700 13px var(--ui); color: #FFB3C0; }
+.pnlTextarea { width: 100%; height: 130px; resize: none; font: 500 15px/1.5 var(--ui); color: var(--text); background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; }
+.pnlLive { font: 500 13px/1.5 var(--ui); color: var(--sub); background: var(--ink); border: 1px dashed var(--line2); border-radius: 6px; padding: 6px 10px; max-height: 64px; overflow-y: auto; white-space: pre-wrap; }
+
+/* ---- Main の表示の問題（原因と対処。2026-11-06）。問題があるときだけ、上のバーの下に出る ---- */
+.health { grid-row: 2; grid-column: 1 / 3; display: flex; flex-direction: column; gap: 6px; padding: 8px 18px; background: rgba(242, 85, 122, .10); border-bottom: 1px solid var(--ng); }
+.healthItem { display: flex; align-items: center; gap: 16px; }
+.healthText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font: 500 13px/1.45 var(--ui); color: var(--text); }
+.healthText em { font-style: normal; font-weight: 700; color: var(--ng); margin-right: 8px; }
+.healthTitle { font: 700 14px var(--ui); color: #FFD2DC; }
+.healthBtns { display: flex; gap: 8px; flex-shrink: 0; }
+.healthWaive { composes: btn; color: #1B1300; background: var(--air); border-color: var(--air); font-weight: 700; }
+.healthMore { font: 500 12px var(--ui); color: var(--sub); }

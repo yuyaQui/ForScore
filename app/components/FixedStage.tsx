@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 type Props = {
     children: React.ReactNode;
@@ -16,11 +16,22 @@ const STAGE_H = 1080;
  * 前提（2026-09-25 決定。詳細は docs/visual-design-system.md）。他ラウンドのMain画面も
  * これで包む形に統一する。
  */
+/**
+ * 最初の描画から正しい倍率を使うための初期値（2026-11-06）。この部品は position:fixed で表示領域いっぱいを占めるので、
+ * 大きさは窓の大きさと同じ。サーバ側の描画（window がない）では 1。
+ * （覆いを外した直後などにラウンドの画面が新しくマウントされるとき、倍率 1 のまま1コマ描かれて、画面が大きく映っていた）
+ */
+function initialScale(): number {
+    if (typeof window === "undefined" || window.innerWidth <= 0 || window.innerHeight <= 0) return 1;
+    return Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+}
+
 export default function FixedStage({ children }: Props) {
     const outerRef = useRef<HTMLDivElement>(null);
-    const [scale, setScale] = useState(1);
+    const [scale, setScale] = useState(initialScale);
 
-    useEffect(() => {
+    // useLayoutEffect: 最初の描画の前に、実際の大きさで倍率を決め直す（useEffect だと描画のあとになる）
+    useLayoutEffect(() => {
         const outer = outerRef.current;
         if (!outer) return;
 

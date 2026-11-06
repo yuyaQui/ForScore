@@ -209,14 +209,16 @@ test("遅れて開いた画面: 取り直しの要求に、今のモード・2nd
         adminA.emit("change_extra_round_state", { stage: "firstStep", cursor: 4 });
         await settle(adminA);
         const late = await mk();
+        // 返事の順番は決まっていないので、両方を先に待ち始めてから要求する（2026-11-06。順番しだいで落ちていた）
+        const extra = late.next("update_extra_round_state", (s) => s.stage === "firstStep" && s.cursor === 4);
+        const second = late.next("update_second_round_state", (s) => s.group === 3 && s.view === "quiz");
+        const mode = late.next("mode_update", (m) => m === "secondRound");
+        const cover = late.next("update_main_cover", (c) => c.title === "2nd Round");
         late.emit("request_mode_sync");
         late.emit("request_second_round_sync");
         late.emit("request_extra_round_sync");
         late.emit("request_main_cover_sync");
-        await late.next("update_extra_round_state", (s) => s.stage === "firstStep" && s.cursor === 4);
-        await late.next("update_second_round_state", (s) => s.group === 3 && s.view === "quiz");
-        assert.equal(late.last("mode_update"), "secondRound");
-        assert.equal(late.last("update_main_cover").title, "2nd Round");
+        await Promise.all([extra, second, mode, cover]);
     });
 });
 

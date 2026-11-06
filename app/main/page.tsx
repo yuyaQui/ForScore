@@ -12,6 +12,7 @@ import MainFinal from "../components/Main/MainFinal";
 import MainPaperTop from "../components/Main/MainPaperTop";
 import StandbyScreen, { BlankScreen } from "../components/Main/StandbyScreen";
 import { useMainCover } from "../components/useMainCover";
+import { MainReadyContext, useMainReadinessHost } from "../components/Main/mainReadiness";
 // import type は型だけを読み込む書き方で、ビルド時に削除される
 import type { Player } from "@/lib/types";
 
@@ -24,6 +25,8 @@ export default function MainPage() {
   // Main を覆う表示（待機画面・ブランク。2026-11-04）。覆っている間はラウンドの画面を出さない。
   // 覆いを外すとラウンドの画面がはじめから表示され、登場の演出もそのときに再生される
   const [cover] = useMainCover(socket);
+  // 表示の準備（必要なデータがそろっているか）を Admin に報告する（2026-11-06。lib/mainReadiness.js）
+  const readiness = useMainReadinessHost(socket, currentMode, cover.kind !== "none");
 
   useEffect(() => {
     // サーバーと同じホスト・ポートに接続
@@ -92,6 +95,7 @@ export default function MainPage() {
       : "bg-zinc-50 dark:bg-zinc-900";
 
   return (
+    <MainReadyContext.Provider value={readiness}>
     <div className={`flex flex-col items-center justify-center min-h-screen p-[3vw] ${backgroundClass} relative`}>
       {/* 待機画面・ブランクで覆っている間は、ラウンドの画面を出さない */}
       {cover.kind === "standby" && <StandbyScreen title={cover.title} sub={cover.sub} />}
@@ -110,5 +114,6 @@ export default function MainPage() {
       {currentMode === "waiting" && <MainText text={displayText} />}
       </>)}
     </div>
+    </MainReadyContext.Provider>
   );
 }

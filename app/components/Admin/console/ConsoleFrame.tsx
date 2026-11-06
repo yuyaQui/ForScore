@@ -4,6 +4,7 @@
 // Undo と次の操作は必ずこのバーに出す（各ラウンドの画面の中には置かない）。
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import styles from "./console.module.css";
+import { MainHealthPanel } from "../mainHealth";
 
 /** 進行ボタンを押してから、次に押せるようになるまでの時間 */
 const NEXT_COOLDOWN_MS = 700;
@@ -63,6 +64,8 @@ export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, c
                     ? <button type="button" className={styles.next} disabled={cooling} onClick={() => { startCooling(); next.onClick?.(); }}>{next.label}</button>
                     : <span className={styles.nextWait} role="status">{next.label}</span>}
             </header>
+            {/* Main の表示の準備に問題があるときだけ出る（原因と対処。2026-11-06） */}
+            <MainHealthPanel />
             <main className={styles.work}>{children}</main>
             <aside className={styles.side}>{side}</aside>
         </div>

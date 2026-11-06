@@ -1,12 +1,14 @@
 // 大会共通の問題データ（通し番号つき）の取り込み（2026-10-22 追加。docs/question-display-design.md 4.1 (a)）。
-// 待機画面の Admin に置く。大会前に一度だけ使う想定。取り込みは全件入れ替え。
+// 大会準備の Admin に置く。大会前に一度だけ使う想定。取り込みは全件入れ替え。
+// 2026-11-05: 運営コンソールの面（console/）の見た目に載せ替え。取り込みの処理（API・検証・入れ替えの確認）は同じ。
+//   変えたのは次の点: 押すと開くプルダウンはやめて常に開いている／登録は同時に1つだけ（useSingleFlight）／結果は画面の上の通知（notify）／
+//   プレビューは作業面の残りいっぱいに出す。
 import { useEffect, useRef, useState } from "react";
 import { parseQuestionPoolCsv, type PoolQuestion, type QuestionPoolSummary } from "@/lib/questionPool";
-import { ACCENT } from "@/lib/cyberpunkCard";
-import { MANUAL_LABEL_STYLE, MANUAL_PANEL_BASE, manualBtnStyle, manualBtnTextStyle } from "./adminCyberStyles";
+import { notify, errorText } from "@/lib/adminNotice";
 import { readCsvText } from "./AdminExtraRoundUpload";
-
-const JP = '"Noto Sans JP",sans-serif';
+import { useSingleFlight } from "../useSingleFlight";
+import styles from "./console/console.module.css";
 
 function summaryText(s: QuestionPoolSummary | null): string {
     if (!s) return '確認中...';
@@ -16,30 +18,28 @@ function summaryText(s: QuestionPoolSummary | null): string {
 
 export default function AdminQuestionPoolUpload() {
     const [summary, setSummary] = useState<QuestionPoolSummary | null>(null);
-    // プルダウンが開いているか（2026-11-04）
-    const [open, setOpen] = useState(false);
     const [csvText, setCsvText] = useState('');
+    const [fileName, setFileName] = useState('');
     const [preview, setPreview] = useState<{ questions: PoolQuestion[]; errors: string[] } | null>(null);
-    const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState('');
+    const flight = useSingleFlight();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // 登録状況を読む
     useEffect(() => {
         fetch('/api/questionPool').then(res => res.json()).then(data => {
             if (data.success) setSummary(data.summary);
-            else setMessage(data.error || '登録状況を読み込めません');   // migrate 前ならやることを表示する
-        }).catch(() => setMessage('登録状況を読み込めません'));
+            else notify(errorText(data.error, '登録状況を読み込めません'), 'error');   // migrate 前ならやることを表示する
+        }).catch(() => notify('登録状況を読み込めません', 'error'));
     }, []);
 
     // CSV を選んだら画面で先に検証してプレビューを出す（API でも同じ検証をする）
     const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        setMessage('');
         try {
             const text = await readCsvText(file);
             setCsvText(text);
+            setFileName(file.name);
             setPreview(parseQuestionPoolCsv(text));
         } catch {
             setPreview({ questions: [], errors: ['ファイルを読み込めませんでした'] });
@@ -47,10 +47,8 @@ export default function AdminQuestionPoolUpload() {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleSave = async () => {
+    const handleSave = () => flight.run(async () => {
         if (!preview || preview.errors.length > 0 || preview.questions.length === 0) return;
-        setSaving(true);
-        setMessage('');
         const post = (confirmReplace: boolean) => fetch('/api/questionPool', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ csvText, confirmReplace }),
@@ -67,80 +65,61 @@ export default function AdminQuestionPoolUpload() {
             if (res.ok && data.success) {
                 setSummary(data.summary);
                 setPreview(null);
-                setMessage('登録しました');
+                setFileName('');
+                notify('問題データを登録しました');
             } else {
-                setMessage(Array.isArray(data.details) && data.details.length > 0 ? data.details.slice(0, 5).join(' / ') : (data.error || '登録に失敗しました'));
+                notify(Array.isArray(data.details) && data.details.length > 0 ? data.details.slice(0, 5).join(' / ') : errorText(data.error, '登録に失敗しました'), 'error');
             }
-        } catch {
-            setMessage('通信に失敗しました');
-        } finally {
-            setSaving(false);
+        } catch (e) {
+            notify(errorText(e, '登録に失敗しました。通信を確かめてください'), 'error');
         }
-    };
+    });
 
     const hasErrors = !!preview && preview.errors.length > 0;
-    const canSave = !!preview && !hasErrors && preview.questions.length > 0 && !saving;
+    const canSave = !!preview && !hasErrors && preview.questions.length > 0 && !flight.pending;
 
     return (
-        <div className="flex flex-col gap-4 bg-black p-6 w-full max-w-5xl" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-            {/* 押すと開くプルダウン（2026-11-04 ユーザー指示）。列の説明・ファイル名は出さない */}
-            <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
-                className="flex flex-wrap items-center justify-between gap-3 w-full" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>
-                <div style={MANUAL_LABEL_STYLE}>{open ? '▾' : '▸'} 問題データ</div>
-                <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: summary && summary.count > 0 ? '#7FE8FF' : '#FFC93C' }}>{summaryText(summary)}</span>
-            </button>
-            {open && (<>
-            <div style={{ ...MANUAL_PANEL_BASE, gap: 12 }}>
-                <div className="flex flex-wrap items-center gap-3">
-                    <label style={manualBtnStyle(true)}>
-                        <span style={manualBtnTextStyle(true)}>ファイルを選択</span>
-                        <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} />
-                    </label>
-                    <button onClick={() => { void handleSave(); }} disabled={!canSave} style={{ ...manualBtnStyle(canSave), opacity: canSave ? 1 : 0.35 }}>
-                        <span style={manualBtnTextStyle(canSave)}>{saving ? '登録中...' : '登録'}</span>
-                    </button>
-                </div>
+        <section className={styles.pnlTall} aria-label="問題データ">
+            <div className={styles.pnlHead}>
+                <span className={styles.pnlTitle}>問題データ</span>
+                <span className={summary && summary.count > 0 ? styles.pnlOk : styles.pnlWarn}>{summaryText(summary)}</span>
+            </div>
+            <div className={styles.pnlRow}>
+                <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} aria-label="問題データの CSV" />
+                <button type="button" className={preview ? styles.btn : styles.btnOn} onClick={() => fileInputRef.current?.click()} disabled={flight.pending}>
+                    {preview ? 'CSV を選び直す' : 'CSV を選ぶ'}
+                </button>
+                <button type="button" className={canSave ? styles.btnOn : styles.btn} onClick={() => { void handleSave(); }} disabled={!canSave}>
+                    {flight.pending ? '登録中...' : '登録'}
+                </button>
+                {fileName && <span className={styles.pnlCount}>{fileName}</span>}
             </div>
 
-            {message && <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: message === '登録しました' ? '#7FE8FF' : '#FF6B85' }}>{message}</div>}
-
             {hasErrors && preview && (
-                <div style={{ padding: '12px 16px', border: '1px solid rgba(255,59,92,.5)', background: 'rgba(255,59,92,.08)', fontFamily: JP, fontSize: 13, color: '#FFD0D8' }}>
-                    <div style={{ fontWeight: 700 }}>取り込めません。修正して選び直してください</div>
-                    <ul className="mt-1 list-disc pl-5">
-                        {preview.errors.slice(0, 12).map((m, i) => <li key={i}>{m}</li>)}
-                        {preview.errors.length > 12 && <li>ほか {preview.errors.length - 12} 件</li>}
-                    </ul>
+                <div className={styles.bannerError} role="alert">
+                    <div>取り込めません。修正して選び直してください</div>
+                    {preview.errors.slice(0, 6).map((m, i) => <div key={i} style={{ fontWeight: 500 }}>・{m}</div>)}
+                    {preview.errors.length > 6 && <div style={{ fontWeight: 500 }}>ほか {preview.errors.length - 6} 件</div>}
                 </div>
             )}
 
-            {preview && !hasErrors && preview.questions.length > 0 && (
-                <div className="flex flex-col gap-2">
-                    <div style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 12, letterSpacing: 3, color: '#5C7EA6' }}>
-                        プレビュー（{preview.questions.length}問・No.{preview.questions[0].serial}〜{preview.questions[preview.questions.length - 1].serial}）
-                    </div>
-                    <div className="max-h-80 overflow-y-auto" style={{ border: '1px solid rgba(79,216,255,.22)', background: 'rgba(12,22,40,.75)' }}>
-                        <table className="w-full text-left" style={{ fontFamily: JP, fontSize: 13, color: '#DFF7FF' }}>
-                            <thead>
-                                <tr style={{ color: '#5C7EA6', fontSize: 11, letterSpacing: 2 }}>
-                                    <th className="p-2 w-14">No.</th><th className="p-2">問題文</th><th className="p-2 w-48">解答</th><th className="p-2 w-56">別解・正誤判定基準</th>
-                                </tr>
-                            </thead>
+            {preview && !hasErrors && preview.questions.length > 0 ? (
+                <>
+                    <div className={styles.hint}>プレビュー（{preview.questions.length}問・No.{preview.questions[0].serial}〜{preview.questions[preview.questions.length - 1].serial}）</div>
+                    <div className={styles.scrollBox}>
+                        <table className={styles.csvTable}>
+                            <thead><tr><th style={{ width: 52 }}>No.</th><th>問題文</th><th style={{ width: 140 }}>解答</th><th style={{ width: 160 }}>別解・正誤判定基準</th></tr></thead>
                             <tbody>
                                 {preview.questions.map(q => (
-                                    <tr key={q.serial} style={{ borderTop: '1px solid rgba(79,216,255,.12)' }}>
-                                        <td className="p-2 font-mono" style={{ color: ACCENT }}>{q.serial}</td>
-                                        <td className="p-2">{q.text}</td>
-                                        <td className="p-2" style={{ color: '#FFE28A' }}>{q.answer}</td>
-                                        <td className="p-2" style={{ color: '#9FB4D6' }}>{q.altAnswer}</td>
-                                    </tr>
+                                    <tr key={q.serial}><td>{q.serial}</td><td>{q.text}</td><td>{q.answer}</td><td>{q.altAnswer}</td></tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </>
+            ) : !hasErrors && (
+                <div className={styles.hint}>大会前に一度だけ取り込みます。登録済みの場合は、登録時に入れ替えの確認が出ます。</div>
             )}
-            </>)}
-        </div>
+        </section>
     );
 }

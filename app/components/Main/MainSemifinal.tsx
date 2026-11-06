@@ -11,7 +11,8 @@ import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, displayNickname
 import type { PublicPoolQuestion } from "@/lib/questionPool";
 import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { StandbyStage } from "./StandbyScreen";
+import { StandbyStage, BlankScreen } from "./StandbyScreen";
+import { useReadyGate } from "../useReadyGate";
 import FixedStage from "@/app/components/FixedStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { RoundStage } from "./RoundStage";
@@ -61,18 +62,20 @@ export default function MainSemifinal(props: Props) {
     const lastLineupSeqRef = useRef<number | null>(null);
     const contendersRef = useRef<Player[]>([]);
 
+    // 状態・選手・コースがそろうまでは黒い舞台だけを出す（既定の状態の画面や「出場者が確定していません」が1コマ映るのを防ぐ。2026-11-06）。
+    // 写真・二つ名は任意: 届かないときは、Admin で「なしで進める」を許可すれば出す
+    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses'], ['profiles']);
+
     useEffect(() => {
+        const stops: (() => void)[] = [];
+        let stopProfiles: (() => void) | null = null;
         const loadProfiles = () => {
-            fetch('/api/semifinal/profiles').then(res => res.json()).then(data => {
-                if (data.success) setProfiles(data.profiles);
-            }).catch(err => console.error('Failed to load semifinal profiles', err));
+            stopProfiles?.();
+            stopProfiles = load('profiles', '/api/semifinal/profiles', data => setProfiles(data.profiles));
         };
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        });
-        fetch('/api/thirdRound/courses').then(res => res.json()).then(data => {
-            if (data.success) setCourses(data.courses);
-        });
+        stops.push(() => stopProfiles?.());
+        stops.push(load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers)));
+        stops.push(load('courses', '/api/thirdRound/courses', data => setCourses(data.courses)));
         loadProfiles();
 
         if (socket) {
@@ -92,6 +95,7 @@ export default function MainSemifinal(props: Props) {
                     setLineupSeqPlayed(next.lineupSeq);
                 }
                 setState(next);
+                mark('state');
             };
             const handleTimerUpdate = (next: SemifinalTimer) => setTimer(next);
             const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
@@ -105,14 +109,15 @@ export default function MainSemifinal(props: Props) {
             // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で取り直す
             socket.emit("request_semifinal_sync");
 
-            return () => {
+            stops.push(() => {
                 socket.off("update_semifinal_state", handleStateUpdate);
                 socket.off("update_semifinal_timer", handleTimerUpdate);
                 socket.off("update_players", handlePlayersUpdate);
                 socket.off("update_semifinal_profiles", loadProfiles);
-            };
+            });
         }
-    }, [socket]);
+        return () => stops.forEach(stop => stop());
+    }, [socket, mark, load]);
 
     const seats = getSemifinalSeats(players, courses);
     const current = state ?? DEFAULT_SEMIFINAL_STATE;
@@ -175,6 +180,7 @@ export default function MainSemifinal(props: Props) {
         );
     }
 
+    if (!ready) return <BlankScreen />;
     return <FixedStage>{body}</FixedStage>;
 }
 

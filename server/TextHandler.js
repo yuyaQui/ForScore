@@ -13,6 +13,11 @@ store.register(
 module.exports = function registerTextHandlers(io, socket) {
     socket.emit('text_updated', currentAnnouncement);
 
+    // 画面を開いたときに現在の案内を取り直す（読み取りだけ。他のラウンドの request_*_sync と同じ。2026-11-05 追加）
+    socket.on('request_text_sync', () => {
+        socket.emit('text_updated', currentAnnouncement);
+    });
+
     socket.on('update_text', (newText) => {
         console.log('Update text received:', newText);
         if (typeof newText !== 'string') return; // 文字列以外は受け付けない（2026-11-04）

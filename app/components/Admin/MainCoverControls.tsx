@@ -16,25 +16,32 @@ import { useMainCover } from "../useMainCover";
  *   ブランク（start）→「○○を始める ▶」で覆いを外す（ラウンドの画面が出る）
  *   手動の待機画面   →「待機画面を消す ▶」で覆いを外す（割り込む前の覆いに戻る）
  */
-export function coverStartPrimary(cover: CoverTarget, setCover: (c: CoverTarget) => void): { label: string; action: () => void } | null {
+export function coverStartPrimary(cover: CoverWithBlock, setCover: (c: CoverTarget) => void): { label: string; action: (() => void) | null } | null {
     if (cover.kind === 'standby' && cover.at === 'start') {
         return { label: '待機画面を消す ▶', action: () => setCover(blankStartCover(cover.startLabel ?? '画面を表示する')) };
     }
+    // 覆いを外す（ラウンドの画面を出す）操作は、Main の準備ができるまで押せない（2026-11-06。理由と対処はバーの下の帯に出る）
+    const released = (label: string) => cover.mainBlock
+        ? { label: cover.mainBlock, action: null }
+        : { label, action: () => setCover(NO_COVER) };
     if (cover.kind === 'blank' && cover.at === 'start') {
-        return { label: `${cover.startLabel ?? '画面を表示する'} ▶`, action: () => setCover(NO_COVER) };
+        return released(`${cover.startLabel ?? '画面を表示する'} ▶`);
     }
     if (cover.at === 'manual') {
-        return { label: '待機画面を消す ▶', action: () => setCover(NO_COVER) };
+        return released('待機画面を消す ▶');
     }
     return null;
 }
+
+/** Admin の useMainCover が返す覆い（Main の準備ができていないときの理由つき） */
+type CoverWithBlock = CoverTarget & { mainBlock?: string | null };
 
 /**
  * 手動の操作の2つ。どちらも「どの場面でも」使える。
  * 待機画面は割り込みなので、すでに手動の待機画面のときだけ押せない（外すのは進行ボタンの「待機画面を消す」）
  */
 export function CoverButtons({ cover, setCover, forceRelease, className, style }: {
-    cover: CoverTarget; setCover: (c: CoverTarget) => void; forceRelease: () => void;
+    cover: CoverWithBlock; setCover: (c: CoverTarget) => void; forceRelease: () => void;
     className?: string; style?: React.CSSProperties;
 }) {
     const isManual = cover.at === 'manual';
@@ -48,7 +55,10 @@ export function CoverButtons({ cover, setCover, forceRelease, className, style }
             {cover.kind !== 'none' && (
                 <button type="button" className={className} style={style}
                     onClick={() => {
-                        if (window.confirm('Main の待機画面・ブランクを外して、いまのラウンドの画面をすぐ表示します。よろしいですか？')) forceRelease();
+                        const msg = cover.mainBlock
+                            ? `Main の準備ができていません（${cover.mainBlock}）。\n覆いを外しても、必要なデータがそろうまで会場の画面は黒いままです。外しますか？`
+                            : 'Main の待機画面・ブランクを外して、いまのラウンドの画面をすぐ表示します。よろしいですか？';
+                        if (window.confirm(msg)) forceRelease();
                     }}
                     title="どの覆いでも外して、ラウンドの画面を表示します（進行が行き止まりになったときの脱出口）">
                     覆いを外す
@@ -72,7 +82,7 @@ export function AdminMainCoverBar({ socket }: { socket: Socket | null }) {
                 {describeCover(cover)}
             </span>
             {start && (
-                <button type="button" onClick={start.action}
+                <button type="button" onClick={start.action ?? undefined} disabled={!start.action}
                     style={{ padding: '10px 22px', background: 'rgba(60,200,242,.16)', border: '2px solid #3CC8F2', borderRadius: 6, color: '#DFF7FF', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
                     {start.label}
                 </button>

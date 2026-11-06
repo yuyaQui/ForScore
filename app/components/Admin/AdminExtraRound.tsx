@@ -1,3 +1,15 @@
+// Extra Round（敗者復活）の Admin。
+// 2026-11-05: 運営コンソール（console/）に載せ替え。2nd・3rd Round と同じ枠で、1440×900 の1画面に収める。
+//   上のバー … Main に出ている画面・（First Step の）戻る／次のフェーズへ・Undo（Second Step）・次の操作（1本道）
+//   作業面   … 問題取込／First Step（問題・解答の確認）／進出者選択／Second Step（早押しの採点）
+//   右の列   … Second Step は開始番号・操作の記録。それ以外は進行の段階
+//   引き出し … 「表示の切り替え」（段階・First Step の位置）と「データ修正」（結果のリセット・敗者復活者なしの取り消し）
+// 採点・Undo・リセット・進出者の確定の処理と呼ぶ API は、載せ替え前と同じ。
+// 同時に、2nd・3rd Round と同じ堅牢化を入れた（docs/robust-flow-design.md）:
+//   ・採点・Undo・リセットは同時に1つだけ（useSingleFlight）
+//   ・Main が待機画面・ブランクで覆っている間は採点しない
+//   ・画面を開いた時・つなぎ直した時に、進行状態と選手を取り直す
+//   ・失敗は画面の上の通知（notify）で知らせる
 import { useSocketSync } from "../useSocketSync";
 import { Socket } from "socket.io-client";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -17,22 +29,18 @@ import AdminExtraRoundUpload from "./AdminExtraRoundUpload";
 import AdminExtraRoundFirstStep from "./AdminExtraRoundFirstStep";
 import AdminExtraRoundEntrants from "./AdminExtraRoundEntrants";
 import AdminExtraRoundSecondStep from "./AdminExtraRoundSecondStep";
-import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
+import { useQuestionDisplay } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { ConsoleFrame, Drawer, DrawerGroup } from "./console/ConsoleFrame";
+import { QuestionStrip } from "./console/QuestionStrip";
+import { ConsoleSide } from "./console/ConsoleSide";
+import { useActionLog } from "./console/useActionLog";
+import styles from "./console/console.module.css";
 import { useMainCover } from "../useMainCover";
-import { BLANK_END_COVER, blankStartCover, standbyAfterCover, coverBlocksRound, rewindCover } from "@/lib/mainCover";
-import {
-    MANUAL_LABEL_STYLE,
-    DANGER_BTN_TEXT,
-    NEUTRAL_BTN_TEXT,
-    dangerBtnStyle,
-    manualBtnStyle,
-    manualBtnTextStyle,
-    manualPanelStyle,
-    neutralBtnStyle,
-    primaryButtonStyle,
-    secondaryActionStyle,
-} from "./adminCyberStyles";
+import { coverStartPrimary, CoverButtons } from "./MainCoverControls";
+import { useSingleFlight } from "../useSingleFlight";
+import { notify, errorText } from "@/lib/adminNotice";
+import { BLANK_END_COVER, blankStartCover, standbyAfterCover, coverBlocksRound, describeCover, rewindCover } from "@/lib/mainCover";
 
 type Props = {
     socket: Socket | null;
@@ -51,6 +59,7 @@ const STAGE_LABELS: Record<ExtraRoundStage, string> = {
     entrantSelect: '進出者選択',
     secondStep: 'Second Step',
 };
+const STAGES = Object.keys(STAGE_LABELS) as ExtraRoundStage[];
 
 export default function AdminExtraRound(props: Props) {
     const { socket } = props;
@@ -64,8 +73,14 @@ export default function AdminExtraRound(props: Props) {
     // 問題文・解答・別解（Admin 用なので別解を含む）
     const [questions, setQuestions] = useState<ExtraRoundQuestion[]>([]);
     const [players, setPlayers] = useState<Player[] | null>(null);
-    const [isBusy, setIsBusy] = useState(false);
-    const [errorMessage, setErrorMessage] = useState('');
+    // 採点・Undo・リセットは同時に1つだけ走らせる（応答待ちの押し直しで二重に効かない）
+    const flight = useSingleFlight();
+    // 開いている引き出し（表示の切り替え／データ修正）
+    const [drawer, setDrawer] = useState<'view' | 'data' | null>(null);
+    // 操作の記録（この画面の中だけ。Undo ボタンの説明にも使う）
+    const actionLog = useActionLog();
+    // 進出者選択の画面が渡す、上のバーの進行ボタン（名前と処理）
+    const [entrantAction, setEntrantAction] = useState<{ label: string; run: (() => void) | null } | null>(null);
 
     // 進行状態（段階・位置・表示済みか）が最後に変わった時刻。進行ボタンの連打よけに使う
     const lastStateChangeAt = useRef(0);
@@ -86,9 +101,12 @@ export default function AdminExtraRound(props: Props) {
     }, []);
 
     useEffect(() => {
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        }).catch(err => console.error('Failed to load players', err));
+        const loadPlayers = () => {
+            fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
+                if (data.success) setPlayers(data.allPlayers);
+            }).catch(err => console.error('Failed to load players', err));
+        };
+        loadPlayers();
 
         if (socket) {
             const handleStateUpdate = (next: ExtraRoundState) => setState(normalizeExtraRoundState(next));
@@ -96,10 +114,13 @@ export default function AdminExtraRound(props: Props) {
 
             socket.on('update_extra_round_state', handleStateUpdate);
             socket.on('update_players', handlePlayersUpdate);
+            // つなぎ直したときは選手を読み直す（切れている間の更新の配信は受け取れていないため。2026-11-05）
+            socket.io.on('reconnect', loadPlayers);
 
             return () => {
                 socket.off('update_extra_round_state', handleStateUpdate);
                 socket.off('update_players', handlePlayersUpdate);
+                socket.io.off('reconnect', loadPlayers);
             };
         }
     }, [socket]);
@@ -128,17 +149,21 @@ export default function AdminExtraRound(props: Props) {
     // 各ラウンドの状況（2026-10-22。「Semi-Final へ ▶」・Undo の制限・リセットの確認文・敗者復活者なしに使う）
     const progress = useRoundProgress();
     // Main を覆う表示（待機画面・ブランク。2026-11-04）
-    const [cover, setCover] = useMainCover(socket);
+    const [cover, setCover, coverControls] = useMainCover(socket);
     const noRevival = progress?.extraRoundNoRevival ?? false;
 
     // 問題表示（2026-10-22。Second Step のみ）。採点が成功したら、その問題を Main に表示して次の問題に進める
     const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'extraSecondStep');
     // 問題表示の操作の記録で「どの操作か」を表す（Second Step は1つだけ。2026-10-29）
     const QUESTION_SCOPE = 'secondStep';
+    const hasCursor = questionState.cursors.extraSecondStep !== undefined;
 
-    const handleScore = async (playerId: number, action: 'correct' | 'wrong') => {
-        setErrorMessage('');
-        setIsBusy(true);
+    const handleScore = (playerId: number, action: 'correct' | 'wrong') => flight.run(async () => {
+        // Main が待機画面・ブランクで「これから始まる場面」を覆っている間は採点しない（会場に出ていない問題が進むのを防ぐ）
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のため採点できません。上のバーの「○○を始める ▶」で画面を出してから採点してください。', 'error');
+            return;
+        }
         try {
             const res = await fetch('/api/extraRound/secondStep/updateScore', {
                 method: 'POST',
@@ -149,108 +174,109 @@ export default function AdminExtraRound(props: Props) {
             if (res.ok && data.success) {
                 if (socket) socket.emit('broadcast_scores', data.allPlayers);
                 finishQuestion(QUESTION_SCOPE, true);
+                const after: Player | undefined = (data.allPlayers as Player[]).find(p => p.id === playerId);
+                const note = action === 'correct'
+                    ? (after && after.extraRoundRank > 0 ? '正解（敗者復活）' : '正解')
+                    : '誤答（失格）';
+                actionLog.add({ who: after?.name ?? '', what: note, tone: action === 'correct' ? 'ok' : 'ng', scope: QUESTION_SCOPE });
             } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                notify(data.error || '更新に失敗しました', 'error');
             }
         } catch (error) {
-            console.error('Extra Round Second Step score update failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            notify(errorText(error, '通信に失敗しました。採点は反映されていません。画面を確かめてからやり直してください。'), 'error');
         }
+    });
+
+    // スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22）
+    const handleThrough = () => {
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のためスルーできません。上のバーの「○○を始める ▶」で画面を出してからにしてください。', 'error');
+            return;
+        }
+        finishQuestion(QUESTION_SCOPE, false);
+        actionLog.add({ who: '', what: 'スルー', tone: 'through', scope: QUESTION_SCOPE });
     };
 
-    const handleUndo = async () => {
+    const handleUndo = () => flight.run(async () => {
         // Semi-Final が始まっていたら Undo しない（提案B）
         if (blockUndoIfLaterStarted(progress, 'extraRound')) return;
         if (cover.at === 'manual') {
-            setErrorMessage('手動の待機画面が出ています。「待機画面を消す」を押してから Undo してください');
+            notify('手動の待機画面が出ています。「待機画面を消す ▶」を押してから Undo してください。', 'error');
             return;
         }
         // 2026-10-29: 問題表示も一緒に戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
-        setErrorMessage('');
-        setIsBusy(true);
-        try {
-            const undone = await undoWithQuestion(QUESTION_SCOPE, async () => {
-                try {
-                    const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
-                    const data = await res.json();
-                    if (res.ok && data.success) {
-                        if (socket) socket.emit('broadcast_scores', data.allPlayers);
-                        return true;
-                    }
-                    setErrorMessage(data.error || 'Undo に失敗しました');
-                    return false;
-                } catch (error) {
-                    console.error('Extra Round Second Step undo failed', error);
-                    setErrorMessage('通信に失敗しました');
-                    return false;
+        const undone = await undoWithQuestion(QUESTION_SCOPE, async () => {
+            try {
+                const res = await fetch('/api/extraRound/secondStep/undo', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    if (socket) socket.emit('broadcast_scores', data.allPlayers);
+                    return true;
                 }
-            });
-            // クイズの終了後（ブランク・待機画面 NEXT Semi-Final）に戻したときは、取り消した先の画面を会場に出さず、
-            // ブランクにして「クイズを再開する ▶」で出す(2026-11-04)
-            if (undone && cover.at === 'end') setCover(rewindCover());
-        } finally {
-            setIsBusy(false);
-        }
-    };
+                notify(data.error || 'Undo に失敗しました', 'error');
+                return false;
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。Undo は反映されていません。'), 'error');
+                return false;
+            }
+        });
+        if (!undone) return;
+        actionLog.markUndone(QUESTION_SCOPE);
+        // クイズの終了後（ブランク・待機画面 NEXT Semi-Final）に戻したときは、取り消した先の画面を会場に出さず、
+        // ブランクにして「クイズを再開する ▶」で出す(2026-11-04)
+        if (cover.at === 'end') setCover(rewindCover());
+    });
 
     // Extra Round の結果（extraRoundRank・extraRoundCorrectCount・extraRoundSecondStep・敗者復活者なし）を
     // 全選手ぶんリセットする。2026-10-22: Semi-Final 以降も初期化し、進行は問題取込（setup）に戻す
     // （登録済みの問題は DB に残るので「登録済みの問題を使う」で再開できる）。
-    const handleReset = async () => {
+    const handleReset = () => {
         if (!window.confirm(`Extra Round の結果をリセットしますか？（元に戻せません）\n問題取込の画面に戻ります（登録済みの問題はそのまま使えます）。${cascadeNotice(progress, 'semifinal', true)}`)) return;
-
-        setErrorMessage('');
-        setIsBusy(true);
-        try {
-            const res = await fetch('/api/extraRound/reset', { method: 'POST' });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                // Extra Round 以降の進行状態も戻す（Extra Round は問題取込へ）
-                broadcastAfterReset(socket, 'extraRound', data);
-            } else {
-                setErrorMessage(data.error || 'リセットに失敗しました');
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/extraRound/reset', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    // Extra Round 以降の進行状態も戻す（Extra Round は問題取込へ）
+                    broadcastAfterReset(socket, 'extraRound', data);
+                    setDrawer(null);
+                } else {
+                    notify(data.error || 'リセットに失敗しました', 'error');
+                }
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。リセットは反映されていません。'), 'error');
             }
-        } catch (error) {
-            console.error('Extra Round reset failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
     // 「敗者復活者なし」の確定／取り消し（2026-10-22。First Step で全員が脱落した場合）。
     // 確定すると Semi-Final に 3rd Round 通過の8名で進める
-    const handleNoRevival = async (value: boolean) => {
+    const handleNoRevival = (value: boolean) => {
         const message = value
             ? '敗者復活者なしで確定しますか？\nSemi-Final は 3rd Round 通過の8名で行います。'
             : '「敗者復活者なし」の確定を取り消しますか？';
         if (!window.confirm(message)) return;
-        setErrorMessage('');
-        setIsBusy(true);
-        try {
-            const res = await fetch('/api/extraRound/noRevival', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value })
-            });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                if (socket) socket.emit('tournament_state_changed');
-            } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/extraRound/noRevival', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    if (socket) socket.emit('tournament_state_changed');
+                    if (!value) setDrawer(null);
+                } else {
+                    notify(data.error || '更新に失敗しました', 'error');
+                }
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。確定は反映されていません。'), 'error');
             }
-        } catch (error) {
-            console.error('Extra Round no-revival failed', error);
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
-    // ---- いま押すべき操作（画面上部の大きなボタン）----
-    let statusLabel: string;
+    // ---- いま押すべき操作（上のバーの右端のボタン）----
     let primaryLabel: string;
     let primaryAction: (() => void) | null = null;
     let secondaryLabel: string | null = null;
@@ -259,16 +285,14 @@ export default function AdminExtraRound(props: Props) {
     let waitingNextLabel: string | null = null;
 
     if (state.stage === 'setup') {
-        statusLabel = 'EXTRA ROUND · 問題取込';
         primaryLabel = '問題CSVを取り込んでください';
     } else if (state.stage === 'firstStep') {
         const atDecision = isPhaseEndAnswer(state.cursor);
-        statusLabel = `EXTRA ROUND · FIRST STEP · ${getFirstStepItemLabel(state.cursor)}（${state.cursor + 1} / ${FIRST_STEP_SEQUENCE.length}）`;
         if (!state.revealed) {
             // 中身（問題文 / 解答）をまだ Main に出していない。出すまでは先に進めない
             primaryLabel = getFirstStepItem(state.cursor).view === 'question' ? '問題を表示 ▶' : '解答を表示 ▶';
             primaryAction = revealStep;
-            if (!atDecision) waitingNextLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}） ▶`;
+            if (!atDecision) waitingNextLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}）`;
         } else if (atDecision) {
             // フェーズ最後の解答発表。進出者を決める（途中で1st Stepを終える場合もここ）か、次のフェーズへ
             primaryLabel = 'Second Step 進出者決定 ▶';
@@ -285,11 +309,10 @@ export default function AdminExtraRound(props: Props) {
     } else if (state.stage === 'entrantSelect') {
         if (noRevival) {
             // 敗者復活者なしで確定済み。Semi-Final へ（提案A）
-            statusLabel = 'EXTRA ROUND · 敗者復活者なし';
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'extraRound'));
         } else {
-            statusLabel = 'EXTRA ROUND · 進出者選択';
-            primaryLabel = '進出者を選んでください';
+            primaryLabel = entrantAction?.label ?? '進出者を選んでください';
+            primaryAction = entrantAction?.run ?? null;
             // First Step で全員が脱落したとき用
             if (!winner) {
                 secondaryLabel = '敗者復活者なしで確定';
@@ -297,7 +320,6 @@ export default function AdminExtraRound(props: Props) {
             }
         }
     } else {
-        statusLabel = 'EXTRA ROUND · SECOND STEP';
         if (winner && cover.kind === 'none') {
             // 敗者復活者が決まった。まず Main をブランクにする（早押しの場面の終わりは何も表示しない。2026-11-04 ユーザー指示）
             primaryLabel = 'クイズを終了する ▶';
@@ -309,188 +331,166 @@ export default function AdminExtraRound(props: Props) {
             // 待機画面 NEXT Semi-Final。Semi-Final へ（提案A）
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'extraRound'));
         } else {
-            primaryLabel = '進行中...';
+            primaryLabel = `進行中（残り ${entrants.filter(p => p.extraRoundRank === 0).length}名）`;
         }
     }
 
-    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める（2026-11-04）
-    if (coverBlocksRound(cover)) {
-        primaryLabel = 'Main は待機中（上の帯から進めてください）';
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、進行ボタンを覆いの操作にする
+    // （待機画面を消す → ○○を始める。裏で画面を進めてしまわないように。2026-11-04）
+    const coverStart = coverStartPrimary(cover, setCover);
+    if (coverStart) {
+        primaryLabel = coverStart.label;
+        primaryAction = coverStart.action;
+        secondaryLabel = null;
+        secondaryAction = null;
+        waitingNextLabel = null;
+    } else if (coverBlocksRound(cover)) {
         primaryAction = null;
         secondaryLabel = null;
         secondaryAction = null;
         waitingNextLabel = null;
     }
+    const guardedPrimary = primaryAction && !coverStart ? () => runGuarded(primaryAction) : primaryAction;
+    const canGoBack = state.stage === 'firstStep' && state.cursor > 0 && !coverBlocksRound(cover);
 
-    const canGoBack = state.stage === 'firstStep' && state.cursor > 0;
+    // ---- 上のバー（Main に出ている画面） ----
+    const onAirDetail = state.stage === 'firstStep'
+        ? `First Step・${getFirstStepItemLabel(state.cursor)}（${state.cursor + 1}/${FIRST_STEP_SEQUENCE.length}）${state.revealed ? '' : '・未表示'}`
+        : state.stage === 'entrantSelect' ? (noRevival ? '敗者復活者なし' : '進出者選択')
+        : state.stage === 'secondStep' ? 'Second Step'
+        : '問題取込';
 
-    return (
-        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md w-full max-w-[1900px]">
-            <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 border-b pb-4 border-zinc-200 dark:border-zinc-700">
-                Extra Round 管理画面
-            </h2>
+    // ---- 作業面の右上の道具（引き出しを開く） ----
+    const tools = (
+        <>
+            <button type="button" className={drawer === 'view' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'view' ? null : 'view')}>表示の切り替え</button>
+            <button type="button" className={drawer === 'data' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'data' ? null : 'data')}>データ修正</button>
+        </>
+    );
 
-            {errorMessage && (
-                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-sm font-bold">
-                    {errorMessage}
-                </div>
+    // ---- 引き出し ----
+    const drawerView = drawer === 'view' && (
+        <Drawer title="表示の切り替え" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="段階">
+                {STAGES.map(stage => (
+                    <button key={stage} type="button" className={state.stage === stage ? styles.btnOn : styles.btn} onClick={() => changeState({ stage })}>{STAGE_LABELS[stage]}</button>
+                ))}
+            </DrawerGroup>
+            <DrawerGroup label="First Step の位置" disabled={state.stage !== 'firstStep'}>
+                <select className={styles.input} style={{ width: 260, textAlign: 'left' }} aria-label="First Step の位置" value={state.cursor}
+                    onChange={e => changeState({ cursor: clampCursor(Number(e.target.value)), revealed: false })}>
+                    {FIRST_STEP_SEQUENCE.map((_, i) => (
+                        <option key={i} value={i}>{i + 1}. {getFirstStepItemLabel(i)}{isPhaseEndAnswer(i) ? '（進出者決定）' : ''}</option>
+                    ))}
+                </select>
+                <button type="button" className={styles.btn} onClick={() => changeState({ cursor: 0, revealed: false })}>最初（問題 1）へ</button>
+                <button type="button" className={styles.btn} onClick={() => changeState({ cursor: FIRST_STEP_LAST_CURSOR, revealed: false })}>最後（解答 20）へ</button>
+            </DrawerGroup>
+            <div className={styles.note}>通常は使いません。進行は上のバーの右端のボタンで行います。</div>
+        </Drawer>
+    );
+    const drawerData = drawer === 'data' && (
+        <Drawer title="データ修正" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="Extra Round の結果" note="全選手の Extra Round の結果（Second Step・敗者復活者なし）を消し、問題取込に戻します。登録済みの問題はそのまま使えます。元に戻せません。">
+                <button type="button" className={styles.btnDanger} onClick={handleReset} disabled={flight.pending}>Extra Round の結果をリセット</button>
+            </DrawerGroup>
+            {noRevival && (
+                <DrawerGroup label="敗者復活者なし">
+                    <button type="button" className={styles.btn} onClick={() => handleNoRevival(false)} disabled={flight.pending}>「敗者復活者なし」を取り消す</button>
+                </DrawerGroup>
             )}
+            <div className={styles.note}>1手だけ戻すときは、上のバーの Undo を使ってください（Second Step のとき）。</div>
+        </Drawer>
+    );
 
-            {/* 進行フロー: 3rd Round の Admin と同じく、いま押すべき操作を大きく出す。
-                問題取込 → First Step → 進出者選択 → Second Step の1本道。 */}
-            <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
-                <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">
-                    {statusLabel}
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-4 px-4">
-                    {canGoBack && (
-                        <button onClick={() => runGuarded(() => changeState({ cursor: clampCursor(state.cursor - 1), revealed: true }))} style={{ ...neutralBtnStyle(), padding: '18px 28px' }}>
-                            <span style={{ ...NEUTRAL_BTN_TEXT, fontSize: 16 }}>◀ 戻る</span>
-                        </button>
-                    )}
-                    <button onClick={() => runGuarded(primaryAction)} disabled={!primaryAction || isBusy} style={primaryButtonStyle(!!primaryAction)}>
-                        {primaryLabel}
-                    </button>
-                    {waitingNextLabel && (
-                        <button disabled style={{ ...primaryButtonStyle(false), opacity: 0.4, cursor: 'not-allowed' }}>
-                            {waitingNextLabel}
-                        </button>
-                    )}
-                    {secondaryLabel && (
-                        <button onClick={() => runGuarded(secondaryAction)} disabled={!secondaryAction || isBusy} style={secondaryActionStyle()}>
-                            {secondaryLabel}
-                        </button>
-                    )}
-                </div>
+    // ---- 採点面 ----
+    let work: React.ReactNode;
+    if (state.stage === 'setup') {
+        work = (
+            <div className={styles.scrollBox}>
+                <AdminExtraRoundUpload
+                    onReady={() => {
+                        loadQuestions();
+                        changeState({ stage: 'firstStep', cursor: 0, revealed: false });
+                    }}
+                />
             </div>
+        );
+    } else if (state.stage === 'firstStep') {
+        work = <AdminExtraRoundFirstStep cursor={state.cursor} revealed={state.revealed} questions={questions} tools={tools} />;
+    } else if (state.stage === 'entrantSelect') {
+        work = players === null ? (
+            <div className={styles.empty}>読み込み中...</div>
+        ) : (
+            <AdminExtraRoundEntrants
+                socket={socket}
+                players={players}
+                tools={tools}
+                onActions={setEntrantAction}
+                onConfirmed={(single: boolean) => {
+                    changeState({ stage: 'secondStep' });
+                    // Second Step（早押し）の始まりは Main をブランクにし、上のバーの「クイズを始める」で出す（2026-11-04）。
+                    // 1名で敗者復活が決まったとき（早押しをしない）はブランクにしない
+                    if (!single) setCover(blankStartCover('クイズを始める'));
+                }}
+            />
+        );
+    } else {
+        work = (
+            <AdminExtraRoundSecondStep
+                entrants={entrants}
+                onScore={handleScore}
+                onThrough={handleThrough}
+                busy={flight.pending}
+                canThrough={hasCursor}
+                tools={tools}
+                strip={<QuestionStrip socket={socket} round="extraSecondStep" state={questionState} />}
+            />
+        );
+    }
 
-            {/* 手動操作: 通常運用では触らない退避ハッチ。段階・位置の直接切り替え、
-                Undo・結果リセットをここにまとめる。見た目は 2nd / 3rd Round と揃えている。 */}
-            <details className="group">
-                <summary
-                    className="flex cursor-pointer select-none items-center gap-[10px] bg-black px-5 py-4 [&::-webkit-details-marker]:hidden"
-                    style={{ listStyle: 'none' }}
-                >
-                    <span
-                        className="inline-block transition-transform duration-150 group-open:rotate-90"
-                        style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#7FA8D9' }}
-                    >
-                        ▸
-                    </span>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 3, color: '#7FA8D9' }}>
-                        手動操作
-                    </span>
-                </summary>
-                <div className="flex flex-col gap-[22px] bg-black px-5 pb-6 pt-4">
-                    <div style={{ height: 1, background: 'rgba(79,216,255,.22)', flexShrink: 0 }} />
-
-                    <div className="flex flex-wrap gap-[18px]">
-                        <div style={manualPanelStyle(true, 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>段階</div>
-                            <div className="flex flex-wrap gap-[10px]">
-                                {(Object.keys(STAGE_LABELS) as ExtraRoundStage[]).map(stage => (
-                                    <button key={stage} onClick={() => changeState({ stage })} style={manualBtnStyle(state.stage === stage)}>
-                                        <span style={manualBtnTextStyle(state.stage === stage)}>{STAGE_LABELS[stage]}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div style={manualPanelStyle(state.stage === 'firstStep', 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>First Step の位置</div>
-                            <select
-                                value={state.cursor}
-                                onChange={e => changeState({ cursor: clampCursor(Number(e.target.value)), revealed: false })}
-                                className="px-3 py-2 bg-zinc-900 border border-zinc-600 text-white"
-                                style={{ fontFamily: '"Noto Sans JP",sans-serif' }}
-                            >
-                                {FIRST_STEP_SEQUENCE.map((_, i) => (
-                                    <option key={i} value={i}>
-                                        {i + 1}. {getFirstStepItemLabel(i)}{isPhaseEndAnswer(i) ? '（進出者決定）' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                            <div className="flex flex-wrap gap-[10px]">
-                                <button onClick={() => changeState({ cursor: 0, revealed: false })} style={neutralBtnStyle()}>
-                                    <span style={NEUTRAL_BTN_TEXT}>最初（問題 1）へ</span>
-                                </button>
-                                <button onClick={() => changeState({ cursor: FIRST_STEP_LAST_CURSOR, revealed: false })} style={neutralBtnStyle()}>
-                                    <span style={NEUTRAL_BTN_TEXT}>最後（解答 20）へ</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div style={manualPanelStyle(true, 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>データ操作</div>
-                            <div className="flex flex-wrap items-center gap-[10px]">
-                                <button onClick={handleUndo} disabled={isBusy || state.stage !== 'secondStep'} style={{ ...dangerBtnStyle(), opacity: state.stage === 'secondStep' ? 1 : 0.35 }}>
-                                    <span style={DANGER_BTN_TEXT}>Undo</span>
-                                </button>
-                                <button onClick={handleReset} disabled={isBusy} style={dangerBtnStyle()}>
-                                    <span style={DANGER_BTN_TEXT}>Extra Round の結果をリセット</span>
-                                </button>
-                                {noRevival && (
-                                    <button onClick={() => handleNoRevival(false)} disabled={isBusy} style={neutralBtnStyle()}>
-                                        <span style={NEUTRAL_BTN_TEXT}>「敗者復活者なし」を取り消す</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+    // ---- 右の列 ----
+    const side = state.stage === 'secondStep'
+        ? <ConsoleSide socket={socket} round="extraSecondStep" state={questionState} log={actionLog.entries} />
+        : (
+            <div className={styles.log}>
+                <h3 className={styles.sideTitle} style={{ marginBottom: 6 }}>進行（Extra Round）</h3>
+                {STAGES.map(stage => (
+                    <div key={stage} className={styles.logRow} style={state.stage === stage ? { color: 'var(--text)' } : undefined}>
+                        <em>{state.stage === stage ? '▶' : ''}</em>
+                        <span>{STAGE_LABELS[stage]}</span>
+                        <span />
                     </div>
-
-                    <div className="flex items-center gap-[10px]">
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
-                            通常は閉じたまま。進行は上のボタンで完結します
-                        </span>
-                    </div>
-                </div>
-            </details>
-
-            <hr className="border-zinc-200 dark:border-zinc-700" />
-
-            <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                {state.stage === 'setup' && (
-                    <AdminExtraRoundUpload
-                        onReady={() => {
-                            loadQuestions();
-                            changeState({ stage: 'firstStep', cursor: 0, revealed: false });
-                        }}
-                    />
-                )}
-
-                {state.stage === 'firstStep' && (
-                    <AdminExtraRoundFirstStep cursor={state.cursor} revealed={state.revealed} questions={questions} />
-                )}
-
-                {state.stage === 'entrantSelect' && (
-                    players === null ? (
-                        <div className="py-10 text-center" style={{ color: '#5C7EA6' }}>読み込み中...</div>
-                    ) : (
-                        <AdminExtraRoundEntrants
-                            socket={socket}
-                            players={players}
-                            onConfirmed={(single: boolean) => {
-                                changeState({ stage: 'secondStep' });
-                                // Second Step（早押し）の始まりは Main をブランクにし、上の帯の「クイズを始める」で出す（2026-11-04）。
-                                // 1名で敗者復活が決まったとき（早押しをしない）はブランクにしない
-                                if (!single) setCover(blankStartCover('クイズを始める'));
-                            }}
-                        />
-                    )
-                )}
-
-                {state.stage === 'secondStep' && (
-                    <>
-                        <AdminExtraRoundSecondStep entrants={entrants} onScore={handleScore} busy={isBusy} />
-                        {/* スルー（誰も解答しなかった）: スコアは変えず、その問題を Main に表示して次の問題へ（2026-10-22） */}
-                        <button onClick={() => finishQuestion(QUESTION_SCOPE, false)} style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer' }}>
-                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
-                        </button>
-                        <AdminQuestionPanel socket={socket} round="extraSecondStep" state={questionState} />
-                    </>
-                )}
+                ))}
             </div>
-        </div>
+        );
+
+    const isSecondStep = state.stage === 'secondStep';
+    return (
+        <ConsoleFrame
+            onAir="Extra Round"
+            onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
+            barExtra={<>
+                {canGoBack && (
+                    <button type="button" className={styles.btn} onClick={() => runGuarded(() => changeState({ cursor: clampCursor(state.cursor - 1), revealed: true }))}>◀ 戻る</button>
+                )}
+                {secondaryLabel && (
+                    <button type="button" className={styles.btn} onClick={() => runGuarded(secondaryAction)} disabled={!secondaryAction || flight.pending}>{secondaryLabel}</button>
+                )}
+                {waitingNextLabel && <span className={styles.waitNote}>→ {waitingNextLabel}</span>}
+                <CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />
+            </>}
+            undo={{
+                detail: isSecondStep ? actionLog.lastLabel(QUESTION_SCOPE) : null,
+                onClick: () => { void handleUndo(); },
+                disabled: !isSecondStep || flight.pending,
+            }}
+            next={{ label: primaryLabel, onClick: flight.pending ? null : guardedPrimary }}
+            side={side}
+        >
+            {work}
+            {drawerView}
+            {drawerData}
+        </ConsoleFrame>
     );
 }

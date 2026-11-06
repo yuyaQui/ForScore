@@ -66,6 +66,8 @@ function startServer() {
     return new Promise((resolve) => {
         serverProc = spawn('node', ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: '3100', KQK_STATE_FILE: path.join(ROOT, 'state.json') }, stdio: ['ignore', 'pipe', 'pipe'] });
         serverProc.stdout.on('data', d => { if (d.toString().includes('Ready on')) resolve(); });
+        // エラー出力も読み捨てる（読まないと管が詰まり、サーバが書き込みで止まる。2026-11-06）
+        serverProc.stderr.resume();
     });
 }
 function stopServer() {

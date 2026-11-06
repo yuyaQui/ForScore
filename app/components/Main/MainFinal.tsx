@@ -8,6 +8,8 @@ import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import { photoUrl, displayNickname, type SemifinalProfile } from "@/lib/semifinalProfile";
 import FixedStage from "@/app/components/FixedStage";
+import { BlankScreen } from "./StandbyScreen";
+import { useReadyGate } from "../useReadyGate";
 import { RoundStage } from "./RoundStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
 import { FinalCard } from "./FinalCard";
@@ -51,19 +53,23 @@ export default function MainFinal(props: Props) {
     const [finalState, setFinalState] = useState<FinalState>(DEFAULT_FINAL_STATE);
     const [profiles, setProfiles] = useState<SemifinalProfile[]>([]);
 
+    // 状態・選手がそろうまでは黒い舞台だけを出す（既定の状態の画面が1コマ映るのを防ぐ。2026-11-06）。
+    // 写真・二つ名は任意: 届かないときは、Admin で「なしで進める」を許可すれば出す
+    const { ready, mark, load } = useReadyGate(['state', 'players'], ['profiles']);
+
     useEffect(() => {
+        const stops: (() => void)[] = [];
+        let stopProfiles: (() => void) | null = null;
         const loadProfiles = () => {
-            fetch('/api/semifinal/profiles').then(res => res.json()).then(data => {
-                if (data.success) setProfiles(data.profiles);
-            }).catch(err => console.error('Failed to load semifinal profiles', err));
+            stopProfiles?.();
+            stopProfiles = load('profiles', '/api/semifinal/profiles', data => setProfiles(data.profiles));
         };
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        });
+        stops.push(() => stopProfiles?.());
+        stops.push(load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers)));
         loadProfiles();
 
         if (socket) {
-            const handleStateUpdate = (state: FinalState) => setFinalState(state);
+            const handleStateUpdate = (state: FinalState) => { setFinalState(state); mark('state'); };
             const handlePlayersUpdate = (allPlayers: Player[]) => setPlayers(allPlayers);
 
             socket.on("update_final_state", handleStateUpdate);
@@ -72,13 +78,14 @@ export default function MainFinal(props: Props) {
             // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で取り直す
             socket.emit("request_final_sync");
 
-            return () => {
+            stops.push(() => {
                 socket.off("update_final_state", handleStateUpdate);
                 socket.off("update_players", handlePlayersUpdate);
                 socket.off("update_semifinal_profiles", loadProfiles);
-            };
+            });
         }
-    }, [socket]);
+        return () => stops.forEach(stop => stop());
+    }, [socket, mark, load]);
 
     const finalPlayers = getFinalists(players);
     const profileOf = (id: number) => profiles.find(p => p.playerId === id);
@@ -87,6 +94,8 @@ export default function MainFinal(props: Props) {
     const introPlayer = finalPlayers[finalState.introIndex] ?? null;
     const resultPlayer = finalPlayers.find(p => p.finalRank === finalState.resultRank) ?? null;
     const ruleColor = tierOf(1, ACCENT).color;
+
+    if (!ready) return <BlankScreen />;
 
     // クイズ画面: 見出し → 問題欄 → 仕切り線 → カードの位置を全ラウンドでそろえる（RoundStage。2026-10-22）
     if (view === 'quiz') {

@@ -1,49 +1,15 @@
-import { Socket } from "socket.io-client";
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { Player, ThirdRoundCourse, SemifinalState, SemifinalTimer, SemifinalView } from "@/lib/types";
-import { DEFAULT_SEMIFINAL_STATE } from "@/lib/types";
-import { getSemifinalSeats, SET_TIME_LIMIT_SECONDS } from "@/lib/semifinal";
-import {
-    getActiveSortedByPoint, getSemifinalSetStage, planSemifinalJudgement, findSemifinalCurrentSet, type SemifinalJudgeStep,
-} from "@/lib/semifinalScoring";
-import { getPlayoffProgress, addPlayoffAction, undoPlayoffAction } from "@/lib/semifinalPlayoff";
-import { buildAnnouncePlan, ANNOUNCE_START_DELAY_MS } from "@/lib/semifinalAnnounce";
-import type { PoolQuestion } from "@/lib/questionPool";
-import {
-    MANUAL_LABEL_STYLE, STAT_CARD_STYLE, STAT_LABEL_STYLE,
-    manualPanelStyle, manualBtnStyle, manualBtnTextStyle, dangerBtnStyle, neutralBtnStyle,
-    DANGER_BTN_TEXT, NEUTRAL_BTN_TEXT, primaryButtonStyle,
-} from "./adminCyberStyles";
-import {
-    SemifinalTimerCard, SemifinalStandings, ReviewRangeForm, ReviewPreview, PointsForm, PlayoffPanel, parsePointInput, allPointsValid,
-} from "./AdminSemifinalParts";
-import { getIntroOrder, getLineupOrder, lineupTotalMs, displayNickname } from "@/lib/semifinalProfile";
-import { useSemifinalProfiles, PrepPanel, IntroPanel, LineupPanel, FinishPanel } from "./AdminSemifinalPrep";
-import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
-import { useMainCover } from "../useMainCover";
-import { coverBlocksRound } from "@/lib/mainCover";
-import { useQuestionDisplay, AdminQuestionPanel } from "./AdminQuestionPanel";
-
-type Props = {
-    socket: Socket | null;
-}
-
-/** 振り返り1ページの問題数（2026-10-10 ユーザー決定） */
-const REVIEW_PAGE_SIZE = 3;
-/** 1本道ボタンの連打防止（Extra Round と同じ。ボタンが同じ位置で入れ替わるため） */
-const CLICK_GUARD_MS = 800;
-
-const VIEW_LABELS: Record<SemifinalView, string> = {
-    standby: '準備', intro: '進出者紹介', lineup: '選手カード表示', quiz: 'クイズ', review: '振り返り', tally: '得点集計', results: '点数発表', playoff: 'サドンデス',
-};
-/** 手動操作で切り替えられる Main 表示（サドンデスは判定からだけ始める） */
-const MANUAL_VIEWS: SemifinalView[] = ['standby', 'intro', 'lineup', 'quiz', 'review', 'tally', 'results'];
-
-function nameList(players: Player[], ids: number[]): string {
-    return ids.map(id => players.find(p => p.id === id)?.name ?? `#${id}`).join('、');
-}
-
 // 準決勝: 3セット制タイムレース Nine Hundred の管理画面（設計メモ 6章）。
+// 2026-11-05: 運営コンソール（console/）に載せ替え。2nd / 3rd Round と同じ枠で、1440×900 の1画面に収める。
+//   上のバー … Main に出ている画面・タイマー・戻る・Undo（直前の操作名）・次の操作（1本道）
+//   作業面   … 準備（写真・二つ名）／進出者紹介／選手カード表示／クイズ／振り返り／得点集計／点数発表／サドンデス
+//   右の列   … 開始番号・操作の記録
+//   引き出し … 「表示の切り替え」（セット・Main 表示）と「データ修正」（タイマー・結果リセット）
+// 進行・判定・Undo・リセットの処理と呼ぶ API は、載せ替え前と同じ。
+// 同時に、2nd / 3rd Round と同じ堅牢化を入れた（2026-11-04 の docs/robust-flow-design.md）:
+//   ・得点確定・判定・Undo・リセットは同時に1つだけ（useSingleFlight）。応答待ちの押し直しで二重に効かない
+//   ・Main が待機画面・ブランクで覆っている間は採点しない
+//   ・画面を開いた時・つなぎ直した時に、進行状態・選手・コースを取り直す
+//   ・失敗は画面の上の通知（notify）で知らせる
 //
 // 始まりの流れ（2026-10-15 追加）: 準備（写真・二つ名の登録）→ 進出者紹介（1人ずつ 二つ名 → プロフィール）
 // → 選手カード表示（Main の演出が終わるまで待つ）→ 第1セットのクイズ画面。
@@ -54,10 +20,62 @@ function nameList(players: Player[], ids: number[]): string {
 //   → 得点集計（各選手の得点を入力して確定）→ 点数発表（Main のポイントバー演出）
 //   → 勝ち抜け判定 → 敗退判定（それぞれ同点ならサドンデス）→ 次のセットのクイズ画面。
 // 「サドンデス」は 2026-10-15 に「プレーオフ」から呼び名を変えた（コード上の名前は playoff のまま）。
-// 進行は上の1本道ボタンだけで完結し、直接切り替え・Undo は「手動操作」に退避する（他ラウンドと同じ）。
 //
 // 勝ち抜け・失格・ポイントは DB、表示の段階・振り返り範囲・サドンデスの進行はサーバのメモリ
 // （server/SemifinalHandler.js）が持つ。「判定がどこまで進んだか」は DB から導く（getSemifinalSetStage）。
+import { Socket } from "socket.io-client";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import type { Player, ThirdRoundCourse, SemifinalState, SemifinalTimer, SemifinalView } from "@/lib/types";
+import { DEFAULT_SEMIFINAL_STATE } from "@/lib/types";
+import { getSemifinalSeats, SET_TIME_LIMIT_SECONDS } from "@/lib/semifinal";
+import {
+    getActiveSortedByPoint, getSemifinalSetStage, planSemifinalJudgement, findSemifinalCurrentSet, type SemifinalJudgeStep,
+} from "@/lib/semifinalScoring";
+import { getPlayoffProgress, addPlayoffAction, undoPlayoffAction } from "@/lib/semifinalPlayoff";
+import { buildAnnouncePlan, ANNOUNCE_START_DELAY_MS } from "@/lib/semifinalAnnounce";
+import type { PoolQuestion } from "@/lib/questionPool";
+import { getIntroOrder, getLineupOrder, lineupTotalMs, displayNickname } from "@/lib/semifinalProfile";
+import { notify, errorText } from "@/lib/adminNotice";
+import { coverBlocksRound, describeCover } from "@/lib/mainCover";
+import { StandingsRow, RangeForm, ReviewList, PlayoffRow, IntroView, LineupView, parsePointInput, allPointsValid } from "./AdminSemifinalParts";
+import { useSemifinalProfiles, PrepPanel } from "./AdminSemifinalPrep";
+import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { useQuestionDisplay } from "./AdminQuestionPanel";
+import { ConsoleFrame, WorkHead, MetaItem, Drawer, DrawerGroup } from "./console/ConsoleFrame";
+import { QuestionStrip } from "./console/QuestionStrip";
+import { ConsoleSide } from "./console/ConsoleSide";
+import { TimerChip } from "./console/TimerChip";
+import { useActionLog } from "./console/useActionLog";
+import styles from "./console/console.module.css";
+import { useMainCover } from "../useMainCover";
+import { coverStartPrimary, CoverButtons } from "./MainCoverControls";
+import { useSocketSync } from "../useSocketSync";
+import { useSingleFlight } from "../useSingleFlight";
+
+type Props = {
+    socket: Socket | null;
+}
+
+/** 振り返り1ページの問題数（2026-10-10 ユーザー決定） */
+const REVIEW_PAGE_SIZE = 3;
+/** 戻るボタンの連打防止（押すたびに前の画面へ進むため。1本道ボタンは ConsoleFrame 側で止める） */
+const CLICK_GUARD_MS = 800;
+
+const VIEW_LABELS: Record<SemifinalView, string> = {
+    standby: '準備', intro: '進出者紹介', lineup: '選手カード表示', quiz: 'クイズ', review: '振り返り', tally: '得点集計', results: '点数発表', playoff: 'サドンデス',
+};
+/** 手動操作で切り替えられる Main 表示（サドンデスは判定からだけ始める） */
+const MANUAL_VIEWS: SemifinalView[] = ['standby', 'intro', 'lineup', 'quiz', 'review', 'tally', 'results'];
+/** タイマーを出さない（セットの進行が始まる前の）表示 */
+const OPENING_VIEWS: SemifinalView[] = ['standby', 'intro', 'lineup'];
+
+/** 写真の切り抜きなど、部品から通知を出すとき用。毎回同じ関数にしておく（部品の effect が再実行されないように） */
+const notifyError = (message: string) => notify(message, 'error');
+
+function nameList(players: Player[], ids: number[]): string {
+    return ids.map(id => players.find(p => p.id === id)?.name ?? `#${id}`).join('、');
+}
+
 export default function AdminSemifinal(props: Props) {
     const { socket } = props;
 
@@ -67,8 +85,12 @@ export default function AdminSemifinal(props: Props) {
     const [receivedState, setState] = useState<SemifinalState | null>(null);
     const state = receivedState ?? DEFAULT_SEMIFINAL_STATE;
     const [timer, setTimer] = useState<SemifinalTimer>({ remainings: {}, runningSet: null });
-    const [isBusy, setIsBusy] = useState(false);
-    const [errorMessage, setErrorMessage] = useState("");
+    // 得点確定・判定・Undo・リセットは同時に1つだけ走らせる（応答待ちの押し直しで二重に効かない。2026-11-05）
+    const flight = useSingleFlight();
+    // 開いている引き出し（表示の切り替え／データ修正）
+    const [drawer, setDrawer] = useState<'view' | 'data' | null>(null);
+    // 操作の記録（この画面の中だけ。Undo ボタンの説明にも使う）
+    const actionLog = useActionLog();
 
     // 振り返り範囲の入力（文字列のまま持ち、押した時点で検証する）
     const [rangeFrom, setRangeFrom] = useState("");
@@ -103,7 +125,7 @@ export default function AdminSemifinal(props: Props) {
     // 各ラウンドの状況（2026-10-22。「Final へ ▶」・Undo の制限・リセットの確認文に使う）
     const progress = useRoundProgress();
     // Main を覆う表示（待機画面・ブランク。2026-11-04）
-    const [cover] = useMainCover(socket);
+    const [cover, setCover, coverControls] = useMainCover(socket);
 
     const seats = getSemifinalSeats(players, courses);
     const entrants = seats.map(s => s.player);
@@ -116,13 +138,21 @@ export default function AdminSemifinal(props: Props) {
         lineupCountRef.current = lineupOrder.length;
     });
 
+    // 進行状態・タイマーは、この画面を開いた時・つなぎ直した時に必ず取り直す（server/SemifinalHandler.js）。
+    // 接続直後の配信はこの画面が無いうちに届いて失われるため
+    useSocketSync(socket, ['request_semifinal_sync']);
+
     useEffect(() => {
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        });
-        fetch('/api/thirdRound/courses').then(res => res.json()).then(data => {
-            if (data.success) setCourses(data.courses);
-        });
+        // 選手・コースは、開いた時・つなぎ直した時に読み直す（切れている間の更新の配信は受け取れていないため）
+        const loadAll = () => {
+            fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
+                if (data.success) setPlayers(data.allPlayers);
+            }).catch(err => console.error('Failed to load players', err));
+            fetch('/api/thirdRound/courses').then(res => res.json()).then(data => {
+                if (data.success) setCourses(data.courses);
+            }).catch(err => console.error('Failed to load third round courses', err));
+        };
+        loadAll();
 
         if (socket) {
             const handleStateUpdate = (next: SemifinalState) => {
@@ -147,13 +177,13 @@ export default function AdminSemifinal(props: Props) {
             socket.on("update_semifinal_state", handleStateUpdate);
             socket.on("update_semifinal_timer", handleTimerUpdate);
             socket.on("update_players", handlePlayersUpdate);
-            // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で取り直す
-            socket.emit("request_semifinal_sync");
+            socket.io.on("reconnect", loadAll);
 
             return () => {
                 socket.off("update_semifinal_state", handleStateUpdate);
                 socket.off("update_semifinal_timer", handleTimerUpdate);
                 socket.off("update_players", handlePlayersUpdate);
+                socket.io.off("reconnect", loadAll);
             };
         }
     }, [socket]);
@@ -194,8 +224,8 @@ export default function AdminSemifinal(props: Props) {
         fetch(`/api/questions?from=${pageFrom}&to=${pageTo}`).then(res => res.json()).then(data => {
             if (cancelled) return;
             if (data.success) setReviewQuestions(data.questions);
-            else setErrorMessage(data.error || '問題を読み込めません');
-        }).catch(() => { if (!cancelled) setErrorMessage('通信に失敗しました'); });
+            else notify(data.error || '問題を読み込めません', 'error');
+        }).catch(() => { if (!cancelled) notify('通信に失敗しました。振り返りの問題を読み込めません。', 'error'); });
         return () => { cancelled = true; };
     }, [hasRange, state.view, pageFrom, pageTo]);
 
@@ -225,13 +255,14 @@ export default function AdminSemifinal(props: Props) {
         if (socket) socket.emit('change_semifinal_timer', { action });
     };
 
+    /** 得点・判定の API を呼ぶ。成功したら選手を配って新しい選手一覧を返す。失敗は通知して null（通信の失敗は投げる） */
     const postScore = async (body: Record<string, unknown>): Promise<Player[] | null> => {
         const res = await fetch('/api/semifinal/updateScore', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
         const data = await res.json();
         if (!data.success) {
-            setErrorMessage(data.error || '更新に失敗しました');
+            notify(data.error || '更新に失敗しました', 'error');
             return null;
         }
         if (socket) socket.emit('broadcast_scores', data.allPlayers);
@@ -239,42 +270,37 @@ export default function AdminSemifinal(props: Props) {
         return data.allPlayers;
     };
 
-    const goReview = async () => {
+    const goReview = () => flight.run(async () => {
         const from = Number(rangeFrom.trim());
         const to = Number(rangeTo.trim());
-        setErrorMessage("");
-        setIsBusy(true);
         try {
             const res = await fetch(`/api/questions?from=${from}&to=${to}`);
             const data = await res.json();
             if (!data.success) {
-                setErrorMessage(data.error || '問題を読み込めません');
+                notify(data.error || '問題を読み込めません', 'error');
                 return;
             }
             changeState({ reviewRange: { from, to }, view: 'review' });
-        } catch {
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+        } catch (error) {
+            notify(errorText(error, '通信に失敗しました。振り返りには進んでいません。'), 'error');
         }
-    };
+    });
 
-    const submitPoints = async () => {
+    const submitPoints = () => flight.run(async () => {
         const entries = activeInSeatOrder.map(p => ({ playerId: p.id, delta: parsePointInput(pointInputs[p.id] ?? '') }));
         if (entries.some(e => e.delta === null)) return;
         const summary = activeInSeatOrder.map((p, i) => `${p.name}: ${entries[i].delta! > 0 ? '+' : ''}${entries[i].delta}`).join('\n');
         if (!window.confirm(`第${set}セットの得点を確定しますか？\n\n${summary}`)) return;
-        setErrorMessage("");
-        setIsBusy(true);
         try {
             const updated = await postScore({ action: 'points', set, entries });
-            if (updated) changeState({ pointsEntered: true });
-        } catch {
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            if (updated) {
+                changeState({ pointsEntered: true });
+                actionLog.add({ who: '', what: `第${set}セット 得点確定`, tone: 'other', scope: 'semifinal' });
+            }
+        } catch (error) {
+            notify(errorText(error, '通信に失敗しました。得点は反映されていないかもしれません。画面の点数を確かめてからやり直してください。'), 'error');
         }
-    };
+    });
 
     const announce = () => {
         if (socket) socket.emit('announce_semifinal_results', { set });
@@ -284,10 +310,10 @@ export default function AdminSemifinal(props: Props) {
     // 判定。2026-10-17 から勝ち抜け（advance）と敗退（eliminate）を別のボタンで1つずつ行う。
     // planSemifinalJudgement は確定できるところまで続けて組み立てるので、今回の目的の手順だけを使う。
     // 同点ならサドンデスを始め、サドンデス後の「結果を確定」では playoffResult を渡して確定する
-    const judge = async (purpose: 'advance' | 'eliminate', playoffResult?: { purpose: 'advance' | 'eliminate'; chosenIds: number[] }) => {
+    const judge = (purpose: 'advance' | 'eliminate', playoffResult?: { purpose: 'advance' | 'eliminate'; chosenIds: number[] }) => flight.run(async () => {
         const plan = planSemifinalJudgement(entrants, set, playoffResult);
         if (plan.error) {
-            setErrorMessage(plan.error);
+            notify(plan.error, 'error');
             return;
         }
         const action = purpose === 'advance' ? 'judgeAdvance' : 'judgeEliminate';
@@ -297,24 +323,21 @@ export default function AdminSemifinal(props: Props) {
         const describe = (step: SemifinalJudgeStep) => `${label}: ${nameList(entrants, step.playerIds)}`;
         if (steps.length > 0 && !window.confirm(`${label}を確定しますか？\n\n${steps.map(describe).join('\n')}`)) return;
 
-        setErrorMessage("");
-        setIsBusy(true);
         try {
             for (const step of steps) {
                 const updated = await postScore({ action: step.action, set, chosenIds: step.chosenIds });
                 if (!updated) return;
+                actionLog.add({ who: nameList(entrants, step.playerIds), what: `${label}を確定`, tone: purpose === 'advance' ? 'ok' : 'ng', scope: 'semifinal' });
             }
             if (playoff) {
                 changeState({ playoff: { ...playoff, set, actions: [] }, view: 'playoff' });
             } else if (state.playoff) {
                 changeState({ playoff: null, view: 'results' });
             }
-        } catch {
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+        } catch (error) {
+            notify(errorText(error, '通信に失敗しました。判定は途中までしか反映されていないかもしれません。画面の勝ち抜け・敗退を確かめてください。'), 'error');
         }
-    };
+    });
 
     // サドンデスの問題表示（2026-10-30 追加。項目17）。正解・誤答・スルーで、その問題を Main に出して次の問題へ進む。
     // 番号はラウンド（semifinal）で1つなので、セットをまたいでも続きから進む。
@@ -326,43 +349,59 @@ export default function AdminSemifinal(props: Props) {
 
     const markPlayoff = (playerId: number, action: 'correct' | 'wrong') => {
         if (!state.playoff) return;
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のため採点できません。上のバーの「○○を始める ▶」で画面を出してから採点してください。', 'error');
+            return;
+        }
         const next = addPlayoffAction(state.playoff, playerId, action);
         if (!next) return;
         changeState({ playoff: next });
         // 採点できたら、その問題を Main に出して次の問題へ（Undo の履歴は playoff.actions に積まれる）
         finishQuestion(playoffScope, true);
+        actionLog.add({
+            who: players.find(p => p.id === playerId)?.name ?? '',
+            what: action === 'correct' ? 'サドンデス 正解' : 'サドンデス 誤答',
+            tone: action === 'correct' ? 'ok' : 'ng', scope: playoffScope,
+        });
     };
     // スルー: 誰も解答しなかった。サドンデスの記録は変えず、問題だけ進める
     const throughPlayoff = () => {
         if (!state.playoff) return;
+        if (coverBlocksRound(cover)) {
+            notify('Main が待機中のためスルーできません。上のバーの「○○を始める ▶」で画面を出してからにしてください。', 'error');
+            return;
+        }
         finishQuestion(playoffScope, false);
+        actionLog.add({ who: '', what: 'スルー', tone: 'through', scope: playoffScope });
     };
     // サドンデスの Undo（項目15）。2026-10-30 から問題も1つ戻す（直前がスルーなら問題だけ戻す。undoWithQuestion）
     const undoPlayoff = () => {
         const playoff = state.playoff;
         if (!playoff) return;
-        void undoWithQuestion(playoffScope, async () => {
-            const next = undoPlayoffAction(playoff);
-            if (!next) return false;
-            changeState({ playoff: next });
-            return true;
+        void flight.run(async () => {
+            const undone = await undoWithQuestion(playoffScope, async () => {
+                const next = undoPlayoffAction(playoff);
+                if (!next) return false;
+                changeState({ playoff: next });
+                return true;
+            });
+            if (undone) actionLog.markUndone(playoffScope);
         });
     };
 
     // Undo。判定前に戻したのは「得点の反映」なので、入力済みを取り消して振り返りに戻す
-    // 得点を確定した直後に戻したときは、得点集計（tally）に戻って入れ直せるようにする（入力欄の値は残す）
-    const handleUndo = async () => {
+    // 得点を確定した直後に戻したときは、得点集計（tally）に戻って入れ直せるようにする（入力欄の値は残す）。
+    // 取り消せたら true
+    const undoDb = async (): Promise<boolean> => {
         // Final が始まっていたら Undo しない（提案B）
-        if (blockUndoIfLaterStarted(progress, 'semifinal')) return;
+        if (blockUndoIfLaterStarted(progress, 'semifinal')) return false;
         const stageBefore = stage;
-        setErrorMessage("");
-        setIsBusy(true);
         try {
             const res = await fetch('/api/semifinal/undo', { method: 'POST' });
             const data = await res.json();
             if (!data.success) {
-                setErrorMessage(data.error || 'Undo に失敗しました');
-                return;
+                notify(data.error || 'Undo に失敗しました', 'error');
+                return false;
             }
             if (socket) socket.emit('broadcast_scores', data.allPlayers);
             setPlayers(data.allPlayers);
@@ -371,56 +410,62 @@ export default function AdminSemifinal(props: Props) {
             } else if (state.playoff) {
                 changeState({ playoff: null, view: 'results' });
             }
-        } catch {
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
+            actionLog.markUndone('semifinal');
+            return true;
+        } catch (error) {
+            notify(errorText(error, '通信に失敗しました。Undo は反映されていません。'), 'error');
+            return false;
         }
     };
+    const handleUndo = () => flight.run(undoDb);
     // 判定前で、このセットの得点がまだ入っていないときの Undo は前のセットを戻してしまうので押せない
-    const canUndo = !isBusy && stage !== 'mismatch' && !(stage === 'beforeJudge' && !state.pointsEntered);
+    const canUndo = stage !== 'mismatch' && !(stage === 'beforeJudge' && !state.pointsEntered);
 
-    // サドンデス中は、手動操作の Undo もサドンデスの1手を戻す（2026-10-29 ユーザー承認）。
+    // サドンデス中は、Undo もサドンデスの1手を戻す（2026-10-29 ユーザー承認）。
     // サドンデスの途中経過は DB に書かないので、DB の Undo を押すとサドンデスより前の判定・得点が
     // 戻ってしまう（そのうえサドンデスが中止になり点数発表に戻っていた）。サドンデス中は DB の Undo を呼ばない
     const inPlayoff = state.playoff !== null;
     // 取り消す採点がある、または直前がこのサドンデスのスルーのときに Undo できる
-    const canUndoPlayoff = !isBusy && !!playoffProgress && (playoffProgress.effectiveActions.length > 0 || lastIsThrough);
+    const canUndoPlayoff = !!playoffProgress && (playoffProgress.effectiveActions.length > 0 || lastIsThrough);
 
     // 得点を入力し直す（2026-10-17 変更）。以前は「入力済み」の印を外すだけで、入れ直すと得点が
     // 二重に加算されるおそれがあった。直前の得点入力を Undo で取り消してから得点集計に戻す
-    const canReenterPoints = !isBusy && stage === 'beforeJudge' && state.pointsEntered;
-    const handleReenterPoints = async () => {
+    const canReenterPoints = stage === 'beforeJudge' && state.pointsEntered;
+    const handleReenterPoints = () => {
         if (!window.confirm(`第${set}セットの得点の確定を取り消して、入力し直しますか？`)) return;
-        await handleUndo();
-        changeState({ view: 'tally' });
+        void flight.run(async () => {
+            if (await undoDb()) {
+                changeState({ view: 'tally' });
+                setDrawer(null);
+            }
+        });
     };
 
     // 結果リセット（2026-10-17 追加。2nd / 3rd / Extra Round と同じ位置づけ）。
     // DB（ポイント・勝ち抜け／敗退・Undo 履歴）を API で戻し、進行（セット・タイマーなど）をサーバで戻す。
     // 二つ名・写真は消さない。2026-10-22: Final の結果も一緒にリセットする（一本道の前提）
-    const handleReset = async () => {
+    const handleReset = () => {
         if (!window.confirm(`Semi-Final の結果（ポイント・勝ち抜け・敗退）をリセットしますか？\n第1セットのクイズ画面に戻り、タイマーも 5:00 に戻ります。（元に戻せません）${cascadeNotice(progress, 'final', false)}`)) return;
-        setErrorMessage("");
-        setIsBusy(true);
-        try {
-            const res = await fetch('/api/semifinal/reset', { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok || !data.success) {
-                setErrorMessage(data.error || 'リセットに失敗しました');
-                return;
+        void flight.run(async () => {
+            try {
+                const res = await fetch('/api/semifinal/reset', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    notify(data.error || 'リセットに失敗しました', 'error');
+                    return;
+                }
+                // Semi-Final・Final の進行状態も戻す（サーバの reset_round_progress）
+                broadcastAfterReset(socket, 'semifinal', data);
+                setPlayers(data.allPlayers);
+                setPointInputs({});
+                setRangeFrom("");
+                setRangeTo("");
+                actionLog.add({ who: '', what: 'Semi-Final をリセット', tone: 'other', scope: 'reset' });
+                setDrawer(null);
+            } catch (error) {
+                notify(errorText(error, '通信に失敗しました。リセットは反映されていません。'), 'error');
             }
-            // Semi-Final・Final の進行状態も戻す（サーバの reset_round_progress）
-            broadcastAfterReset(socket, 'semifinal', data);
-            setPlayers(data.allPlayers);
-            setPointInputs({});
-            setRangeFrom("");
-            setRangeTo("");
-        } catch {
-            setErrorMessage('通信に失敗しました');
-        } finally {
-            setIsBusy(false);
-        }
+        });
     };
 
     const handleTimerReset = () => {
@@ -457,7 +502,7 @@ export default function AdminSemifinal(props: Props) {
     };
 
     // ---- 1本道ボタン ----
-    let statusLabel = `SEMIFINAL · SET ${set} · ${VIEW_LABELS[state.view]}`;
+    let onAirDetail = VIEW_LABELS[state.view];
     let primaryLabel = '';
     let primaryAction: (() => void) | null = null;
     let backLabel: string | null = null;
@@ -473,14 +518,13 @@ export default function AdminSemifinal(props: Props) {
         if (introOrder.length > 0) primaryAction = () => changeState({ view: 'intro', introIndex: 0, introStep: firstStepOf(0) });
     } else if (state.view === 'intro') {
         const i = state.introIndex;
-        statusLabel = `SEMIFINAL · 進出者紹介 · ${i + 1} / ${introOrder.length} · ${state.introStep === 'nickname' ? '二つ名' : 'プロフィール'}`;
+        onAirDetail = `進出者紹介 ${i + 1} / ${introOrder.length}（${state.introStep === 'nickname' ? '二つ名' : 'プロフィール'}）`;
         if (state.introStep === 'nickname') primaryLabel = '写真・プロフィールを表示 ▶';
         else primaryLabel = i < introOrder.length - 1 ? `${i + 2}人目へ ▶` : '選手カードを表示 ▶';
         primaryAction = introNext;
         backLabel = '◀ 戻る';
         backAction = introBack;
     } else if (state.view === 'lineup') {
-        statusLabel = 'SEMIFINAL · 選手カード表示';
         if (!lineupDone) {
             primaryLabel = '表示中…';
         } else {
@@ -491,13 +535,13 @@ export default function AdminSemifinal(props: Props) {
         backAction = () => changeState({ view: 'intro', introIndex: Math.max(0, introOrder.length - 1), introStep: 'profile' });
     } else if (stage === 'mismatch') {
         // サーバ再起動などで、表示中のセットと DB の進み具合が合わない。DB から正しいセットを示す
-        statusLabel = `SEMIFINAL · SET ${set}`;
+        onAirDetail = 'セットの進み具合が合いません';
         const suggested = findSemifinalCurrentSet(entrants);
         if (suggested !== null && suggested !== set) {
             primaryLabel = `第${suggested}セットへ ▶`;
             primaryAction = () => changeState({ set: suggested });
         } else {
-            primaryLabel = '手動操作でセットを選び直してください';
+            primaryLabel = '「表示の切り替え」でセットを選び直してください';
         }
     } else if (stage === 'complete') {
         // ⑨ このセットの勝ち抜け・敗退が確定。次のセットのクイズ画面へ（サーバが表示を quiz にする）
@@ -508,7 +552,7 @@ export default function AdminSemifinal(props: Props) {
             // 決勝へはモードごと切り替える（Admin・Main とも決勝の画面になる）。
             // 決勝は待機画面から始めるので、先に決勝の表示を待機に戻しておく（2026-10-17）
             // 2026-10-22: ボタン名は他のラウンドと同じ「Final へ ▶」（提案A）
-            statusLabel = 'SEMIFINAL · 終了';
+            onAirDetail = '終了';
             ({ label: primaryLabel, action: primaryAction } = nextRoundPrimary(socket, progress, 'semifinal',
                 () => socket?.emit('change_final_state', { view: 'standby', introIndex: 0 })));
         }
@@ -530,16 +574,16 @@ export default function AdminSemifinal(props: Props) {
         if (isTimerRunning) {
             primaryLabel = '計測中...';
         } else if (remaining > 0) {
-            statusLabel = `SEMIFINAL · SET ${set} · クイズ`;
             primaryLabel = remaining === SET_TIME_LIMIT_SECONDS ? 'タイマー START ▶' : 'タイマー再開 ▶';
             primaryAction = () => changeTimer('start');
         } else {
-            statusLabel = `SEMIFINAL · SET ${set} · タイムアップ`;
+            onAirDetail = 'タイムアップ';
             primaryLabel = '問題振り返りへ ▶';
             if (rangeReady) primaryAction = () => { void goReview(); };
         }
     } else if (state.view === 'review') {
         // ④ 振り返り。最後のページまで見たら得点集計へ
+        onAirDetail = `振り返り ${page + 1} / ${Math.max(1, pageCount)}`;
         if (!isLastPage) {
             primaryLabel = '次の3問 ▶';
             primaryAction = () => changeState({ reviewPage: page + 1 });
@@ -567,227 +611,209 @@ export default function AdminSemifinal(props: Props) {
         if (!announceDone) {
             primaryLabel = '発表中...';
         } else if (!state.pointsEntered) {
-            primaryLabel = '得点が未確定です（手動操作で得点集計へ）';
+            primaryLabel = '得点が未確定です（「表示の切り替え」で得点集計へ）';
         } else {
             primaryLabel = '勝ち抜け判定 ▶';
             primaryAction = () => { void judge('advance'); };
         }
     } else {
-        primaryLabel = '手動操作で表示を選び直してください';
+        primaryLabel = '「表示の切り替え」で表示を選び直してください';
     }
 
-    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、裏で画面を進めないよう進行ボタンを止める（2026-11-04）
-    if (coverBlocksRound(cover)) {
+    // 待機画面・ブランクで「これから始まる場面」を覆っている間は、進行ボタンを覆いの操作にする
+    // （待機画面を消す → ○○を始める。裏で画面を進めてしまわないように。2026-11-04）
+    const coverStart = coverStartPrimary(cover, setCover);
+    if (coverStart) {
+        primaryLabel = coverStart.label;
+        primaryAction = coverStart.action;
+    } else if (coverBlocksRound(cover)) {
         primaryLabel = 'Main は待機中（上の帯から進めてください）';
         primaryAction = null;
     }
+    // 処理中は次の操作を受け付けない
+    if (flight.pending) primaryAction = null;
 
-    return (
-        <div className="flex flex-col gap-4 bg-white dark:bg-zinc-800 p-6 rounded-xl shadow-md w-full max-w-[1900px]">
-            <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 border-b pb-4 border-zinc-200 dark:border-zinc-700">
-                Semifinal 管理画面
-            </h2>
+    // ---- 採点面の右上の道具（引き出しを開く） ----
+    const tools = (
+        <>
+            <button type="button" className={drawer === 'view' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'view' ? null : 'view')}>表示の切り替え</button>
+            <button type="button" className={drawer === 'data' ? styles.btnOn : styles.btn} onClick={() => setDrawer(drawer === 'data' ? null : 'data')}>データ修正</button>
+        </>
+    );
 
-            {errorMessage && (
-                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-sm font-bold">
-                    {errorMessage}
-                </div>
-            )}
-
-            <div className="flex flex-col items-center gap-3 bg-black py-5 rounded-none">
-                <div className="text-xs tracking-[0.3em] text-[#5C7EA6] font-mono">{statusLabel}</div>
-                <div className="flex flex-wrap items-center justify-center gap-4 px-4">
-                    {backLabel && (
-                        <button onClick={() => runGuarded(backAction)} disabled={isBusy} style={{ ...neutralBtnStyle(), padding: '18px 28px' }}>
-                            <span style={{ ...NEUTRAL_BTN_TEXT, fontSize: 16 }}>{backLabel}</span>
+    // ---- 引き出し ----
+    const drawerView = drawer === 'view' && (
+        <Drawer title="表示の切り替え" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="セット">
+                {[1, 2, 3].map(s => (
+                    <button key={s} type="button" className={set === s ? styles.btnOn : styles.btn} onClick={() => changeState({ set: s })}>第{s}セット</button>
+                ))}
+            </DrawerGroup>
+            <DrawerGroup label="Main 表示">
+                {MANUAL_VIEWS.map(v => {
+                    const blocked = (v === 'review' || v === 'tally') && !range;
+                    return (
+                        <button key={v} type="button" className={state.view === v ? styles.btnOn : styles.btn}
+                            onClick={() => changeState({ view: v })} disabled={blocked} style={blocked ? { opacity: .35 } : undefined}>
+                            {VIEW_LABELS[v]}
                         </button>
-                    )}
-                    <button onClick={() => runGuarded(primaryAction)} disabled={!primaryAction || isBusy} style={primaryButtonStyle(!!primaryAction && !isBusy)}>
-                        {primaryLabel}
+                    );
+                })}
+            </DrawerGroup>
+            <DrawerGroup label="やり直し" note="得点の確定を取り消して入力し直すときと、サドンデスをやめるときに使います。">
+                <button type="button" className={styles.btn} onClick={handleReenterPoints} disabled={flight.pending || !canReenterPoints}>得点を入力し直す</button>
+                {state.playoff && (
+                    <button type="button" className={styles.btn}
+                        onClick={() => { if (window.confirm('サドンデスを中止しますか？')) { changeState({ playoff: null }); setDrawer(null); } }}>
+                        サドンデスを中止
                     </button>
+                )}
+            </DrawerGroup>
+            <div className={styles.note}>通常は使いません。進行は上のバーの右端のボタンで行います。</div>
+        </Drawer>
+    );
+    const drawerData = drawer === 'data' && (
+        <Drawer title="データ修正" onClose={() => setDrawer(null)}>
+            <DrawerGroup label="タイマー" note="編集すると時計は止まります。疑義で時間を戻すときや、開始を忘れたときに使います。">
+                <button type="button" className={styles.btn} onClick={handleTimerReset}>RESET（5:00）</button>
+                {!isEditingTimer ? (
+                    <button type="button" className={styles.btn} onClick={handleTimerEditStart}>EDIT</button>
+                ) : (
+                    <>
+                        <input type="number" min={0} max={5} value={editMinutes} aria-label="分" className={styles.input} style={{ width: 64 }}
+                            onChange={e => setEditMinutes(Math.max(0, Number(e.target.value) || 0))} />
+                        <span className={styles.note}>分</span>
+                        <input type="number" min={0} max={59} value={editSeconds} aria-label="秒" className={styles.input} style={{ width: 64 }}
+                            onChange={e => setEditSeconds(Math.max(0, Number(e.target.value) || 0))} />
+                        <span className={styles.note}>秒</span>
+                        <button type="button" className={styles.btnOn} onClick={handleTimerEditSave}>SAVE</button>
+                        <button type="button" className={styles.btn} onClick={() => setIsEditingTimer(false)}>CANCEL</button>
+                    </>
+                )}
+            </DrawerGroup>
+            <DrawerGroup label="Semi-Final の結果" note="ポイント・勝ち抜け・敗退と Undo の履歴を消して、第1セットのクイズ画面に戻します。写真・二つ名は消しません。元に戻せません。">
+                <button type="button" className={styles.btnDanger} onClick={handleReset} disabled={flight.pending}>Semi-Final の結果をリセット</button>
+            </DrawerGroup>
+            <div className={styles.note}>1手だけ戻すときは、上のバーの Undo を使ってください。</div>
+        </Drawer>
+    );
+
+    // ---- 作業面 ----
+    const opening = OPENING_VIEWS.includes(state.view);
+    const showRangeForm = state.view === 'quiz' && stage === 'beforeJudge' && remaining === 0 && !isTimerRunning;
+    let work: ReactNode;
+    if (state.view === 'standby') {
+        // 準備: 写真・二つ名の登録（登録の画面は載せ替え前のまま。大会前に済ませる作業のため）
+        work = (
+            <>
+                <WorkHead meta={<MetaItem label="進出者" value={`${introOrder.length}名`} />} tools={tools} />
+                <div className={styles.scrollBox} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <PrepPanel socket={socket} introOrder={introOrder} revived={revived} profiles={profiles} onError={notifyError} />
                 </div>
-            </div>
-
-            <details className="group">
-                <summary
-                    className="flex cursor-pointer select-none items-center gap-[10px] bg-black px-5 py-4 [&::-webkit-details-marker]:hidden"
-                    style={{ listStyle: 'none' }}
-                >
-                    <span className="inline-block transition-transform duration-150 group-open:rotate-90" style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#7FA8D9' }}>▸</span>
-                    <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 15, letterSpacing: 3, color: '#7FA8D9' }}>手動操作</span>
-                </summary>
-                <div className="flex flex-col gap-[22px] bg-black px-5 pb-6 pt-4">
-                    <div style={{ height: 1, background: 'rgba(79,216,255,.22)', flexShrink: 0 }} />
-                    <div className="flex flex-wrap gap-[18px]">
-                        <div style={manualPanelStyle(true, 1.2)}>
-                            <div style={MANUAL_LABEL_STYLE}>セット</div>
-                            <div className="flex flex-wrap gap-[10px]">
-                                {[1, 2, 3].map(s => (
-                                    <button key={s} onClick={() => changeState({ set: s })} style={manualBtnStyle(set === s)}>
-                                        <span style={manualBtnTextStyle(set === s)}>第{s}セット</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div style={manualPanelStyle(true, 1.4)}>
-                            <div style={MANUAL_LABEL_STYLE}>Main 表示</div>
-                            <div className="flex flex-wrap gap-[10px]">
-                                {MANUAL_VIEWS.map(v => (
-                                    <button key={v} onClick={() => changeState({ view: v })} disabled={(v === 'review' || v === 'tally') && !range} style={{ ...manualBtnStyle(state.view === v), opacity: (v === 'review' || v === 'tally') && !range ? 0.35 : 1 }}>
-                                        <span style={manualBtnTextStyle(state.view === v)}>{VIEW_LABELS[v]}</span>
-                                    </button>
-                                ))}
-                                <button onClick={() => { void handleReenterPoints(); }} disabled={!canReenterPoints} style={{ ...neutralBtnStyle(), opacity: canReenterPoints ? 1 : 0.35 }}>
-                                    <span style={NEUTRAL_BTN_TEXT}>得点を入力し直す</span>
-                                </button>
-                                {state.playoff && (
-                                    <button onClick={() => { if (window.confirm('サドンデスを中止しますか？')) changeState({ playoff: null }); }} style={neutralBtnStyle()}>
-                                        <span style={NEUTRAL_BTN_TEXT}>サドンデスを中止</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                        <div style={manualPanelStyle(true, 1.6)}>
-                            <div style={MANUAL_LABEL_STYLE}>タイマー・データ操作</div>
-                            <div className="flex flex-wrap items-center gap-[10px]">
-                                <button onClick={handleTimerReset} style={neutralBtnStyle()}>
-                                    <span style={NEUTRAL_BTN_TEXT}>RESET（5:00）</span>
-                                </button>
-                                {!isEditingTimer ? (
-                                    <button onClick={handleTimerEditStart} style={neutralBtnStyle()}>
-                                        <span style={NEUTRAL_BTN_TEXT}>EDIT</span>
-                                    </button>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <input type="number" min={0} max={5} value={editMinutes} onChange={e => setEditMinutes(Math.max(0, Number(e.target.value) || 0))} className="w-16 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono" />
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 12, color: '#9FB4D6' }}>分</span>
-                                        <input type="number" min={0} max={59} value={editSeconds} onChange={e => setEditSeconds(Math.max(0, Number(e.target.value) || 0))} className="w-16 px-2 py-1.5 bg-zinc-900 border border-zinc-600 text-white text-right font-mono" />
-                                        <span style={{ fontFamily: 'Orbitron, sans-serif', fontSize: 12, color: '#9FB4D6' }}>秒</span>
-                                        <button onClick={handleTimerEditSave} style={manualBtnStyle(true)}><span style={manualBtnTextStyle(true)}>SAVE</span></button>
-                                        <button onClick={() => setIsEditingTimer(false)} style={manualBtnStyle(false)}><span style={manualBtnTextStyle(false)}>CANCEL</span></button>
-                                    </div>
-                                )}
-                                <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(79,216,255,.18)', margin: '0 4px' }} />
-                                {inPlayoff ? (
-                                    <>
-                                        <button onClick={undoPlayoff} disabled={!canUndoPlayoff} style={{ ...dangerBtnStyle(), opacity: canUndoPlayoff ? 1 : 0.35 }}>
-                                            <span style={DANGER_BTN_TEXT}>Undo（サドンデス）</span>
-                                        </button>
-                                        {!canUndoPlayoff && (
-                                            <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 12, color: '#9FB4D6' }}>
-                                                サドンデスをやめるときは「サドンデスを中止」
-                                            </span>
-                                        )}
-                                    </>
-                                ) : (
-                                    <button onClick={handleUndo} disabled={!canUndo} style={{ ...dangerBtnStyle(), opacity: canUndo ? 1 : 0.35 }}>
-                                        <span style={DANGER_BTN_TEXT}>Undo</span>
-                                    </button>
-                                )}
-                                <button onClick={() => { void handleReset(); }} disabled={isBusy} style={{ ...dangerBtnStyle(), opacity: isBusy ? 0.35 : 1 }}>
-                                    <span style={DANGER_BTN_TEXT}>Semifinal の結果をリセット</span>
-                                </button>
-                            </div>
-                        </div>
+            </>
+        );
+    } else if (state.view === 'intro') {
+        work = (
+            <>
+                <WorkHead meta={<MetaItem label="紹介" value={`${state.introIndex + 1} / ${introOrder.length}`} />} tools={tools} />
+                <IntroView introOrder={introOrder} index={state.introIndex} step={state.introStep} profiles={profiles} />
+            </>
+        );
+    } else if (state.view === 'lineup') {
+        work = (
+            <>
+                <WorkHead meta={<MetaItem label="選手" value={`${lineupOrder.length}名`} />} tools={tools} />
+                <LineupView lineupOrder={lineupOrder} revived={revived} allShown={lineupDone} />
+            </>
+        );
+    } else {
+        const meta = (
+            <>
+                <MetaItem label="セット" value={`${set} / 3`} />
+                {range && state.view !== 'quiz' && <MetaItem label="振り返り範囲" value={`No.${range.from}〜${range.to}`} />}
+                <MetaItem label="対象" value={`${activeSorted.length}名`} />
+            </>
+        );
+        let body: ReactNode;
+        if (state.view === 'review' && range) {
+            body = reviewQuestions.length > 0
+                ? <ReviewList questions={reviewQuestions} />
+                : <div className={styles.empty}>問題を読み込み中…</div>;
+        } else if (state.view === 'tally' && stage === 'beforeJudge') {
+            body = (
+                <>
+                    <StandingsRow entrants={entrants}
+                        points={{ values: pointInputs, onChange: (id, v) => setPointInputs(prev => ({ ...prev, [id]: v })), disabled: state.pointsEntered || flight.pending }} />
+                    <div className={styles.hint}>
+                        {state.pointsEntered
+                            ? `第${set}セットの得点を確定しました。上のバーの「点数発表へ」で Main に発表します。入れ直すときは「表示の切り替え」の「得点を入力し直す」。`
+                            : '勝ち抜け・敗退が決まっていない選手の得点を入れて、上のバーの「得点を確定」を押します（例: 5、-3、＋2）。'}
                     </div>
-                    <div className="flex items-center gap-[10px]">
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF3B5C', boxShadow: '0 0 8px rgba(255,59,92,.7)' }} />
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 13, letterSpacing: 1, color: '#5C7EA6' }}>
-                            通常は閉じたまま。進行は上のボタンで完結します
-                        </span>
+                </>
+            );
+        } else if (state.view === 'playoff' && state.playoff && playoffProgress) {
+            body = (
+                <>
+                    <QuestionStrip socket={socket} round="semifinal" state={questionState} />
+                    <PlayoffRow playoff={state.playoff} progress={playoffProgress} seats={seats} busy={flight.pending} onMark={markPlayoff} />
+                    <button type="button" className={styles.through} onClick={throughPlayoff} disabled={flight.pending || playoffProgress.resolved}>スルー（誰も答えなかった）</button>
+                    <div className={styles.hint}>
+                        {state.playoff.purpose === 'advance' ? '勝ち抜け' : '失格'}サドンデス（{state.playoff.purpose === 'advance' ? '勝ち抜け' : '失格'} {state.playoff.slots}名）。
+                        正解・誤答・スルーで、その問題を Main に出して次の問題へ進みます。
                     </div>
-                </div>
-            </details>
-
-            <hr className="border-zinc-200 dark:border-zinc-700" />
-
-            <div className="flex flex-col gap-5 bg-black p-[2vw]" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                {/* 始まり（準備・紹介・カード表示）と終了は専用の表示。それ以外はセットの進行 */}
-                {state.view === 'standby' && (
-                    <PrepPanel socket={socket} introOrder={introOrder} revived={revived} profiles={profiles} onError={setErrorMessage} />
-                )}
-                {state.view === 'intro' && (
-                    <IntroPanel introOrder={introOrder} index={state.introIndex} step={state.introStep} profiles={profiles} />
-                )}
-                {state.view === 'lineup' && (
-                    <LineupPanel lineupOrder={lineupOrder} revived={revived} allShown={lineupDone} />
-                )}
-                {stage === 'complete' && set === 3 && !['standby', 'intro', 'lineup'].includes(state.view) && (
-                    <FinishPanel lineupOrder={lineupOrder} />
-                )}
-                {!['standby', 'intro', 'lineup'].includes(state.view) && (<>
-                <div className="flex gap-[14px] flex-wrap">
-                    <div style={STAT_CARD_STYLE}>
-                        <div style={STAT_LABEL_STYLE}>セット</div>
-                        <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 30, color: '#F3FAFF' }}>
-                            {set} <span style={{ fontSize: 16, color: '#5C7EA6' }}>/ 3</span>
-                        </div>
+                </>
+            );
+        } else if (stage === 'complete' && set === 3) {
+            body = (
+                <>
+                    <StandingsRow entrants={lineupOrder} showSet />
+                    <div className={styles.hint}>
+                        第3セットの判定が終わりました。決勝進出者を確認して「Final へ」を押すと、Admin・Main とも決勝の画面に切り替わります。
                     </div>
-                    <SemifinalTimerCard remaining={remaining} isRunning={isTimerRunning} onStart={() => changeTimer('start')} onStop={() => changeTimer('stop')} />
-                    {/* ③ タイムアップしたら、振り返る問題の通し番号を入力する */}
-                    {state.view === 'quiz' && stage === 'beforeJudge' && remaining === 0 && !isTimerRunning && (
-                        <ReviewRangeForm from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
-                    )}
-                    {state.view !== 'quiz' && range && (
-                        <div style={STAT_CARD_STYLE}>
-                            <div style={STAT_LABEL_STYLE}>振り返り範囲</div>
-                            <div style={{ marginTop: 4, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 24, color: '#F3FAFF' }}>
-                                No.{range.from} 〜 {range.to}
-                            </div>
-                        </div>
-                    )}
-                </div>
+                </>
+            );
+        } else {
+            body = (
+                <>
+                    {showRangeForm && <RangeForm from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />}
+                    <StandingsRow entrants={entrants} />
+                </>
+            );
+        }
+        work = (
+            <>
+                <WorkHead meta={meta} tools={tools} />
+                {body}
+            </>
+        );
+    }
 
-                {state.view === 'review' && range && reviewQuestions.length > 0 && (
-                    <ReviewPreview questions={reviewQuestions} page={page} pageCount={pageCount} />
+    const undoScope = inPlayoff ? playoffScope : 'semifinal';
+    return (
+        <ConsoleFrame
+            onAir={opening && state.view === 'standby' ? 'Semi-Final' : `Semi-Final　第${set}セット`}
+            onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
+            barExtra={<>
+                {backLabel && (
+                    <button type="button" className={styles.btn} onClick={() => runGuarded(backAction)} disabled={flight.pending}>{backLabel}</button>
                 )}
-
-                {/* ⑤ 得点集計。確定後は入力欄を閉じる（入れ直しは手動操作の「得点を入力し直す」） */}
-                {stage === 'beforeJudge' && state.view === 'tally' && state.pointsEntered && (
-                    <div style={{ ...STAT_CARD_STYLE, fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 14, color: '#7FE8FF' }}>
-                        第{set}セットの得点を確定しました。上の「点数発表へ」で Main に発表します。
-                    </div>
+                {!opening && (
+                    <TimerChip remaining={remaining} isRunning={isTimerRunning} urgentAt={60}
+                        onStart={() => changeTimer('start')} onStop={() => changeTimer('stop')} />
                 )}
-                {stage === 'beforeJudge' && state.view === 'tally' && !state.pointsEntered && (
-                    <PointsForm
-                        players={activeInSeatOrder}
-                        values={pointInputs}
-                        onChange={(id, v) => setPointInputs(prev => ({ ...prev, [id]: v }))}
-                        entered={state.pointsEntered}
-                        busy={isBusy}
-                    />
-                )}
-
-                {state.view === 'playoff' && state.playoff && playoffProgress && (
-                    <PlayoffPanel
-                        playoff={state.playoff}
-                        progress={playoffProgress}
-                        seats={seats}
-                        busy={isBusy}
-                        canUndo={canUndoPlayoff}
-                        onMark={markPlayoff}
-                        onUndo={undoPlayoff}
-                    />
-                )}
-
-                {/* サドンデスのスルーと問題パネル（2026-10-30 追加。項目17）。スルーは記録を変えず問題だけ進める */}
-                {state.view === 'playoff' && state.playoff && playoffProgress && (
-                    <div className="flex flex-col gap-[10px]">
-                        <button onClick={throughPlayoff} disabled={isBusy || playoffProgress.resolved}
-                            style={{ boxSizing: 'border-box', padding: '12px 0', background: 'rgba(127,216,255,.10)', border: '1.5px solid #7FE8FF', clipPath: 'polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)', cursor: 'pointer', opacity: isBusy || playoffProgress.resolved ? 0.35 : 1 }}>
-                            <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 16, letterSpacing: 1, color: '#DFF7FF' }}>スルー</span>
-                        </button>
-                        <AdminQuestionPanel socket={socket} round="semifinal" state={questionState} />
-                    </div>
-                )}
-
-                </>)}
-
-                <div className="flex flex-col gap-[8px]">
-                    <div style={MANUAL_LABEL_STYLE}>選手（席順・累計ポイント）{activeSorted.length > 0 ? ` 対象 ${activeSorted.length}名` : ''}</div>
-                    <SemifinalStandings entrants={entrants} />
-                </div>
-            </div>
-        </div>
+                <CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />
+            </>}
+            undo={{
+                detail: actionLog.lastLabel(undoScope),
+                onClick: inPlayoff ? undoPlayoff : () => { void handleUndo(); },
+                disabled: flight.pending || (inPlayoff ? !canUndoPlayoff : !canUndo),
+            }}
+            next={{ label: primaryLabel, onClick: primaryAction }}
+            side={<ConsoleSide socket={socket} round="semifinal" state={questionState} log={actionLog.entries} />}
+        >
+            {work}
+            {drawerView}
+            {drawerData}
+        </ConsoleFrame>
     );
 }

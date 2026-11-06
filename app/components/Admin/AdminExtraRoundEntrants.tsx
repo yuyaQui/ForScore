@@ -1,19 +1,16 @@
+// First Step 通過者（Second Step 出場者、最大12名）を選ぶ作業面（運営コンソール。2026-11-05 に載せ替え）。
+// 約200名から探すため、名前・エントリーNo・学校名での絞り込みを用意する。
+// 「Second Step へ ▶」は上のバーの進行ボタンに出す。そのため、押したときの処理と名前は onActions で親へ渡す。
 import { Socket } from "socket.io-client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import type { Player } from "@/lib/types";
 import { EXTRA_ROUND_MAX_ENTRANTS } from "@/lib/extraRound";
 import { toOrdinal } from "@/lib/ordinal";
 import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
-import {
-    MANUAL_LABEL_STYLE,
-    MANUAL_PANEL_BASE,
-    STAT_CARD_STYLE,
-    STAT_LABEL_STYLE,
-    manualBtnStyle,
-    manualBtnTextStyle,
-    primaryButtonStyle,
-} from "./adminCyberStyles";
 import { useRoundProgress, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
+import { WorkHead, MetaItem } from "./console/ConsoleFrame";
+import { notify, errorText } from "@/lib/adminNotice";
+import styles from "./console/console.module.css";
 
 type Props = {
     socket: Socket | null;
@@ -21,6 +18,10 @@ type Props = {
     players: Player[];
     /** 出場者の確定が済んだ。singleWinner は「1名だけで、早押しを飛ばして敗者復活にした」場合 */
     onConfirmed: (singleWinner: boolean) => void;
+    /** 上のバーの進行ボタン（名前と、押したときの処理。押せないときは run が null）。画面を離れるときは null */
+    onActions: (action: { label: string; run: (() => void) | null } | null) => void;
+    /** 作業面の右上の道具（引き出しを開く） */
+    tools: ReactNode;
 };
 
 // ペーパー順位の昇順（未設定は末尾、同順位はエントリーナンバー順）。
@@ -31,9 +32,7 @@ function compareByPaperRank(a: Player, b: Player): number {
     return a.entryNo - b.entryNo;
 }
 
-// First Step 通過者（Second Step 出場者、最大12名）を選ぶ画面。
-// 約200名から探すため、名前・エントリーNo・学校名での絞り込みを用意する
-export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }: Props) {
+export default function AdminExtraRoundEntrants({ socket, players, onConfirmed, onActions, tools }: Props) {
     const [searchTerm, setSearchTerm] = useState("");
     // entryNo の集合で選択状態を持つ。開いた時点の DB（extraRoundSecondStep）を初期値にする。
     // 以後の update_players には追従させない。追従させると、確定前のローカルな選択が
@@ -49,7 +48,6 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
     const [saving, setSaving] = useState(false);
     // 各ラウンドの状況（2026-10-22。選び直しの確認文に後のラウンドへの影響を書く）
     const progress = useRoundProgress();
-    const [errorMessage, setErrorMessage] = useState("");
 
     // 3rd Round 通過者（thirdRoundRank > 0）は候補から外す。すでに準決勝進出が決まっている
     // 選手なので、Second Step（敗者復活）の対象にはなり得ない。ここで弾いておかないと、
@@ -83,7 +81,6 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
 
     // 12名を超えて選べないようにする（超えた状態でのチェックは受け付けない）
     const toggleEntrant = (entryNo: number) => {
-        setErrorMessage("");
         setSelectedEntryNos(prev => {
             const next = new Set(prev);
             if (next.has(entryNo)) next.delete(entryNo);
@@ -102,8 +99,7 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
     };
 
     const handleConfirm = async () => {
-        if (count === 0 || isOver) return;
-        setErrorMessage("");
+        if (count === 0 || isOver || saving) return;
 
         // 選び直していない（開いた時点と同じ）なら、データには触らずそのまま進む
         const unchanged =
@@ -146,130 +142,78 @@ export default function AdminExtraRoundEntrants({ socket, players, onConfirmed }
                 }
                 onConfirmed(!!data.singleWinner);
             } else {
-                setErrorMessage(data.error || '更新に失敗しました');
+                notify(data.error || '更新に失敗しました', 'error');
             }
         } catch (error) {
-            console.error('Extra Round entrants save failed', error);
-            setErrorMessage('通信に失敗しました');
+            notify(errorText(error, '通信に失敗しました。進出者の登録は反映されていません。'), 'error');
         } finally {
             setSaving(false);
         }
     };
 
+    // 上のバーの進行ボタン。押したときは最新の handleConfirm を呼ぶ（選択のたびに親へ関数を渡し直さないため ref 経由）
+    const confirmRef = useRef(handleConfirm);
+    useEffect(() => { confirmRef.current = handleConfirm; });
     const canConfirm = count >= 1 && !isOver && !saving;
     const confirmLabel = saving
         ? '登録中...'
+        : count === 0 ? '進出者を選んでください'
         : count === 1
             ? '1名で敗者復活を確定 ▶'
-            : 'Second Step へ ▶';
+            : `Second Step へ（${count}名） ▶`;
+    useEffect(() => {
+        onActions({ label: confirmLabel, run: canConfirm ? () => { void confirmRef.current(); } : null });
+    }, [confirmLabel, canConfirm, onActions]);
+    useEffect(() => () => onActions(null), [onActions]);
 
     return (
-        <div className="flex flex-col gap-5">
-            <div className="flex gap-4">
-                <div style={STAT_CARD_STYLE}>
-                    <div style={STAT_LABEL_STYLE}>選択数</div>
-                    <div style={{ marginTop: 6, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 34, color: isOver ? '#FF4D6D' : '#EAF6FF' }}>
-                        {count}<span style={{ fontSize: 18, color: '#5C7EA6' }}> / {EXTRA_ROUND_MAX_ENTRANTS}</span>
-                    </div>
-                </div>
-                <div style={{ ...STAT_CARD_STYLE, flex: 3 }}>
-                    <div style={STAT_LABEL_STYLE}>Second Step 進出者</div>
-                    <div className="flex flex-wrap gap-2" style={{ marginTop: 10, minHeight: 34 }}>
-                        {selectedPlayers.length === 0 && (
-                            <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 14, color: '#5C7EA6' }}>
-                                下の一覧から選んでください
-                            </span>
-                        )}
-                        {selectedPlayers.map(p => (
-                            <button
-                                key={p.id}
-                                onClick={() => toggleEntrant(p.entryNo)}
-                                title="クリックで選択を外す"
-                                style={{
-                                    ...manualBtnStyle(true), padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 8,
-                                }}
-                            >
-                                {/* エントリーNoではなく 1st Round の順位を出す（2026-10-11 ユーザー指示） */}
-                                <span style={{ fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 12, color: tierOf(p.paperRank, ACCENT).color }}>
-                                    {toOrdinal(p.paperRank)}
-                                </span>
-                                <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 14, color: '#DFF7FF' }}>{p.name}</span>
-                                <span style={{ fontSize: 14, color: '#5C7EA6' }}>×</span>
-                            </button>
-                        ))}
-                    </div>
+        <>
+            <WorkHead
+                meta={<MetaItem label="選択数" value={`${count} / ${EXTRA_ROUND_MAX_ENTRANTS}`} />}
+                tools={<>
+                    <button type="button" className={styles.btn} onClick={() => { setSelectedEntryNos(new Set()); }} disabled={count === 0 || saving}>すべて外す</button>
+                    {tools}
+                </>} />
+
+            <div className={styles.chipBox}>
+                <span className={styles.sectionLabel}>Second Step 進出者</span>
+                <div className={styles.chips}>
+                    {selectedPlayers.length === 0 && <span className={styles.chipHint}>下の一覧から選んでください</span>}
+                    {selectedPlayers.map(p => (
+                        <button key={p.id} type="button" className={styles.chip} onClick={() => toggleEntrant(p.entryNo)} title="クリックで選択を外す">
+                            {/* エントリーNoではなく 1st Round の順位を出す（2026-10-11 ユーザー指示） */}
+                            <b style={{ color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</b>
+                            {p.name}
+                            <span className={styles.chipX}>×</span>
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            <div style={{ ...MANUAL_PANEL_BASE, gap: 14 }}>
-                <div style={MANUAL_LABEL_STYLE}>検索</div>
-                <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="名前・学校・エントリーNo"
-                    className="px-4 py-2 bg-zinc-900 border border-zinc-600 text-white"
-                    style={{ fontFamily: '"Noto Sans JP",sans-serif' }}
-                />
-                <div className="max-h-96 overflow-y-auto" style={{ border: '1px solid rgba(79,216,255,.22)' }}>
-                    {filteredPlayers.map(p => {
-                        const checked = selectedEntryNos.has(p.entryNo);
-                        const blocked = !checked && count >= EXTRA_ROUND_MAX_ENTRANTS;
-                        return (
-                            <label
-                                key={p.id}
-                                className="flex items-center gap-3 px-4 py-2"
-                                style={{
-                                    cursor: blocked ? 'not-allowed' : 'pointer', opacity: blocked ? 0.4 : 1,
-                                    background: checked ? 'rgba(51,198,255,.12)' : 'transparent',
-                                    borderBottom: '1px solid rgba(79,216,255,.10)',
-                                }}
-                            >
-                                <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={blocked}
-                                    onChange={() => toggleEntrant(p.entryNo)}
-                                    className="w-4 h-4"
-                                />
-                                <span style={{ width: 64, fontFamily: 'Orbitron, sans-serif', fontWeight: 700, fontSize: 13, color: '#7FA8D9' }}>No.{p.entryNo}</span>
-                                <span style={{ width: 56, fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 13, color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</span>
-                                <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, color: '#F3FAFF' }}>{p.name}</span>
-                                <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 13, color: '#7FA8D9' }}>{p.school}（{p.grade}）</span>
-                            </label>
-                        );
-                    })}
-                    {filteredPlayers.length === 0 && (
-                        <div className="px-4 py-8 text-center" style={{ fontFamily: '"Noto Sans JP",sans-serif', color: '#5C7EA6' }}>
-                            該当する選手がいません
-                        </div>
-                    )}
-                </div>
-                {count >= EXTRA_ROUND_MAX_ENTRANTS && (
-                    <div style={{ fontFamily: '"Noto Sans JP",sans-serif', fontSize: 13, color: '#FFC93C' }}>
-                        上限{EXTRA_ROUND_MAX_ENTRANTS}名です。選び直すには選択を外してください
-                    </div>
-                )}
-            </div>
+            <input type="text" className={styles.search} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="名前・学校・エントリーNoで検索" aria-label="検索" />
 
-            {errorMessage && (
-                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-sm font-bold">
-                    {errorMessage}
-                </div>
+            <div className={styles.entryList}>
+                {filteredPlayers.map(p => {
+                    const checked = selectedEntryNos.has(p.entryNo);
+                    const blocked = !checked && count >= EXTRA_ROUND_MAX_ENTRANTS;
+                    return (
+                        <button key={p.id} type="button" className={checked ? styles.entryRowOn : styles.entryRow}
+                            onClick={() => toggleEntrant(p.entryNo)} disabled={blocked} aria-pressed={checked}
+                            style={blocked ? { opacity: .4 } : undefined}>
+                            <span className={styles.check}>{checked ? '✓' : ''}</span>
+                            <span className={styles.entryNo}>No.{p.entryNo}</span>
+                            <span className={styles.entryRank} style={{ color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</span>
+                            <span className={styles.entryName}>{p.name}</span>
+                            <span className={styles.entrySub}>{p.school}（{p.grade}）</span>
+                        </button>
+                    );
+                })}
+                {filteredPlayers.length === 0 && <div className={styles.empty}>該当する選手がいません</div>}
+            </div>
+            {count >= EXTRA_ROUND_MAX_ENTRANTS && (
+                <div className={styles.hint} style={{ color: 'var(--air)' }}>上限{EXTRA_ROUND_MAX_ENTRANTS}名です。選び直すには選択を外してください</div>
             )}
-
-            <div className="flex flex-wrap items-center gap-3">
-                <button onClick={handleConfirm} disabled={!canConfirm} style={{ ...primaryButtonStyle(canConfirm), opacity: canConfirm ? 1 : 0.6 }}>
-                    {confirmLabel}
-                </button>
-                <button
-                    onClick={() => { setSelectedEntryNos(new Set()); setErrorMessage(""); }}
-                    disabled={count === 0 || saving}
-                    style={{ ...manualBtnStyle(false), opacity: count === 0 ? 0.4 : 1 }}
-                >
-                    <span style={manualBtnTextStyle(false)}>すべて外す</span>
-                </button>
-            </div>
-        </div>
+        </>
     );
 }

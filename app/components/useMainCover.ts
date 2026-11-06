@@ -9,15 +9,22 @@
 //
 // 二度押しの防止: 覆いが変わった直後(COOLDOWN_MS)の要求は捨てる。覆いを変えると進行ボタンの意味が
 // 次の手順に変わるので、二度押しが「次の手順」まで実行してしまう（待機画面を飛ばす等）のを防ぐ。
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import type { CoverTarget, MainCover } from "@/lib/mainCover";
 import { INITIAL_COVER } from "@/lib/mainCover";
 import { notify } from "@/lib/adminNotice";
+import { useMainBlock } from "./Admin/mainHealth";
 
 const COOLDOWN_MS = 450;
 
-export function useMainCover(socket: Socket | null): [MainCover, (next: CoverTarget) => void, { forceRelease: () => void }] {
+/**
+ * mainBlock … Main の準備ができていないとき、その理由（Admin だけ。lib/mainReadiness.js）。
+ *             あるあいだは、覆いを外す進行ボタンを押せない（coverStartPrimary）
+ */
+export type AdminCover = MainCover & { mainBlock: string | null };
+
+export function useMainCover(socket: Socket | null): [AdminCover, (next: CoverTarget) => void, { forceRelease: () => void }] {
     const [cover, setCover] = useState<MainCover>(INITIAL_COVER);
     const revRef = useRef(0);
     const changedAt = useRef(0);
@@ -61,5 +68,7 @@ export function useMainCover(socket: Socket | null): [MainCover, (next: CoverTar
         socket.emit("change_main_cover", { force: true, expectRev: revRef.current });
     }, [socket]);
 
-    return [cover, change, { forceRelease }];
+    const mainBlock = useMainBlock();
+    const withBlock = useMemo(() => ({ ...cover, mainBlock }), [cover, mainBlock]);
+    return [withBlock, change, { forceRelease }];
 }

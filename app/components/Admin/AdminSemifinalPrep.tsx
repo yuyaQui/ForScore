@@ -1,16 +1,17 @@
-// 準決勝 Admin の「準備・進出者紹介・選手カード表示・終了」の表示部品（2026-10-15 追加）。
-// 進行の1本道ボタンは AdminSemifinal.tsx が持ち、ここは本文の表示と、写真・二つ名の登録だけを扱う。
+// 準決勝 Admin の「準備」（写真・二つ名の登録）の部品（2026-10-15 追加）。
+// 進出者紹介・選手カード表示の作業面は AdminSemifinalParts.tsx（2026-11-05 に運営コンソールへ載せ替え）。
+// この登録の画面は載せ替え前の見た目のまま（大会前に済ませる作業で、当日の進行では使わないため）。
 import { Socket } from "socket.io-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Player } from "@/lib/types";
 import { ACCENT, tierOf } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import {
-    NICKNAME_MAX, PHOTO_WIDTH, PHOTO_HEIGHT, REVIVED_DEFAULT_NICKNAME, countChars, photoUrl, isRevived, displayNickname, type SemifinalProfile,
+    NICKNAME_MAX, PHOTO_WIDTH, PHOTO_HEIGHT, REVIVED_DEFAULT_NICKNAME, countChars, photoUrl, isRevived, type SemifinalProfile,
 } from "@/lib/semifinalProfile";
 import { NoPhoto } from "@/app/components/Main/SemifinalCard";
 import {
-    MANUAL_LABEL_STYLE, MANUAL_PANEL_BASE, STAT_CARD_STYLE, STAT_LABEL_STYLE,
+    MANUAL_LABEL_STYLE, MANUAL_PANEL_BASE, STAT_LABEL_STYLE,
     manualBtnStyle, manualBtnTextStyle, neutralBtnStyle, NEUTRAL_BTN_TEXT,
 } from "./adminCyberStyles";
 
@@ -18,7 +19,7 @@ const JP = '"Noto Sans JP",sans-serif';
 const ORB = 'Orbitron, sans-serif';
 const GOLD = '#FFC93C';
 
-function courseLabel(p: Player): string {
+export function courseLabel(p: Player): string {
     // 敗者復活者はコースではなく「敗者復活」（2026-10-31 から紹介の対象。項目13）
     if (isRevived(p)) return '敗者復活';
     return `${p.thirdRoundCourseName ?? ''} ${p.thirdRoundRank}位`;
@@ -341,110 +342,5 @@ function CropModal({ player, src, onCancel, onSaved, onError }: {
                 </div>
             </div>
         </div>
-    );
-}
-
-// ============================================================================
-// 進出者紹介の進行
-// ============================================================================
-
-export function IntroPanel({ introOrder, index, step, profiles }: {
-    introOrder: Player[]; index: number; step: 'nickname' | 'profile'; profiles: SemifinalProfile[];
-}) {
-    const cur = introOrder[index];
-    if (!cur) return null;
-    const profile = profiles.find(p => p.playerId === cur.id);
-    const photo = photoUrl(profile);
-    const isNick = step === 'nickname';
-    return (
-        <>
-            <div className="flex gap-[14px] flex-wrap">
-                <div style={{ ...STAT_CARD_STYLE, flex: 1.3, display: 'flex', gap: 18, alignItems: 'center' }}>
-                    <div style={{ width: 90, height: 120, flexShrink: 0, position: 'relative', overflow: 'hidden', background: '#0B0F16', border: '1px solid rgba(79,216,255,.3)', opacity: isNick ? 0.45 : 1 }}>
-                        {photo
-                            // eslint-disable-next-line @next/next/no-img-element
-                            ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            : <NoPhoto color="#5C7EA6" />}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-                        <div style={STAT_LABEL_STYLE}>Main に表示中</div>
-                        <div style={{ fontFamily: JP, fontWeight: 900, fontSize: 22, color: displayNickname(cur, profile) ? '#F3FAFF' : '#5C7EA6' }}>{displayNickname(cur, profile) || '（二つ名なし）'}</div>
-                        <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: isNick ? '#5C7EA6' : '#9FB4D6' }}>
-                            {cur.school} {cur.grade}　{cur.name}{isNick ? '（次に表示）' : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div className="flex flex-col gap-[8px]">
-                <div style={MANUAL_LABEL_STYLE}>紹介順</div>
-                <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${introOrder.length}, minmax(0, 1fr))` }}>
-                    {introOrder.map((p, i) => {
-                        const done = i < index;
-                        const now = i === index;
-                        const color = now ? ACCENT : done ? '#3A4B63' : 'rgba(79,216,255,.18)';
-                        return (
-                            <div key={p.id} style={{ boxSizing: 'border-box', padding: '10px 8px', minWidth: 0, textAlign: 'center', background: now ? 'rgba(51,198,255,.10)' : 'rgba(12,22,40,.75)', borderTop: `3px solid ${color}`, opacity: done ? 0.55 : 1 }}>
-                                <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: '#7FA8D9' }}>{String(i + 1).padStart(2, '0')}</div>
-                                <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 11, color: '#9FB4D6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{courseLabel(p)}</div>
-                                <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 14, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                                <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 11, letterSpacing: 1, color: now ? ACCENT : '#5C7EA6', minHeight: 16 }}>{now ? 'NOW' : done ? 'DONE' : ''}</div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </>
-    );
-}
-
-// ============================================================================
-// 選手カード表示
-// ============================================================================
-
-export function LineupPanel({ lineupOrder, revived, allShown }: { lineupOrder: Player[]; revived: Player | null; allShown: boolean }) {
-    return (
-        <>
-            <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: '#9FB4D6' }}>
-                紹介順に1枚ずつ表示し、最後に敗者復活者を表示します。全員そろったら「クイズ画面へ」で、カードが縮んでタイマーが現れます。
-            </div>
-            <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${lineupOrder.length}, minmax(0, 1fr))` }}>
-                {lineupOrder.map((p, i) => {
-                    const isRev = revived !== null && p.id === revived.id;
-                    return (
-                        <div key={p.id} style={{ boxSizing: 'border-box', padding: '10px 8px', minWidth: 0, textAlign: 'center', background: 'rgba(12,22,40,.75)', borderTop: `3px solid ${allShown ? ACCENT : 'rgba(79,216,255,.18)'}` }}>
-                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: isRev ? '#B98BFF' : '#7FA8D9' }}>{isRev ? 'EXTRA' : String(i + 1).padStart(2, '0')}</div>
-                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 14, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                        </div>
-                    );
-                })}
-            </div>
-        </>
-    );
-}
-
-// ============================================================================
-// 準決勝の終了（決勝進出者の確認）
-// ============================================================================
-
-export function FinishPanel({ lineupOrder }: { lineupOrder: Player[] }) {
-    return (
-        <>
-            <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 14, color: '#9FB4D6' }}>
-                第3セットの判定が終わりました。決勝進出者を確認して「Final へ」を押すと、Admin・Main とも決勝の画面に切り替わります。
-            </div>
-            <div className="grid gap-[8px]" style={{ gridTemplateColumns: `repeat(${Math.max(1, lineupOrder.length)}, minmax(0, 1fr))` }}>
-                {lineupOrder.map(p => {
-                    const won = p.semifinalRank > 0;
-                    const color = won ? GOLD : '#4A5568';
-                    return (
-                        <div key={p.id} style={{ boxSizing: 'border-box', padding: '10px 8px', minWidth: 0, textAlign: 'center', background: 'rgba(12,22,40,.75)', borderTop: `3px solid ${color}`, opacity: won ? 1 : 0.55 }}>
-                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, color: tierOf(p.paperRank, ACCENT).color }}>{toOrdinal(p.paperRank)}</div>
-                            <div style={{ fontFamily: JP, fontWeight: 800, fontSize: 14, color: '#F3FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                            <div style={{ fontFamily: ORB, fontWeight: 800, fontSize: 12, letterSpacing: 1, color, marginTop: 4 }}>{won ? `WIN · SET ${p.semifinalRank}` : 'LOST'}</div>
-                        </div>
-                    );
-                })}
-            </div>
-        </>
     );
 }

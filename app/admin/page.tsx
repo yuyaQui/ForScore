@@ -5,9 +5,6 @@ import type { Socket } from "socket.io-client";
 import { createAdminSocket } from "@/lib/adminSocket";
 import AdminNoticeHost from "../components/Admin/AdminNoticeHost";
 import { useSocketSync } from "../components/useSocketSync";
-import AdminText from "../components/Admin/AdminText";
-import AdminQuestionPoolUpload from "../components/Admin/AdminQuestionPoolUpload";
-import AdminTournamentName from "../components/Admin/AdminTournamentName";
 import AdminFirstRound from "../components/Admin/AdminFirstRound";
 import AdminFirstRoundUpload from "../components/Admin/AdminFirstRoundUpload";
 import AdminSecondRound from "../components/Admin/AdminSecondRound";
@@ -15,27 +12,27 @@ import AdminThirdRound from "../components/Admin/AdminThirdRound";
 import AdminExtraRound from "../components/Admin/AdminExtraRound";
 import AdminSemifinal from "../components/Admin/AdminSemifinal";
 import AdminFinal from "../components/Admin/AdminFinal";
+import AdminWaiting from "../components/Admin/AdminWaiting";
 import AdminPaperTop from "../components/Admin/AdminPaperTop";
-import { AdminMainCoverBar } from "../components/Admin/MainCoverControls";
-import type { SecondRoundState } from "@/lib/types";
-import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { RoundProgressProvider, useRoundProgressSource } from "../components/Admin/roundProgressContext";
-import { AdminRoundSidebar, AdminResumeBanner } from "../components/Admin/AdminRoundNav";
+import { AdminRoundSidebar } from "../components/Admin/AdminRoundNav";
 import consoleStyles from "../components/Admin/console/console.module.css";
+import { MainHealthProvider, useMainHealthSource } from "../components/Admin/mainHealth";
 
-// 運営コンソール（1画面に収まる新しい枠。2026-10-31 改善案）に載せ替え済みのモード。
-// 載せ替えたモードは、進行レールの右を画面いっぱいの枠にする（各ラウンドが ConsoleFrame を描く）
-const CONSOLE_MODES = new Set(["secondRound"]);
+// 全モードを運営コンソール（1画面に収まる新しい枠。2026-10-31 改善案）で表示する（2026-11-05 に最後の大会準備を載せ替え）。
+// 進行レールの右は画面いっぱいの枠で、各画面が ConsoleFrame を描く。
 
 export default function AdminPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [currentMode, setCurrentMode] = useState("secondRound");
-  // 2nd Round の表示画面（Turn Over / Quiz View）。背景色の切り替え判定に使う
-  const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
+  // サーバから今のモードが届くまでは空（どの画面も描かない。以前は 2nd Round の初期値で一瞬描いていた）
+  const [currentMode, setCurrentMode] = useState("");
   // 各ラウンドの状況（2026-10-22。サイドバーの鍵・各ラウンドの「○○へ ▶」・Undo の制限に使う）
   const progress = useRoundProgressSource(socket);
-  // 今のモードと2nd Round の進行は、つなぎ直したときにも必ず取り直す（切れていた間の変更を取りこぼさない。2026-11-04）
-  useSocketSync(socket, ['request_mode_sync', 'request_second_round_sync']);
+  // 今のモードは、つなぎ直したときにも必ず取り直す（切れていた間の変更を取りこぼさない。2026-11-04）。
+  // 2nd Round の進行は 2nd Round の画面が自分で取り直す
+  useSocketSync(socket, ['request_mode_sync']);
+  // Main の表示の準備の状況（必要なデータがそろっているか。2026-11-06）。覆いを外すボタン・バーの下の帯が使う
+  const mainHealth = useMainHealthSource(socket);
 
   // サーバー接続時の処理（ここだけ socket が使えない）
   useEffect(() => {
@@ -55,11 +52,6 @@ export default function AdminPage() {
     socketConnection.on("mode_update", (newMode: string) => {
       setCurrentMode(newMode);
     })
-
-    // 2nd Round の表示画面（Turn Over / Quiz View）。背景色の切り替え判定に使う
-    socketConnection.on("update_second_round_state", (state: SecondRoundState) => {
-      setSecondRoundState(state);
-    });
     // クリーンアップ処理（画面が閉じられる時の処理）
     return () => {
       socketConnection.disconnect();
@@ -78,89 +70,28 @@ export default function AdminPage() {
   }
 
 
-  // 1st Round・その結果アップロード画面・2nd Round の Quiz View だけサイバーパンク調（黒背景）にする。他のモードは従来の背景のまま
-  const backgroundClass =
-    currentMode === "1stRound" ||
-    currentMode === "1stRoundResult" ||
-    (currentMode === "secondRound" && secondRoundState.view === "quiz")
-      ? "bg-black"
-      : "bg-zinc-50 dark:bg-zinc-900";
-
-  // 運営コンソールに載せ替え済みのモードは、スクロールしない1画面の枠で表示する
-  if (CONSOLE_MODES.has(currentMode)) {
-    return (
-      <RoundProgressProvider value={progress}>
-        <div className={consoleStyles.page}>
-          <AdminNoticeHost socket={socket} />
-          <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
-          {currentMode === "secondRound" && <AdminSecondRound socket={socket} />}
-        </div>
-      </RoundProgressProvider>
-    );
-  }
-
+  // スクロールしない1画面の枠で表示する
   return (
     <RoundProgressProvider value={progress}>
-    <div className="flex min-h-screen bg-black">
-      <AdminNoticeHost socket={socket} />
-
-      {/* 左サイドバー: Select Round。Design アーティファクト(Admin.dc.html)の見た目を移植。
-          2026-10-22: 前のラウンドが未完了のラウンドは押せない・状態の印・戻るときの確認（AdminRoundNav.tsx） */}
-      <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
-
-      {/* 右側: ラウンドごとの操作画面。サイドバーとは別領域なので絶対に重ならない */}
-      <div className={`flex-1 flex flex-col items-center justify-center gap-[3vh] p-[3vw] overflow-y-auto ${backgroundClass}`}>
-
-      {/* Main を覆う表示（待機画面・ブランク）の状況と操作。運営コンソールに載せ替えたラウンドは上のバーに出す（2026-11-04） */}
-      <AdminMainCoverBar socket={socket} />
-
-      {/* // admin 画面の切り替え */}
-      {currentMode === "1stRound" && (
-        <AdminFirstRound socket={socket} onGoToResult={() => {
-          if (socket) socket.emit("change_mode", "1stRoundResult");
-        }}
-        />
-      )}
-
-      {currentMode === "1stRoundResult" && (
-        <AdminFirstRoundUpload socket={socket} />
-      )}
-
-      {currentMode === "waiting" && (
-        <>
-          {/* 大会準備（2026-11-02 に「待機画面」から改称）: いちばん上に大会名の入力 */}
-          <AdminTournamentName socket={socket} />
-          {/* DB の結果から見た、いま進めるべきラウンド（提案E。サーバ再起動で待機画面に戻ったとき用） */}
-          <AdminResumeBanner progress={progress} onChangeMode={changeMode} />
-          <AdminText socket={socket} />
-          {/* 大会共通の問題データの取り込み（大会前に一度。2026-10-22） */}
-          <AdminQuestionPoolUpload />
-        </>
-      )}
-
-      {currentMode === "thirdRound" && (
-        <AdminThirdRound socket={socket} />
-      )}
-
-      {currentMode === "extraRound" && (
-        <AdminExtraRound socket={socket} />
-      )}
-
-      {currentMode === "semifinal" && (
-        <AdminSemifinal socket={socket} />
-      )}
-
-      {currentMode === "final" && (
-        <AdminFinal socket={socket} />
-      )}
-
-      {/* ペーパークイズ上位100名の発表（大会終了後。2026-10-31） */}
-      {currentMode === "paperTop100" && (
-        <AdminPaperTop socket={socket} />
-      )}
-
+    <MainHealthProvider value={mainHealth}>
+      <div className={consoleStyles.page}>
+        <AdminNoticeHost socket={socket} />
+        <AdminRoundSidebar currentMode={currentMode} progress={progress} onChangeMode={changeMode} />
+        {currentMode === "waiting" && <AdminWaiting socket={socket} onChangeMode={changeMode} />}
+        {currentMode === "1stRound" && (
+          <AdminFirstRound socket={socket} onGoToResult={() => {
+            if (socket) socket.emit("change_mode", "1stRoundResult");
+          }} />
+        )}
+        {currentMode === "1stRoundResult" && <AdminFirstRoundUpload socket={socket} />}
+        {currentMode === "secondRound" && <AdminSecondRound socket={socket} />}
+        {currentMode === "thirdRound" && <AdminThirdRound socket={socket} />}
+        {currentMode === "extraRound" && <AdminExtraRound socket={socket} />}
+        {currentMode === "semifinal" && <AdminSemifinal socket={socket} />}
+        {currentMode === "final" && <AdminFinal socket={socket} />}
+        {currentMode === "paperTop100" && <AdminPaperTop socket={socket} />}
       </div>
-    </div>
+    </MainHealthProvider>
     </RoundProgressProvider>
   );
 }

@@ -9,28 +9,32 @@ import { DEFAULT_PAPER_TOP_STATE } from "@/lib/types";
 import { getPaperTopPages, paperTopRangeLabel } from "@/lib/paperTop";
 import FixedStage from "@/app/components/FixedStage";
 import { TurnOverView } from "./MainSecondRound";
+import { BlankScreen } from "./StandbyScreen";
+import { useReadyGate } from "../useReadyGate";
 
 export default function MainPaperTop({ socket }: { socket: Socket | null }) {
     const [players, setPlayers] = useState<Player[]>([]);
     const [state, setState] = useState<PaperTopState>(DEFAULT_PAPER_TOP_STATE);
 
+    // 状態と選手がそろうまでは黒い舞台だけを出す（帯のない画面や既定の状態が1コマ映るのを防ぐ。2026-11-06）
+    const { ready, mark, load } = useReadyGate(['state', 'players']);
+
     useEffect(() => {
         // 選手（DB は読むだけ）
-        fetch('/api/secondRound/loadPlayers').then(res => res.json()).then(data => {
-            if (data.success) setPlayers(data.allPlayers);
-        }).catch(err => console.error('Failed to load players', err));
-        if (!socket) return;
-        const onState = (next: PaperTopState) => setState(next);
+        const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));
+        if (!socket) return stopPlayers;
+        const onState = (next: PaperTopState) => { setState(next); mark('state'); };
         const onPlayers = (all: Player[]) => setPlayers(all);
         socket.on('update_paper_top_state', onState);
         socket.on('update_players', onPlayers);
         // 接続直後の配信はこの画面が無いうちに届いて失われるので、表示した時点で取り直す
         socket.emit('request_paper_top_sync');
         return () => {
+            stopPlayers();
             socket.off('update_paper_top_state', onState);
             socket.off('update_players', onPlayers);
         };
-    }, [socket]);
+    }, [socket, mark, load]);
 
     const pages = getPaperTopPages(players);
     const bands = pages.map((pg) => ({ label: paperTopRangeLabel(pg), slice: pg }));
@@ -38,6 +42,7 @@ export default function MainPaperTop({ socket }: { socket: Socket | null }) {
     // 全画面を1つの TurnOverView の段階（帯）として渡す。画面の切り替えは 2nd Round の
     // 段階の切り替えと同じ（今の帯がフェードで消え、約1秒後に次の帯がフェードで出る）。
     // 帯の登場（ポップイン）は最初に表示したときだけ（2026-11-04 ユーザー指示）
+    if (!ready) return <BlankScreen />;
     return (
         <FixedStage>
             <TurnOverView
