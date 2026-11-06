@@ -37,6 +37,8 @@ function makeFakeApi() {
     const api = { players, calls: { score: 0, undo: 0 }, undoGroups: [], history: {}, delay: 0 };
     api.install = async (page) => {
         await page.route('**/api/secondRound/loadPlayers', r => r.fulfill({ json: { success: true, allPlayers: players } }));
+        // 大会名・ロゴ（クイズ画面の見出し。2026-11-06）。DB が無いので偽物を返す
+        await page.route('**/api/tournamentState', r => r.fulfill({ json: { success: true, state: { extraRoundNoRevival: false, tournamentName: '', logo: null } } }));
         await page.route('**/api/secondRound/updateScores', async r => {
             api.calls.score++;
             const { playerId, action } = JSON.parse(r.request().postData());

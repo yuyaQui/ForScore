@@ -5,7 +5,7 @@
 //   変えたのは次の点: 押し直しで二重に保存しない（useSingleFlight）／結果は画面の上の通知（notify）／押すと開くプルダウンはやめて常に開いている
 import { Socket } from "socket.io-client";
 import { useState } from "react";
-import { TOURNAMENT_NAME_MAX, countNameChars, validateTournamentName } from "@/lib/tournamentName";
+import { nameLengthLabel, validateTournamentName } from "@/lib/tournamentName";
 import { notify, errorText } from "@/lib/adminNotice";
 import { useRoundProgress } from "./roundProgressContext";
 import { useSingleFlight } from "../useSingleFlight";
@@ -24,6 +24,8 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
     const flight = useSingleFlight();
 
     const check = validateTournamentName(input);
+    // 保存済みの名前が今の上限（2026-11-06 に全角12文字分へ縮めた）を超えているときは、短くするよう知らせる
+    const savedTooLong = saved !== '' && !validateTournamentName(saved).ok;
     const dirty = check.ok ? check.value !== saved : true;
     const canSave = check.ok && dirty && !flight.pending;
 
@@ -59,12 +61,13 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
                     onKeyDown={e => { if (e.key === 'Enter' && canSave) void handleSave(); }}
                     placeholder="例: abc Fortior" aria-label="大会名"
                     className={check.ok ? styles.pnlInput : styles.pnlInputBad} />
-                <span className={check.ok ? styles.pnlCount : styles.pnlCountBad}>{countNameChars(input.trim())}/{TOURNAMENT_NAME_MAX}</span>
+                <span className={check.ok ? styles.pnlCount : styles.pnlCountBad}>{nameLengthLabel(input.trim())}</span>
                 <button type="button" className={canSave ? styles.btnOn : styles.btn} onClick={() => { void handleSave(); }} disabled={!canSave}>
                     {flight.pending ? '保存中…' : '保存'}
                 </button>
             </div>
             {!check.ok && <div className={styles.pnlError}>{check.error}</div>}
+            {check.ok && savedTooLong && <div className={styles.pnlError}>保存済みの大会名はクイズ画面の見出しに収まりません。全角12文字（半角24文字）までに短くして保存してください</div>}
         </section>
     );
 }

@@ -55,7 +55,7 @@ export default function MainFinal(props: Props) {
 
     // 状態・選手がそろうまでは黒い舞台だけを出す（既定の状態の画面が1コマ映るのを防ぐ。2026-11-06）。
     // 写真・二つ名は任意: 届かないときは、Admin で「なしで進める」を許可すれば出す
-    const { ready, mark, load } = useReadyGate(['state', 'players'], ['profiles']);
+    const { ready, mark, load } = useReadyGate(['state', 'players'], ['profiles', 'brand']);
 
     useEffect(() => {
         const stops: (() => void)[] = [];

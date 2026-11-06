@@ -1,7 +1,7 @@
 // kqk-abc のデータベース定義（Prisma / SQLite）
 //
 // モデルの並び（2026-11-02 に読みやすさのため並べ替え。並びは DB に影響しない）
-//   1. 大会全体     … TournamentState
+//   1. 大会全体     … TournamentState, TournamentLogo
 //   2. 選手         … Player, PlayerPhoto
 //   3. 問題         … QuestionPoolItem, ExtraRoundQuestion
 //   4. ラウンドの設定 … ThirdRoundCourse
@@ -35,6 +35,21 @@ model TournamentState {
   // 大会名（2026-11-02 追加）。Admin の「大会準備」で入力し、Admin 左上などに表示する。
   // 一本道のリセット・選手 CSV の取り込みでは消さない（lib/tournamentName.ts）
   tournamentName      String  @default("")
+}
+
+// 大会ロゴ（2026-11-06 追加。1行だけ。id は常に 1）
+//
+// Admin の「大会準備」で登録し、Main のクイズ画面の見出しの中央に大会名と並べて出す。
+// 画像は大きいので TournamentState とは別の表にする（TournamentState は多くの API が毎回読むため）。
+// 形式は PNG・WebP・JPEG。Admin で長い辺 1600px までに縮めてから保存する（lib/tournamentLogo.ts）。
+// 幅・高さは画像が届く前に見出しの場所を決めるために持つ。一本道のリセット・選手 CSV の取り込みでは消さない。
+model TournamentLogo {
+  id        Int      @id @default(1)
+  mimeType  String   // image/png・image/webp・image/jpeg
+  data      Bytes    // 画像のバイト列
+  width     Int      // 画像の幅（px）
+  height    Int      // 画像の高さ（px）
+  updatedAt DateTime @updatedAt // 差し替えたときに画面側のキャッシュを捨てるための版として使う
 }
 
 // ============================================================================

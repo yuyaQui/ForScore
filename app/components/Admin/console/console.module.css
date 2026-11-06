@@ -343,3 +343,15 @@
 .healthBtns { display: flex; gap: 8px; flex-shrink: 0; }
 .healthWaive { composes: btn; color: #1B1300; background: var(--air); border-color: var(--air); font-weight: 700; }
 .healthMore { font: 500 12px var(--ui); color: var(--sub); }
+
+/* ---- 大会準備: 大会ロゴ（2026-11-06）---- */
+.logoRow { display: flex; align-items: stretch; gap: 14px; min-width: 0; }
+.logoPreview { width: 128px; height: 72px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden;
+  background-color: #10161F; background-image: linear-gradient(45deg, #1C2430 25%, transparent 25%), linear-gradient(-45deg, #1C2430 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1C2430 75%), linear-gradient(-45deg, transparent 75%, #1C2430 75%);
+  background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0; }
+.logoPreview img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.logoPreview span { font: 600 12px var(--ui); color: var(--faint); }
+.logoSide { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.logoMockLabel { font: 600 12px var(--ui); color: var(--sub); }
+.logoMock { position: relative; height: 40px; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.logoMockInner { position: absolute; left: 50%; top: 50%; width: 880px; height: 108px; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%) scale(.3); }

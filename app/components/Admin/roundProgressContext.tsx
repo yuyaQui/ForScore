@@ -12,6 +12,7 @@ import {
     getRoundStatuses, nextRound, laterRoundStarted, undoBlockedMessage, resetCascadeNotice,
     ROUND_LABEL, ROUND_MODE, type RoundKey, type RoundStatus,
 } from '@/lib/roundProgress';
+import type { TournamentLogoInfo } from '@/lib/tournamentLogo';
 
 export type RoundProgress = {
     statuses: Record<RoundKey, RoundStatus>;
@@ -21,6 +22,8 @@ export type RoundProgress = {
     hasProfiles: boolean;
     /** 大会名（2026-11-02 追加。未設定なら空文字。Admin 左上に表示） */
     tournamentName: string;
+    /** 大会ロゴの情報（2026-11-06 追加。未登録なら null。画像は /api/tournamentLogo?v=版） */
+    tournamentLogo: TournamentLogoInfo | null;
 };
 
 const RoundProgressContext = createContext<RoundProgress | null>(null);
@@ -40,6 +43,7 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
     const [courses, setCourses] = useState<CourseRow[] | null>(null);
     const [noRevival, setNoRevival] = useState(false);
     const [tournamentName, setTournamentName] = useState('');
+    const [tournamentLogo, setTournamentLogo] = useState<TournamentLogoInfo | null>(null);
 
     useEffect(() => {
         if (!socket) return;
@@ -53,6 +57,7 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
                 if (alive && data.success) {
                     setNoRevival(!!data.state.extraRoundNoRevival);
                     setTournamentName(typeof data.state.tournamentName === 'string' ? data.state.tournamentName : '');
+                    setTournamentLogo(data.state.logo ?? null);
                 }
             } catch (error) {
                 console.error('Tournament state load failed', error);
@@ -98,8 +103,9 @@ export function useRoundProgressSource(socket: Socket | null): RoundProgress | n
             extraRoundNoRevival: noRevival,
             hasProfiles: players.some(p => p.nickname !== ''),
             tournamentName,
+            tournamentLogo,
         };
-    }, [players, courses, noRevival, tournamentName]);
+    }, [players, courses, noRevival, tournamentName, tournamentLogo]);
 }
 
 /** リセットの連鎖で戻す最初のラウンド（server/roundOrder.js と同じ値。'all' は選手 CSV の取り込み） */

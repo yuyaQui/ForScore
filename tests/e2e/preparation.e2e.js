@@ -34,7 +34,7 @@ function makeFakeApi() {
                 if (api.failNameNext) { api.failNameNext = false; return r.fulfill({ status: 503, json: { error: 'テスト用の失敗' } }); }
                 api.name = b.tournamentName;
             }
-            r.fulfill({ json: { success: true, state: { extraRoundNoRevival: false, tournamentName: api.name } } });
+            r.fulfill({ json: { success: true, state: { extraRoundNoRevival: false, tournamentName: api.name, logo: null } } });
         });
         await page.route('**/api/questionPool', async r => {
             if (r.request().method() === 'POST') {
@@ -144,7 +144,7 @@ async function next(admin, re) {
     await sleep(1500);
     check('運営コンソールの枠(上のバー)で表示される', (await admin.locator('header').count()) === 1);
     check('バーに「大会準備」', /大会準備/.test(await header(admin)), await header(admin));
-    check('大会名・案内テキスト・問題データの3つの面', (await admin.locator('section').count()) === 3);
+    check('大会名・大会ロゴ・案内テキスト・問題データの4つの面', (await admin.locator('section').count()) === 4);
     check('選手が未登録のときの進行ボタンは「1st Round へ ▶」', /1st Round へ ▶/.test(await header(admin)), await header(admin));
     check('大会名は未設定・問題データは未登録', /未設定/.test(await mainTxt()) && /未登録/.test(await mainTxt()), await mainTxt());
     check('画面が 1440×900 に収まる', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
@@ -153,8 +153,10 @@ async function next(admin, re) {
     console.log('W2 大会名');
     const nameInput = admin.getByRole('textbox', { name: '大会名', exact: true });
     check('何も入力していないと保存は押せない', await admin.getByRole('button', { name: '保存', exact: true }).isDisabled());
-    await nameInput.fill('a'.repeat(41));
-    check('41文字は保存できない（理由が出る）', await admin.getByRole('button', { name: '保存', exact: true }).isDisabled() && /40文字まで/.test(await mainTxt()), await mainTxt());
+    await nameInput.fill('あ'.repeat(13));
+    check('全角13文字は保存できない（理由が出る。上限は全角12文字・半角24文字）', await admin.getByRole('button', { name: '保存', exact: true }).isDisabled() && /全角12文字（半角24文字）まで/.test(await mainTxt()), await mainTxt());
+    await nameInput.fill('a'.repeat(25));
+    check('半角25文字も保存できない', await admin.getByRole('button', { name: '保存', exact: true }).isDisabled());
     api.failNameNext = true;
     await nameInput.fill('abc Fortior');
     await admin.getByRole('button', { name: '保存', exact: true }).click();
@@ -181,7 +183,7 @@ async function next(admin, re) {
     check('再読み込みしても、いま出している案内が出る', /まもなく開始します/.test(await mainTxt()), (await mainTxt()).slice(0, 200));
 
     console.log('W4 問題データ');
-    const file = admin.locator('input[type=file]');
+    const file = admin.locator('input[type=file]:not([aria-label="大会ロゴの画像"])');
     await file.setInputFiles(csvFile('bad.csv', BAD));
     await sleep(600);
     check('誤りの行が出て、登録は押せない', /取り込めません/.test(await mainTxt()) && /重複/.test(await mainTxt()) && await admin.getByRole('button', { name: '登録', exact: true }).isDisabled(), (await mainTxt()).slice(0, 300));

@@ -8,10 +8,14 @@
 //   if (!gate.ready) return <BlankScreen />;
 // ・必須がそろうまでは、どれだけ待っても出さない（勝手に既定の画面で進めない）。待っている状況は
 //   MainReadyContext を通じてサーバに報告され、Admin に原因と対処が出る（lib/mainReadiness.js）。
-// ・任意（写真・二つ名）は、届くか、Admin で「なしで進める」が許可されたら、そろったものとする。
+// ・任意（写真・二つ名、大会名・ロゴ）は、届くか、Admin で「なしで進める」が許可されたら、そろったものとする。
+//   'brand'（大会名・ロゴ。クイズ画面の見出し）は Main のページがまとめて読むので、ここでは読み込み済みかを見るだけ。
 //   許可して出した後に届いたら、そのまま画面に入る。
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { MainReadyContext, loadJsonUntilOk } from "./Main/mainReadiness";
+
+/** Main のページ（useMainReadinessHost）が読むデータ。画面ごとには登録しない */
+const HOST_KEYS = ["brand"];
 
 export type ReadyGate = {
     ready: boolean;
@@ -32,7 +36,7 @@ export function useReadyGate(required: string[], optional: string[] = []): Ready
 
     // 待っているものを登録する（画面を出す前から Admin に「準備中」と分かるように）
     useEffect(() => {
-        const keys = [...(reqKey ? reqKey.split(",") : []), ...(optKey ? optKey.split(",") : [])];
+        const keys = [...(reqKey ? reqKey.split(",") : []), ...(optKey ? optKey.split(",") : [])].filter(k => !HOST_KEYS.includes(k));
         const now = Date.now();
         for (const k of keys) {
             if (!doneRef.current.has(k)) setItem(k, isRequired(k), { status: "loading", attempts: 0, startedAt: now });
@@ -49,6 +53,7 @@ export function useReadyGate(required: string[], optional: string[] = []): Ready
         loadJsonUntilOk(url, (data) => { onData(data); mark(key); }, (s) => { if (s.status !== "ok") setItem(key, isRequired(key), s); }),
     [mark, isRequired, setItem]);
 
-    const ready = required.every(k => done.has(k)) && optional.every(k => done.has(k) || ctx.waived.has(k));
+    const isDone = (k: string) => (k === "brand" ? ctx.brand.ready : done.has(k));
+    const ready = required.every(isDone) && optional.every(k => isDone(k) || ctx.waived.has(k));
     return { ready, mark, load };
 }

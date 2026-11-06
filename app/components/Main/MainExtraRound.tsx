@@ -51,7 +51,7 @@ export default function MainExtraRound(props: Props) {
 
     // 状態・選手（First Step では問題も）がそろうまでは黒い舞台だけを出す（既定の状態の画面が1コマ映るのを防ぐ。2026-11-06）
     const isFirstStep = state.stage === 'firstStep';
-    const { ready, mark, load } = useReadyGate(isFirstStep ? ['state', 'players', 'questions'] : ['state', 'players']);
+    const { ready, mark, load } = useReadyGate(isFirstStep ? ['state', 'players', 'questions'] : ['state', 'players'], ['brand']);
 
     useEffect(() => {
         const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));

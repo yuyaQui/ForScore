@@ -7,7 +7,10 @@
 //   - 本体は仕切り線の下の決まった箱（幅 1776 × 高さ BODY_H）に、上端・中央そろえで置く。
 //     はみ出すときはラウンド共通の考え方で縮小する（中身の大きさを測って、収まる倍率にする）
 import { Socket } from "socket.io-client";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { MainReadyContext } from "./mainReadiness";
+import { TournamentBrandView } from "./TournamentBrand";
+import { logoUrl } from "@/lib/tournamentLogo";
 import type { QuestionDisplayState, QuestionRound } from "@/lib/types";
 import { DEFAULT_QUESTION_DISPLAY } from "@/lib/types";
 import type { PublicPoolQuestion } from "@/lib/questionPool";
@@ -121,9 +124,25 @@ export function RoundStage({ header, ruleColor, socket, round, contentW, content
     return (
         <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: `${PAD_TOP}px ${PAD_X}px ${PAD_BOTTOM}px`, backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
             <div style={{ height: HEADER_H, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>{header}</div>
+            <HeaderBrand />
             <QuestionStrip socket={socket} round={round} />
             <div style={{ height: 2, marginTop: RULE_GAP, background: ruleColor, boxShadow: `0 0 12px ${ruleColor}73`, flexShrink: 0 }} />
             <FitBody contentW={contentW} contentH={contentH}>{children}</FitBody>
+        </div>
+    );
+}
+
+/**
+ * 見出しの帯の上下中央・画面の左右中央に「大会ロゴ ＋ 大会名」を出す（2026-11-06 ユーザー承認）。
+ * 左右の見出しの文字の長さに関係なく、画面の真ん中に置く。大会名・ロゴは Main のページがまとめて読む（mainReadiness）
+ */
+function HeaderBrand() {
+    const { brand } = useContext(MainReadyContext);
+    if (!brand.name && !brand.logo) return null;
+    return (
+        <div style={{ position: 'absolute', left: 0, right: 0, top: PAD_TOP, height: HEADER_H, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <TournamentBrandView name={brand.name} logoSrc={brand.logo ? logoUrl(brand.logo) : null}
+                logoWidth={brand.logo?.width ?? 0} logoHeight={brand.logo?.height ?? 0} />
         </div>
     );
 }

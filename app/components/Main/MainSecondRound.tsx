@@ -44,7 +44,7 @@ export default function MainSecondRound(props: Props) {
     const [secondRoundState, setSecondRoundState] = useState<SecondRoundState>(DEFAULT_SECOND_ROUND_STATE);
     useSocketSync(socket, ['request_second_round_sync']);
     // 進行状態と選手がそろうまでは黒い舞台だけを出す（既定の組・画面が1コマ映る／組が変わって作り直される、のを防ぐ。2026-11-06）
-    const { ready, mark, load } = useReadyGate(['state', 'players']);
+    const { ready, mark, load } = useReadyGate(['state', 'players'], ['brand']);
 
     useEffect(() => {
         const stopPlayers = load('players', '/api/secondRound/loadPlayers', data => setPlayers(data.allPlayers));

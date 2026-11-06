@@ -15,6 +15,7 @@ import { useMainCover } from "../useMainCover";
 import { coverStartPrimary, CoverButtons } from "./MainCoverControls";
 import { useRoundProgress } from "./roundProgressContext";
 import AdminTournamentName from "./AdminTournamentName";
+import AdminTournamentLogo from "./AdminTournamentLogo";
 import AdminText from "./AdminText";
 import AdminQuestionPoolUpload from "./AdminQuestionPoolUpload";
 
@@ -65,6 +66,8 @@ export default function AdminWaiting({ socket, onChangeMode }: {
             <div className={styles.prepGrid}>
                 <div className={styles.prepCol}>
                     <AdminTournamentName socket={socket} />
+                    {/* 大会ロゴ（2026-11-06。大会名の下） */}
+                    <AdminTournamentLogo socket={socket} />
                     <AdminText socket={socket} />
                 </div>
                 <AdminQuestionPoolUpload />

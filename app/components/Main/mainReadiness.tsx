@@ -10,11 +10,21 @@
 //   ・MainReadyContext … 上の情報を各画面の useReadyGate に渡す
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
-import { MAIN_OPTIONAL_KEYS, MAIN_PREFLIGHT, REPORT_INTERVAL_MS } from "../../../lib/mainReadiness.js";
+import { MAIN_BRAND_MODES, MAIN_OPTIONAL_KEYS, MAIN_PREFLIGHT, REPORT_INTERVAL_MS } from "../../../lib/mainReadiness.js";
+import { logoUrl, type TournamentLogoInfo } from "@/lib/tournamentLogo";
 
 export type ItemStatus = { status: "loading" | "error" | "ok"; error?: string | null; attempts: number; startedAt: number };
 
+/**
+ * クイズ画面の見出しの中央に出す大会名・大会ロゴ（2026-11-06）。
+ * ready … 読み込みが終わったか（ロゴは画像の展開まで終えてから true。画面が出てからロゴだけ遅れて出ないように）
+ */
+export type MainBrand = { ready: boolean; name: string; logo: TournamentLogoInfo | null };
+const NO_BRAND: MainBrand = { ready: false, name: "", logo: null };
+
 export type MainReadyCtx = {
+    /** 大会名・大会ロゴ（クイズ画面の見出し） */
+    brand: MainBrand;
     /** 運営者が「なしで進める」を許可した任意のデータ（いまのモードの分だけ） */
     waived: ReadonlySet<string>;
     /** 待っているデータの状況を登録する。null で取り消し */
@@ -22,7 +32,7 @@ export type MainReadyCtx = {
 };
 
 const NO_WAIVERS: ReadonlySet<string> = new Set();
-export const MainReadyContext = createContext<MainReadyCtx>({ waived: NO_WAIVERS, setItem: () => {} });
+export const MainReadyContext = createContext<MainReadyCtx>({ brand: NO_BRAND, waived: NO_WAIVERS, setItem: () => {} });
 
 // ---- 成功するまで取り直す ----
 const kicks = new Set<() => void>();
@@ -100,11 +110,11 @@ export function loadJsonUntilOk(
 type Entry = { required: boolean } & ItemStatus;
 type Readiness = { waivers?: { mode: string | null; keys: string[] } };
 /** 誰が登録したか。覆っている間の先の確認（preflight）と、表示中の画面（screen）。同じデータは画面の方を使う */
-type Owner = "preflight" | "screen";
+type Owner = "preflight" | "screen" | "brand";
 
 /** Main のページが1つ持つ。戻り値を MainReadyContext.Provider に渡す */
 export function useMainReadinessHost(socket: Socket | null, mode: string, covered: boolean): MainReadyCtx {
-    const entries = useRef<Record<Owner, Map<string, Entry>>>({ preflight: new Map(), screen: new Map() });
+    const entries = useRef<Record<Owner, Map<string, Entry>>>({ preflight: new Map(), screen: new Map(), brand: new Map() });
     const modeRef = useRef(mode);
     const [waived, setWaived] = useState<ReadonlySet<string>>(NO_WAIVERS);
     const lastWaivers = useRef<{ mode: string | null; keys: string[] }>({ mode: null, keys: [] });
@@ -113,7 +123,7 @@ export function useMainReadinessHost(socket: Socket | null, mode: string, covere
     const send = useCallback(() => {
         if (!socket || !socket.connected) return;
         const now = Date.now();
-        const merged = new Map(entries.current.preflight);
+        const merged = new Map([...entries.current.preflight, ...entries.current.brand]);
         for (const [k, e] of entries.current.screen) merged.set(k, e);
         const items = [...merged.entries()].map(([key, e]) => ({
             key, required: e.required, status: e.status, error: e.error ?? null, attempts: e.attempts,
@@ -190,5 +200,59 @@ export function useMainReadinessHost(socket: Socket | null, mode: string, covere
 
     useEffect(() => () => { if (sendTimer.current) clearTimeout(sendTimer.current); }, []);
 
-    return useMemo(() => ({ waived, setItem }), [waived, setItem]);
+    // ---- 大会名・大会ロゴ（クイズ画面の見出し。2026-11-06）----
+    // クイズ画面のモードの間だけ読む（覆っている間も読むので、覆いを外す前に Admin が状況を知れる）。
+    // 任意のデータ: 読めなくても Admin で「なしで進める」を許可すれば画面を出せる。
+    // 変わった合図（update_tournament_state）で読み直し、新しいロゴは展開を終えてから差し替える。
+    const [brand, setBrand] = useState<MainBrand>(NO_BRAND);
+    const [brandTick, setBrandTick] = useState(0);
+    const brandMode = (MAIN_BRAND_MODES as string[]).includes(mode);
+    useEffect(() => {
+        if (!socket) return;
+        const bump = () => setBrandTick(t => t + 1);
+        socket.on("update_tournament_state", bump);
+        return () => { socket.off("update_tournament_state", bump); };
+    }, [socket]);
+    useEffect(() => {
+        const brandEntries = entries.current.brand;
+        if (!brandMode) { brandEntries.clear(); scheduleSend(); return; }
+        let alive = true;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        const report = (s: ItemStatus) => setOwned("brand", "brand", false, s);
+        const stop = loadJsonUntilOk("/api/tournamentState", (data) => {
+            const st = (data as { state?: { tournamentName?: unknown; logo?: TournamentLogoInfo | null } }).state ?? {};
+            const name = typeof st.tournamentName === "string" ? st.tournamentName : "";
+            const logo = st.logo && st.logo.version ? st.logo : null;
+            if (!logo) { setBrand({ ready: true, name, logo: null }); return; }
+            // ロゴは画像を読み込んで展開し終えてから出す
+            const startedAt = Date.now();
+            report({ status: "loading", attempts: 1, startedAt });
+            const img = new Image();
+            img.src = logoUrl(logo);
+            img.decode().then(() => {
+                if (!alive) return;
+                report({ status: "ok", attempts: 1, startedAt });
+                setBrand({ ready: true, name, logo });
+            }).catch(() => {
+                if (!alive) return;
+                report({ status: "error", error: "大会ロゴの画像を読み込めません", attempts: 1, startedAt: Date.now() });
+                // 少し待って（または［再取得］で）最初から読み直す
+                retryTimer = setTimeout(() => setBrandTick(t => t + 1), 5000);
+            });
+        }, report);
+        return () => {
+            alive = false;
+            stop();
+            if (retryTimer) clearTimeout(retryTimer);
+        };
+    }, [brandMode, brandTick, setOwned, scheduleSend]);
+    // ［再取得］が来たら大会名・ロゴも読み直す
+    useEffect(() => {
+        if (!socket) return;
+        const bump = () => setBrandTick(t => t + 1);
+        socket.on("main_retry_now", bump);
+        return () => { socket.off("main_retry_now", bump); };
+    }, [socket]);
+
+    return useMemo(() => ({ brand, waived, setItem }), [brand, waived, setItem]);
 }

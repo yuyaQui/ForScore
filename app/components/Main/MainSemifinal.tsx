@@ -64,7 +64,7 @@ export default function MainSemifinal(props: Props) {
 
     // 状態・選手・コースがそろうまでは黒い舞台だけを出す（既定の状態の画面や「出場者が確定していません」が1コマ映るのを防ぐ。2026-11-06）。
     // 写真・二つ名は任意: 届かないときは、Admin で「なしで進める」を許可すれば出す
-    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses'], ['profiles']);
+    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses'], ['profiles', 'brand']);
 
     useEffect(() => {
         const stops: (() => void)[] = [];

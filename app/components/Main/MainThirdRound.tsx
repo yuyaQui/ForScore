@@ -74,7 +74,7 @@ export default function MainThirdRound(props: Props) {
     });
 
     // 進行状態・選手・コース・タイマーがそろうまでは黒い舞台だけを出す（既定の状態＝コース選択の画面が1コマ映るのを防ぐ。2026-11-06）
-    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses', 'timer']);
+    const { ready, mark, load } = useReadyGate(['state', 'players', 'courses', 'timer'], ['brand']);
 
     useEffect(() => {
         // 画面を開いた直後の1回だけ、現在の状態を直接取得する。
