@@ -389,12 +389,15 @@ type QuizViewProps = {
 
 type DoorPhase = 'hidden' | 'collapsed' | 'expanding' | 'open';
 
-const FULL_CHASSIS_H = 694, FULL_OUTER_H = 680;
-/** カード（694）＋ 下の点数（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準 */
+// 2026-11-07 ユーザー承認: 枠の高さを 694 → 600 に詰めた（名の下端から枠の下端までの空きを詰め、
+// 画面の下部に大会名・ロゴを置く場所を作る。PlayerCardFrame と同じ値）
+const FULL_CHASSIS_H = 600, FULL_OUTER_H = 586;
+/** カード（600）＋ 下の点数（16＋BELOW_NUMBER_H）＋ 誤答の×・（4＋BELOW_MARK_H）。RoundStage の縮小の基準 */
 const SECOND_ROUND_CONTENT_H = FULL_CHASSIS_H + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H;
 const COLLAPSED_CHASSIS_H = 144, COLLAPSED_OUTER_H = 130;
 const COLLAPSED_STRIP_H = 7;
-const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (FULL_OUTER_H / COLLAPSED_OUTER_H));
+// 上の帯の太さは枠を詰める前（外枠 680）のまま
+const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (680 / COLLAPSED_OUTER_H));
 const COLLAPSED_BADGE_TOP = 14;
 const FULL_BADGE_TOP = FULL_STRIP_H + 10;
 // 2026-09-26 ユーザー指示: カード内側の横幅を158→164pxに広げ、名前・学校名/学年の
@@ -567,8 +570,9 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                         // まで文字がはみ出せてしまうため。左右9pxの余白は中央の縦帯(高さ4.5%〜
                         // 95.5%=約30px〜630px)でのみ安全なので、ゾーンをその安全な帯の中に収まる
                         // 高さに縮め、余裕(マージン)も追加した。
-                        const NAME_ZONE_H = 519; // 660 - 上余白105 - 下端安全マージン36(八角形コーナーの手前で止める)
-                        const META_ZONE_H = 505; // 学校名/学年も同じ下端コーナーにかぶらないよう、余裕を多めに
+                        // 2026-11-07 枠を 600 に詰めたので、内側の高さ 566 から計算し直した
+                        const NAME_ZONE_H = 425; // 566 - 上余白105 - 下端安全マージン36(八角形コーナーの手前で止める)
+                        const META_ZONE_H = 411; // 学校名/学年も同じ下端コーナーにかぶらないよう、余裕を多めに
                         let nameFontSize = fitFontSizeToWidth(p.name, NAME_ZONE_H, 4, 40, 90);
                         const metaCharCount = (p.school || '未登録').length + (p.grade || '-').length;
                         let metaFontSize = fitFontSizeToWidth('*'.repeat(metaCharCount), META_ZONE_H, 1, 20, 40);

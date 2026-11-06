@@ -1,4 +1,4 @@
-// 大会ロゴ（2026-11-06）: 大会準備での登録・差し替え・削除と、Main のクイズ画面の見出しの中央（左ロゴ・右大会名）の表示を、
+// 大会ロゴ（2026-11-06）: 大会準備での登録・差し替え・削除と、Main のクイズ画面の下部の左右中央（左ロゴ・右大会名。2026-11-07 に見出しから移した）の表示を、
 // 実ブラウザ(Chromium)で運営者の操作どおりに確かめるテスト。
 // DB は使えないので、大会名・大会ロゴ・選手の API は画面側で差し替えた偽物(メモリ上)で動かす。
 // 実行: リポジトリのルートで  node tests/e2e/tournament-logo.e2e.js   （Playwright と socket.io-client が必要）
@@ -137,7 +137,7 @@ async function next(admin, re) {
     await click(admin, re);
 }
 
-/** Main の見出しの中央（大会ロゴ・大会名）と、左右の見出しの文字の位置 */
+/** Main の画面の下部（大会ロゴ・大会名）の位置と、ほかの文字との重なり */
 const brandInfo = (main) => main.evaluate(() => {
     const brand = document.querySelector('[data-brand]');
     if (!brand) return null;
@@ -154,6 +154,7 @@ const brandInfo = (main) => main.evaluate(() => {
         text: brand.innerText.replace(/\s+/g, ' ').trim(),
         img: img ? { src: img.getAttribute('src'), loaded: img.complete && img.naturalWidth > 0, w: Math.round(img.getBoundingClientRect().width / (sr.width / 1920)) } : null,
         centerOffset: Math.round(((br.left + br.right) / 2 - (sr.left + sr.right) / 2) / (sr.width / 1920)),
+        top: Math.round((br.top - sr.top) / (sr.width / 1920)), bottom: Math.round((br.bottom - sr.top) / (sr.width / 1920)),
         overlap,
         logoLeftOfName: img ? img.getBoundingClientRect().right <= brand.querySelector('span:not([aria-hidden])').getBoundingClientRect().left : null,
     };
@@ -207,7 +208,7 @@ const brandInfo = (main) => main.evaluate(() => {
     check('プレビューに登録済みの画像', await admin.evaluate(() => { const i = document.querySelector('[aria-label="大会ロゴのプレビュー"] img'); return !!i && i.complete && i.naturalWidth > 0; }));
     await shot('saved');
 
-    console.log('L4 Main のクイズ画面: 見出しの中央に 左ロゴ・右大会名');
+    console.log('L4 Main のクイズ画面: 画面の下部の左右中央に 左ロゴ・右大会名');
     const main = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     main.on('pageerror', e => { if (!/not valid JSON/.test(e.message)) errors.push(e.message); });
     await api.install(main, { main: true });
@@ -228,11 +229,12 @@ const brandInfo = (main) => main.evaluate(() => {
     await sleep(500);
     let b = null;
     for (let i = 0; i < 40 && !(b && b.img && b.img.loaded); i++) { await sleep(150); b = await brandInfo(main); }
-    check('見出しにロゴと大会名', b && b.img && b.img.loaded && /abc Fortior/.test(b.text), JSON.stringify(b));
+    check('ロゴと大会名が出る', b && b.img && b.img.loaded && /abc Fortior/.test(b.text), JSON.stringify(b));
+    check('画面の下部の段（974〜1064）に収まる', b && b.top >= 974 && b.bottom <= 1064, JSON.stringify(b));
     check('左がロゴ・右が大会名', b && b.logoLeftOfName === true, JSON.stringify(b));
     check('画面の左右中央（ずれ 2px 以内）', b && Math.abs(b.centerOffset) <= 2, JSON.stringify(b));
     check('ロゴの横幅は 260px まで', b && b.img && b.img.w <= 260, JSON.stringify(b));
-    check('左右の見出しの文字と重ならない', b && b.overlap.length === 0, JSON.stringify(b));
+    check('ほかの文字（点数・誤答の印など）と重ならない', b && b.overlap.length === 0, JSON.stringify(b));
     await main.screenshot({ path: path.join(ROOT, 'pw', 'logo-main.png') });
     // 最長の大会名（全角12文字）でも重ならない
     api.name = '全国高等学校クイズ選手権大';
@@ -255,7 +257,7 @@ const brandInfo = (main) => main.evaluate(() => {
     await sleep(2000);
     b = await brandInfo(main);
     check('差し替えたロゴに変わる（版が変わる）', b && b.img && b.img.loaded && b.img.src !== src1, JSON.stringify(b));
-    check('正方形のロゴは高さ 84px（横幅 84px）', b && b.img && b.img.w === 84, JSON.stringify(b));
+    check('正方形のロゴは高さ 72px（横幅 72px）', b && b.img && b.img.w === 72, JSON.stringify(b));
     api.logo = null; api.version++;
     ctl.emit('tournament_state_changed');
     await sleep(2000);

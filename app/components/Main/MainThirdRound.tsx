@@ -31,7 +31,7 @@ import { BlankScreen } from "./StandbyScreen";
 import { useReadyGate } from "../useReadyGate";
 import { RoundStage, RemainingSlots } from "@/app/components/Main/RoundStage";
 import { spacedName } from "@/lib/playerName";
-import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
+import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, NEUTRAL_FRAME, COURSE_DONE_FRAME_FILTER, COURSE_DONE_NAME_COLOR, PLAYER_CARD_CHASSIS_H, type CardIntroPhase } from "@/app/components/Main/PlayerCardFrame";
 import { BELOW_NUMBER_FONT, belowFontSize, BELOW_NUMBER_H, BELOW_MARK_FONT, BELOW_MARK_W, BELOW_MARK_H } from "@/app/components/Main/belowSizes";
 
 type Props = {
@@ -601,10 +601,10 @@ type QuizViewProps = {
     socket: Socket | null;
 }
 
-/** 選手カード（694）＋ 下の数字（16＋70）＋ 誤答の×・（4＋70）。RoundStage の縮小の基準（2026-10-22） */
-const THIRD_ROUND_CONTENT_H = 694 + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H;
+/** 選手カード（600。2026-11-07 に 694 から詰めた）＋ 下の数字（16＋BELOW_NUMBER_H）＋ 誤答の×・（4＋BELOW_MARK_H）。RoundStage の縮小の基準（2026-10-22） */
+const THIRD_ROUND_CONTENT_H = PLAYER_CARD_CHASSIS_H + 16 + BELOW_NUMBER_H + 4 + BELOW_MARK_H;
 /** サドンデスはカードの下が数字（勝ち抜け順位・LOST）だけ */
-const THIRD_ROUND_PLAYOFF_CONTENT_H = 694 + 16 + BELOW_NUMBER_H;
+const THIRD_ROUND_PLAYOFF_CONTENT_H = PLAYER_CARD_CHASSIS_H + 16 + BELOW_NUMBER_H;
 
 function QuizView({ quizCourse, quizPlayers, remaining, socket }: QuizViewProps) {
     const phase = useCardIntroPhase();

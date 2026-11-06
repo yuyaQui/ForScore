@@ -1,8 +1,8 @@
 // 大会名（2026-11-02 追加）。Admin の「大会準備」で入力し、DB（TournamentState.tournamentName）に保存する。
-// Admin 左上の表示と、Main のクイズ画面の見出しの中央（大会ロゴの右。2026-11-06）に使う。
+// Admin 左上の表示と、Main のクイズ画面の下部（大会ロゴの右。2026-11-07 に見出しの中央から移した）に使う。
 // 画面（Admin）と API の両方から使う純関数だけを置く。DB の読み書きは lib/roundGuard.ts と app/api/tournamentState。
 //
-// 長さの上限（2026-11-06 ユーザー承認・案 D）: クイズ画面の見出しにロゴと並べて収まる長さまで。
+// 長さの上限（2026-11-06 ユーザー承認・案 D）: クイズ画面にロゴと並べて収まる長さまで。
 // 全角を 2、半角を 1 と数えて 24 まで（全角なら12文字、半角なら24文字）。以前は 40 文字まで。
 
 /** 大会名の長さの上限（全角 2・半角 1 で数えた幅） */
@@ -40,7 +40,7 @@ export function validateTournamentName(raw: unknown): { ok: true; value: string 
     const value = raw.trim();
     if (/[\r\n]/.test(value)) return { ok: false, error: '大会名に改行は使えません' };
     if (nameWidth(value) > TOURNAMENT_NAME_MAX_WIDTH) {
-        return { ok: false, error: `大会名は全角${TOURNAMENT_NAME_MAX_WIDTH / 2}文字（半角${TOURNAMENT_NAME_MAX_WIDTH}文字）までです（クイズ画面の見出しに収めるため）` };
+        return { ok: false, error: `大会名は全角${TOURNAMENT_NAME_MAX_WIDTH / 2}文字（半角${TOURNAMENT_NAME_MAX_WIDTH}文字）までです（クイズ画面に収めるため）` };
     }
     return { ok: true, value };
 }

@@ -1,7 +1,7 @@
 // 大会準備: 大会ロゴの登録（2026-11-06 ユーザー承認）。大会名の面の下に置く。
-// 登録したロゴは DB（TournamentLogo）に保存し、Main のクイズ画面の見出しの中央に大会名と並べて出す。
+// 登録したロゴは DB（TournamentLogo）に保存し、Main のクイズ画面の下部の左右中央に大会名と並べて出す。
 //
-//   ［画像を選ぶ…］→ プレビューと「クイズ画面での見え方」→［登録する］／［やめる］。登録済みなら［削除］（確認つき）
+//   ［画像を選ぶ…］→ プレビューと「クイズ画面での見え方」（画面の下部の段）→［登録する］／［やめる］。登録済みなら［削除］（確認つき）
 //   ・PNG・WebP・JPEG（SVG は受け付けない）。長い辺 1600px までに縮めて送る（透過は保つ・切り抜きはしない）。2MB まで
 //   ・保存・削除のあとは tournament_state_changed を送り、Admin と Main が読み直す
 import { Socket } from "socket.io-client";
@@ -106,7 +106,7 @@ export default function AdminTournamentLogo({ socket }: { socket: Socket | null 
                         : <span>なし</span>}
                 </div>
                 <div className={styles.logoSide}>
-                    <div className={styles.logoMockLabel}>クイズ画面での見え方（見出しの中央）</div>
+                    <div className={styles.logoMockLabel}>クイズ画面での見え方（画面の下部）</div>
                     <div className={styles.logoMock} aria-label="クイズ画面での見え方">
                         <div className={styles.logoMockInner}>
                             <TournamentBrandView name={name} logoSrc={shown?.src ?? null} logoWidth={shown?.width ?? 0} logoHeight={shown?.height ?? 0} />
@@ -133,7 +133,7 @@ export default function AdminTournamentLogo({ socket }: { socket: Socket | null 
                         {saved && (
                             <button type="button" className={styles.btnDanger} disabled={flight.pending}
                                 onClick={() => {
-                                    if (window.confirm("大会ロゴを削除します。クイズ画面の見出しには大会名だけが出ます。よろしいですか？")) {
+                                    if (window.confirm("大会ロゴを削除します。クイズ画面の下部には大会名だけが出ます。よろしいですか？")) {
                                         void send("DELETE", "大会ロゴを削除しました", "大会ロゴを削除できません");
                                     }
                                 }}>

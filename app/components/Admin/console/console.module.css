@@ -354,4 +354,4 @@
 .logoSide { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .logoMockLabel { font: 600 12px var(--ui); color: var(--sub); }
 .logoMock { position: relative; height: 40px; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.logoMockInner { position: absolute; left: 50%; top: 50%; width: 880px; height: 108px; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%) scale(.3); }
+.logoMockInner { position: absolute; left: 50%; top: 50%; width: 1200px; height: 90px; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%) scale(.22); }

@@ -26,10 +26,15 @@ import { LightningBoltsVertical } from "@/app/components/LightningBolts";
 // 元のCowork Designアーティファクト(ThirdRound10UpDown.dc.html等)では158/14だったが、
 // 明示的な指示により2nd Roundの168/10に変更している(アーティファクトとの相違点)。
 const CARD_OUTER_W = 168, CARD_CUT_PAD = 10;
-const FULL_CHASSIS_H = 694, FULL_OUTER_H = 680;
+// 2026-11-07 ユーザー承認: 枠の高さを 694 → 600 に詰めた（名の下端から枠の下端までの空きを詰め、
+// 画面の下部に大会名・ロゴを置く場所を作る。2nd Round と同じ値）
+const FULL_CHASSIS_H = 600, FULL_OUTER_H = 586;
+/** 枠の高さ（3rd Round・Extra Round の本体の高さの計算に使う） */
+export const PLAYER_CARD_CHASSIS_H = FULL_CHASSIS_H;
 const COLLAPSED_CHASSIS_H = 144, COLLAPSED_OUTER_H = 130;
 const COLLAPSED_STRIP_H = 7;
-const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (FULL_OUTER_H / COLLAPSED_OUTER_H));
+// 上の帯の太さは枠を詰める前（外枠 680）のまま
+const FULL_STRIP_H = Math.round(COLLAPSED_STRIP_H * (680 / COLLAPSED_OUTER_H));
 const COLLAPSED_BADGE_TOP = 14;
 const FULL_BADGE_TOP = FULL_STRIP_H + 10;
 
@@ -40,7 +45,7 @@ const FULL_BADGE_TOP = FULL_STRIP_H + 10;
 // 2nd Roundとまったく同じ値のため、同じ数値をそのまま使える。横幅側もCARD_OUTER_W/
 // CARD_CUT_PADが2nd Roundと同じ値になったため、計算結果も2nd Roundと一致する。
 const NAME_META_INNER_W = CARD_OUTER_W - CARD_CUT_PAD * 2; // 130
-const NAME_ZONE_H = (FULL_OUTER_H - CARD_CUT_PAD * 2) - 105 - 36; // 652 - 105 - 36 = 511
+const NAME_ZONE_H = (FULL_OUTER_H - CARD_CUT_PAD * 2) - 105 - 36; // 566 - 105 - 36 = 425（2026-11-07 枠を詰めた後）
 const META_ZONE_H = NAME_ZONE_H - 14; // 2nd Roundと同じく少し余裕を多めに取る
 const NAME_META_WIDTH_BUDGET = NAME_META_INNER_W - 18; // 左右9pxずつの余白を引く
 const NAME_META_SAFETY_GAP = 8;

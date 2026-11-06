@@ -16,7 +16,7 @@ import { logoUrl, type TournamentLogoInfo } from "@/lib/tournamentLogo";
 export type ItemStatus = { status: "loading" | "error" | "ok"; error?: string | null; attempts: number; startedAt: number };
 
 /**
- * クイズ画面の見出しの中央に出す大会名・大会ロゴ（2026-11-06）。
+ * クイズ画面の下部に出す大会名・大会ロゴ（2026-11-06。11-07 に見出しの中央から下部へ）。
  * ready … 読み込みが終わったか（ロゴは画像の展開まで終えてから true。画面が出てからロゴだけ遅れて出ないように）
  */
 export type MainBrand = { ready: boolean; name: string; logo: TournamentLogoInfo | null };

@@ -6,6 +6,8 @@
 //     （問題が無いときも空けておき、表示の有無でカードが動かないようにする）
 //   - 本体は仕切り線の下の決まった箱（幅 1776 × 高さ BODY_H）に、上端・中央そろえで置く。
 //     はみ出すときはラウンド共通の考え方で縮小する（中身の大きさを測って、収まる倍率にする）
+//   - 画面の下部（高さ BRAND_BAND_H）に、大会ロゴと大会名を左右中央に並べる（2026-11-07 ユーザー承認。
+//     以前は見出しの中央）。ロゴ・大会名が無くても場所は空けておき、カードの大きさが変わらないようにする
 import { Socket } from "socket.io-client";
 import { useContext, useEffect, useState } from "react";
 import { MainReadyContext } from "./mainReadiness";
@@ -15,7 +17,9 @@ import type { QuestionDisplayState, QuestionRound } from "@/lib/types";
 import { DEFAULT_QUESTION_DISPLAY } from "@/lib/types";
 import type { PublicPoolQuestion } from "@/lib/questionPool";
 
-const PAD_TOP = 40, PAD_BOTTOM = 32, PAD_X = 72;
+const PAD_TOP = 40, PAD_BOTTOM = 16, PAD_X = 72;
+/** 画面の下部の、大会ロゴ・大会名の段の高さ（2026-11-07） */
+export const BRAND_BAND_H = 90;
 /** 見出し（ラウンド名 40px ＋ 副題 50px）の段の高さ */
 export const HEADER_H = 108;
 const QUESTION_GAP = 14;
@@ -24,7 +28,7 @@ export const QUESTION_H = 140;
 const RULE_GAP = 12, BODY_GAP = 22;
 /** 本体の箱の大きさ */
 export const BODY_W = 1920 - PAD_X * 2;                                                         // 1776
-export const BODY_H = 1080 - PAD_TOP - PAD_BOTTOM - HEADER_H - QUESTION_GAP - QUESTION_H - RULE_GAP - 2 - BODY_GAP;   // 710
+export const BODY_H = 1080 - PAD_TOP - PAD_BOTTOM - HEADER_H - QUESTION_GAP - QUESTION_H - RULE_GAP - 2 - BODY_GAP - BRAND_BAND_H;   // 636
 
 const QUESTION_FONT = 34;      // 1行50文字で 1700px（BODY_W に収まる）
 const ANSWER_FONT = 38;
@@ -124,23 +128,22 @@ export function RoundStage({ header, ruleColor, socket, round, contentW, content
     return (
         <div style={{ width: 1920, height: 1080, boxSizing: 'border-box', padding: `${PAD_TOP}px ${PAD_X}px ${PAD_BOTTOM}px`, backgroundColor: '#000000', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', fontFamily: "'Rajdhani','Noto Sans JP',sans-serif" }}>
             <div style={{ height: HEADER_H, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>{header}</div>
-            <HeaderBrand />
             <QuestionStrip socket={socket} round={round} />
             <div style={{ height: 2, marginTop: RULE_GAP, background: ruleColor, boxShadow: `0 0 12px ${ruleColor}73`, flexShrink: 0 }} />
             <FitBody contentW={contentW} contentH={contentH}>{children}</FitBody>
+            <BottomBrand />
         </div>
     );
 }
 
 /**
- * 見出しの帯の上下中央・画面の左右中央に「大会ロゴ ＋ 大会名」を出す（2026-11-06 ユーザー承認）。
- * 左右の見出しの文字の長さに関係なく、画面の真ん中に置く。大会名・ロゴは Main のページがまとめて読む（mainReadiness）
+ * 画面の下部の段（高さ BRAND_BAND_H）の左右中央に「大会ロゴ ＋ 大会名」を出す（2026-11-07 ユーザー承認。
+ * 2026-11-06 は見出しの中央だった）。大会名・ロゴは Main のページがまとめて読む（mainReadiness）
  */
-function HeaderBrand() {
+function BottomBrand() {
     const { brand } = useContext(MainReadyContext);
-    if (!brand.name && !brand.logo) return null;
     return (
-        <div style={{ position: 'absolute', left: 0, right: 0, top: PAD_TOP, height: HEADER_H, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <div style={{ height: BRAND_BAND_H, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <TournamentBrandView name={brand.name} logoSrc={brand.logo ? logoUrl(brand.logo) : null}
                 logoWidth={brand.logo?.width ?? 0} logoHeight={brand.logo?.height ?? 0} />
         </div>

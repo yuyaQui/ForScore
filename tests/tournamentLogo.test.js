@@ -47,9 +47,9 @@ test("登録の検証: 形式・壊れた画像・大きさ（中身から読ん
 test("縮める大きさ・見出しに出す大きさ", () => {
     assert.deepEqual(L.fitWithin(3200, 1600), { width: 1600, height: 800 });
     assert.deepEqual(L.fitWithin(800, 400), { width: 800, height: 400 });
-    // 横長は横幅 260 に、縦長・正方形は高さ 84 に収める
+    // 横長は横幅 260 に、縦長・正方形は高さ 72 に収める（2026-11-07 画面の下部の段へ移したときに 84 → 72）
     assert.deepEqual(L.brandLogoSize(1600, 400), { width: 260, height: 65 });
-    assert.deepEqual(L.brandLogoSize(400, 400), { width: 84, height: 84 });
+    assert.deepEqual(L.brandLogoSize(400, 400), { width: 72, height: 72 });
     assert.deepEqual(L.brandLogoSize(0, 10), { width: 0, height: 0 });
 });
 

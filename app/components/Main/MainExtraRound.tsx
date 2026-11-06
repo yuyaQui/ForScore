@@ -13,7 +13,7 @@ import { StandbyStage, BlankScreen } from "./StandbyScreen";
 import FixedStage from "@/app/components/FixedStage";
 import { useReadyGate } from "../useReadyGate";
 import { RoundStage } from "@/app/components/Main/RoundStage";
-import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR } from "@/app/components/Main/PlayerCardFrame";
+import { PlayerCardFrame, useCardIntroPhase, WINNER_BAR_COLOR, PLAYER_CARD_CHASSIS_H } from "@/app/components/Main/PlayerCardFrame";
 import { RevealWhole } from "@/app/components/Main/RevealText";
 import { belowFontSize, BELOW_NUMBER_H } from "@/app/components/Main/belowSizes";
 
@@ -336,5 +336,5 @@ function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Sock
     );
 }
 
-/** 選手カード（694）＋ 下の数字（16＋70）。RoundStage の縮小の基準（2026-10-22） */
-const EXTRA_SECOND_STEP_CONTENT_H = 694 + 16 + BELOW_NUMBER_H;
+/** 選手カード（600。2026-11-07 に 694 から詰めた）＋ 下の数字（16＋BELOW_NUMBER_H）。RoundStage の縮小の基準（2026-10-22） */
+const EXTRA_SECOND_STEP_CONTENT_H = PLAYER_CARD_CHASSIS_H + 16 + BELOW_NUMBER_H;

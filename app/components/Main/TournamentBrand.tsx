@@ -1,12 +1,13 @@
 "use client";
-// クイズ画面の見出しの中央に出す「大会ロゴ ＋ 大会名」（2026-11-06 ユーザー承認）。
-// 左がロゴ、右が大会名。見出しの帯（高さ 108px）の上下中央・画面の左右中央に置く（RoundStage）。
+// クイズ画面に出す「大会ロゴ ＋ 大会名」（2026-11-06 ユーザー承認）。左がロゴ、右が大会名。
+// 2026-11-07: 画面の下部の段の左右中央に移し（RoundStage）、大会名は見出し（ラウンド名）と同じ書体
+// （Rajdhani・太字）で、文字の間を広げた青みの灰色にした（ユーザー承認のキャンバス「中央配置 × 書体 1」）。
 // Admin の大会準備の「クイズ画面での見え方」の見本でも同じ部品を使う。
 //
 // 大会名の長さは入力時に全角12文字（半角24文字）までに抑えている（lib/tournamentName.ts）。
 // それでも幅の広い文字（W など）が続いて入りきらないときだけ、字を小さくして収める（省略はしない）。
 import { useLayoutEffect, useRef, useState } from "react";
-import { BRAND_GAP, BRAND_MAX_W, BRAND_NAME_FONT, brandLogoSize } from "@/lib/tournamentLogo";
+import { BRAND_GAP, BRAND_MAX_W, BRAND_NAME_FONT, BRAND_NAME_SPACING, brandLogoSize } from "@/lib/tournamentLogo";
 
 export function TournamentBrandView({ name, logoSrc, logoWidth, logoHeight }: {
     name: string;
@@ -28,7 +29,7 @@ export function TournamentBrandView({ name, logoSrc, logoWidth, logoHeight }: {
 
     if (!name && !logo) return null;
     const nameStyle = {
-        fontFamily: '"Noto Sans JP", sans-serif', fontWeight: 700, color: "#FFFFFF", letterSpacing: 1,
+        fontFamily: "'Rajdhani', 'Noto Sans JP', sans-serif", fontWeight: 700, color: "#9FB4D6", letterSpacing: BRAND_NAME_SPACING,
         whiteSpace: "nowrap" as const, lineHeight: 1.2,
     };
     return (

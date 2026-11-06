@@ -67,7 +67,7 @@ export default function AdminTournamentName({ socket }: { socket: Socket | null 
                 </button>
             </div>
             {!check.ok && <div className={styles.pnlError}>{check.error}</div>}
-            {check.ok && savedTooLong && <div className={styles.pnlError}>保存済みの大会名はクイズ画面の見出しに収まりません。全角12文字（半角24文字）までに短くして保存してください</div>}
+            {check.ok && savedTooLong && <div className={styles.pnlError}>保存済みの大会名はクイズ画面に収まりません。全角12文字（半角24文字）までに短くして保存してください</div>}
         </section>
     );
 }

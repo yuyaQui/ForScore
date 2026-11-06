@@ -1,5 +1,6 @@
 // 大会ロゴ（2026-11-06 ユーザー承認）。Admin の「大会準備」で登録し、DB（TournamentLogo）に保存する。
-// Main のクイズ画面（2nd・3rd・Extra・Semi-Final・Final）の見出しの中央に、大会名と並べて出す（左がロゴ、右が大会名）。
+// Main のクイズ画面（2nd・3rd・Extra・Semi-Final・Final）の画面の下部の左右中央に、大会名と並べて出す（左がロゴ、右が大会名）。
+// 2026-11-06 は見出しの中央、2026-11-07 に画面の下部へ移した（ユーザー承認。大会名は見出しと同じ書体・青みの灰色）。
 // 画面（Admin・Main）と API の両方から使う純関数・定数だけを置く。
 //
 //   ・形式は PNG・WebP・JPEG（SVG は受け付けない。中にプログラムを書けるため）
@@ -21,19 +22,21 @@ export function logoUrl(info: TournamentLogoInfo): string {
     return `/api/tournamentLogo?v=${info.version}`;
 }
 
-// ---- クイズ画面の見出し（1920×1080 の舞台の値） ----
-/** ロゴの高さ（見出しの帯は 108px） */
-export const BRAND_LOGO_H = 84;
+// ---- クイズ画面の下部の段（1920×1080 の舞台の値。段の高さは RoundStage の BRAND_BAND_H = 90） ----
+/** ロゴの高さ */
+export const BRAND_LOGO_H = 72;
 /** ロゴの横幅の上限 */
 export const BRAND_LOGO_MAX_W = 260;
 /** ロゴと大会名の間 */
-export const BRAND_GAP = 20;
+export const BRAND_GAP = 24;
 /** 大会名の字の大きさ */
-export const BRAND_NAME_FONT = 40;
-/** ロゴと大会名を合わせた横幅の上限（左右の見出しの文字と重ならない幅） */
-export const BRAND_MAX_W = 880;
+export const BRAND_NAME_FONT = 52;
+/** 大会名の文字の間隔 */
+export const BRAND_NAME_SPACING = 6;
+/** ロゴと大会名を合わせた横幅の上限 */
+export const BRAND_MAX_W = 1200;
 
-/** 見出しに出すロゴの大きさ（高さ BRAND_LOGO_H・横幅 BRAND_LOGO_MAX_W に収める。縦横比は保つ） */
+/** クイズ画面に出すロゴの大きさ（高さ BRAND_LOGO_H・横幅 BRAND_LOGO_MAX_W に収める。縦横比は保つ） */
 export function brandLogoSize(width: number, height: number): { width: number; height: number } {
     if (!(width > 0) || !(height > 0)) return { width: 0, height: 0 };
     const s = Math.min(BRAND_LOGO_H / height, BRAND_LOGO_MAX_W / width);
