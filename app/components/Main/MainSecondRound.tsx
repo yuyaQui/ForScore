@@ -595,7 +595,8 @@ function QuizView({ groupPlayers, groupNumber, socket }: QuizViewProps) {
                             // 失格者の名前は明るい灰色＋黒い縁（2026-10-29 案B。PlayerCardFrame と共通の値）
                             textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5),
                         };
-                        const styleMeta: CSSProperties = { position: 'absolute', top: '16%', right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', ...textRevealStyle };
+                        // 学校名・学年の上端は内側の上から 106px（2026-11-07 枠を詰めたら 16% 指定で上がり、順位の枠に重なったため固定値に。詰める前の 16% と同じ位置）
+                        const styleMeta: CSSProperties = { position: 'absolute', top: 106, right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', ...textRevealStyle };
                         const styleMetaText: CSSProperties = { writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, textShadow: outlineShadow(textOutlineColor, 1.1) };
                         const styleBelowWrap: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', ...textRevealStyle };
                         const styleLightning: CSSProperties = { position: 'absolute', top: '6%', bottom: '6%', left: '50%', width: 64, transform: 'translateX(-50%)', opacity: isExpanding ? 1 : 0, transition: 'opacity .15s linear', pointerEvents: 'none', zIndex: 6 };

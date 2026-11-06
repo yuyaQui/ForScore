@@ -46,6 +46,7 @@ const FULL_BADGE_TOP = FULL_STRIP_H + 10;
 // CARD_CUT_PADが2nd Roundと同じ値になったため、計算結果も2nd Roundと一致する。
 const NAME_META_INNER_W = CARD_OUTER_W - CARD_CUT_PAD * 2; // 130
 const NAME_ZONE_H = (FULL_OUTER_H - CARD_CUT_PAD * 2) - 105 - 36; // 566 - 105 - 36 = 425（2026-11-07 枠を詰めた後）
+// 学校名・学年は内側の上から 106px から始める（2026-11-07。枠を詰めたら 16% 指定で順位の枠に重なったため固定値に）
 const META_ZONE_H = NAME_ZONE_H - 14; // 2nd Roundと同じく少し余裕を多めに取る
 const NAME_META_WIDTH_BUDGET = NAME_META_INNER_W - 18; // 左右9pxずつの余白を引く
 const NAME_META_SAFETY_GAP = 8;
@@ -213,7 +214,7 @@ export function PlayerCardFrame({ phase, paperRank, eliminated, winner, name, sc
                                 <VerticalSplitName name={name} baseSize={nameFontSize} zoneH={NAME_SPLIT_H}
                                     style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, letterSpacing: 4, color: eliminated ? ELIMINATED_NAME_COLOR : '#F3FAFF', textShadow: eliminated ? outlineShadow(ELIMINATED_NAME_OUTLINE.color, ELIMINATED_NAME_OUTLINE.width) : outlineShadow(textOutlineColor, 1.5) }} />
                             </div>
-                            <div style={{ position: 'absolute', top: '16%', right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
+                            <div style={{ position: 'absolute', top: 106, right: 9, writingMode: 'vertical-rl', textOrientation: 'upright', display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'flex-start', opacity: phase.revealOpacity, transition: phase.REVEAL_TRANSITION }}>
                                 <span style={{ writingMode: 'vertical-rl', textOrientation: 'upright', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, textShadow: outlineShadow(textOutlineColor, 1.1) }}>
                                     {school || '未登録'}
                                 </span>
