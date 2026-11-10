@@ -40,7 +40,8 @@ import { coverBlocksRound, describeCover } from "@/lib/mainCover";
 import { StandingsRow, RangeForm, ReviewList, PlayoffRow, IntroView, LineupView, parsePointInput, allPointsValid } from "./AdminSemifinalParts";
 import { useSemifinalProfiles, PrepPanel } from "./AdminSemifinalPrep";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
-import { useQuestionDisplay } from "./AdminQuestionPanel";
+import { useQuestionDisplay, usePoolBounds } from "./AdminQuestionPanel";
+import { rangeSerials, describeRange, continueFrom } from "@/lib/questionWrap.js";
 import { ConsoleFrame, WorkHead, MetaItem, Drawer, DrawerGroup } from "./console/ConsoleFrame";
 import { QuestionStrip } from "./console/QuestionStrip";
 import { ConsoleSide } from "./console/ConsoleSide";
@@ -202,32 +203,43 @@ export default function AdminSemifinal(props: Props) {
     const set = state.set;
     const range = state.reviewRanges[set] ?? null;
 
-    // セットが変わったら入力欄を初期化する（前のセットの続きの番号を初期値にする）
+    // 取り込んだ問題の最初と上限（2026-11-11。上限を超えたら最初に戻す・折り返す範囲に使う）
+    const bounds = usePoolBounds();
+
+    // セットが変わったら入力欄を初期化する（前のセットの続きの番号を初期値にする。上限の次は最初）
     const [formSet, setFormSet] = useState<number | null>(null);
+    const prevRange = state.reviewRanges[set - 1];
+    const prevBounds = prevRange && prevRange.min !== undefined && prevRange.max !== undefined ? { min: prevRange.min, max: prevRange.max } : bounds;
     if (receivedState && formSet !== set) {
         setFormSet(set);
-        const prevRange = state.reviewRanges[set - 1];
-        setRangeFrom(range ? String(range.from) : prevRange ? String(prevRange.to + 1) : "");
+        setRangeFrom(range ? String(range.from) : prevRange ? String(continueFrom(prevRange.to, prevBounds)) : "");
         setRangeTo(range ? String(range.to) : "");
         setPointInputs({});
     }
+    // 取り込み状況があとから届いたとき、続きの番号が上限を超えていたら最初に直す
+    const [boundsSeen, setBoundsSeen] = useState<typeof bounds>(null);
+    if (bounds && boundsSeen !== bounds) {
+        setBoundsSeen(bounds);
+        if (!range && prevRange && rangeFrom === String(prevRange.to + 1) && prevRange.to >= bounds.max) setRangeFrom(String(bounds.min));
+    }
 
-    // 振り返り中の問題を取得する（Admin 用：別解つき）
-    const pageCount = range ? Math.ceil((range.to - range.from + 1) / REVIEW_PAGE_SIZE) : 0;
+    // 振り返り中の問題を取得する（Admin 用：別解つき）。折り返す範囲（例 98〜3）は通し番号を並べて取る
+    const rangeList = range ? rangeSerials(range) : null;
+    const serialsInRange = rangeList && rangeList.ok ? rangeList.serials : [];
+    const pageCount = Math.ceil(serialsInRange.length / REVIEW_PAGE_SIZE);
     const page = Math.min(state.reviewPage, Math.max(0, pageCount - 1));
-    const pageFrom = range ? range.from + page * REVIEW_PAGE_SIZE : 0;
-    const pageTo = range ? Math.min(range.to, pageFrom + REVIEW_PAGE_SIZE - 1) : 0;
+    const pageKey = serialsInRange.slice(page * REVIEW_PAGE_SIZE, page * REVIEW_PAGE_SIZE + REVIEW_PAGE_SIZE).join(',');
     const hasRange = range !== null;
     useEffect(() => {
-        if (!hasRange || state.view !== 'review') return;
+        if (!hasRange || state.view !== 'review' || pageKey === '') return;
         let cancelled = false;
-        fetch(`/api/questions?from=${pageFrom}&to=${pageTo}`).then(res => res.json()).then(data => {
+        fetch(`/api/questions?serials=${pageKey}`).then(res => res.json()).then(data => {
             if (cancelled) return;
             if (data.success) setReviewQuestions(data.questions);
             else notify(data.error || '問題を読み込めません', 'error');
         }).catch(() => { if (!cancelled) notify('通信に失敗しました。振り返りの問題を読み込めません。', 'error'); });
         return () => { cancelled = true; };
-    }, [hasRange, state.view, pageFrom, pageTo]);
+    }, [hasRange, state.view, pageKey]);
 
     // ---- 導出 ----
     const stage = getSemifinalSetStage(entrants, set);
@@ -271,16 +283,16 @@ export default function AdminSemifinal(props: Props) {
     };
 
     const goReview = () => flight.run(async () => {
-        const from = Number(rangeFrom.trim());
-        const to = Number(rangeTo.trim());
+        if (!rangeCheck.ok) return;
         try {
-            const res = await fetch(`/api/questions?from=${from}&to=${to}`);
+            // 範囲の問題がすべて登録されているか確かめてから振り返りへ（折り返す範囲も番号を並べて確かめる）
+            const res = await fetch(`/api/questions?serials=${rangeCheck.serials.join(',')}`);
             const data = await res.json();
             if (!data.success) {
                 notify(data.error || '問題を読み込めません', 'error');
                 return;
             }
-            changeState({ reviewRange: { from, to }, view: 'review' });
+            changeState({ reviewRange: rangeCandidate, view: 'review' });
         } catch (error) {
             notify(errorText(error, '通信に失敗しました。振り返りには進んでいません。'), 'error');
         }
@@ -508,8 +520,16 @@ export default function AdminSemifinal(props: Props) {
     let backLabel: string | null = null;
     let backAction: (() => void) | null = null;
 
-    const rangeReady = /^\d+$/.test(rangeFrom.trim()) && /^\d+$/.test(rangeTo.trim())
-        && Number(rangeFrom) >= 1 && Number(rangeFrom) <= Number(rangeTo);
+    // 振り返り範囲の入力の検証（2026-11-11: 終了が開始より小さいときは上限で折り返す範囲）
+    const rangeFromN = /^\d+$/.test(rangeFrom.trim()) ? Number(rangeFrom.trim()) : NaN;
+    const rangeToN = /^\d+$/.test(rangeTo.trim()) ? Number(rangeTo.trim()) : NaN;
+    const rangeCandidate = rangeFromN > rangeToN && bounds
+        ? { from: rangeFromN, to: rangeToN, min: bounds.min, max: bounds.max }
+        : { from: rangeFromN, to: rangeToN };
+    const rangeEntered = rangeFrom.trim() !== '' && rangeTo.trim() !== '';
+    const rangeCheck = rangeSerials(rangeCandidate);
+    const rangeReady = rangeCheck.ok;
+    const rangeNote = !rangeEntered ? null : rangeCheck.ok ? describeRange(rangeCandidate) : rangeCheck.error;
 
     if (entrants.length === 0) {
         primaryLabel = '出場者が未確定です';
@@ -730,7 +750,7 @@ export default function AdminSemifinal(props: Props) {
         const meta = (
             <>
                 <MetaItem label="セット" value={`${set} / 3`} />
-                {range && state.view !== 'quiz' && <MetaItem label="振り返り範囲" value={`No.${range.from}〜${range.to}`} />}
+                {range && state.view !== 'quiz' && <MetaItem label="振り返り範囲" value={describeRange(range) ?? `No.${range.from}〜${range.to}`} />}
                 <MetaItem label="対象" value={`${activeSorted.length}名`} />
             </>
         );
@@ -775,7 +795,7 @@ export default function AdminSemifinal(props: Props) {
         } else {
             body = (
                 <>
-                    {showRangeForm && <RangeForm from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />}
+                    {showRangeForm && <RangeForm from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} note={rangeNote} noteOk={rangeCheck.ok} />}
                     <StandingsRow entrants={entrants} />
                 </>
             );

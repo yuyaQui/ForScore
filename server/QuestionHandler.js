@@ -21,6 +21,7 @@ let questionDisplay = {
 };
 
 const { isResetTarget, fromOf } = require("./roundOrder");
+const { nextSerial } = require("../lib/questionWrap.js");
 
 // semifinal はサドンデスだけで使う（2026-10-30 追加）
 const ROUNDS = ["secondRound", "thirdRound", "extraSecondStep", "semifinal", "final"];
@@ -120,6 +121,8 @@ module.exports = function QuestionHandler(io, socket) {
     // 2026-10-29: payload に scope（組・コース）と scored（得点の Undo 履歴を積んだか。省略時 true）を足した。
     // 受け付けた問題は記録に積む。問題を受け付けなかった（開始番号が未設定など）が得点は動いたときは、
     // 得点の Undo と手数をそろえるため other を積む
+    // 2026-11-11: payload.bounds（取り込んだ問題の最初と上限の通し番号）があれば、上限の問題が終わったら
+    // 次に読む問題を最初に戻す（lib/questionWrap.js）。無ければ従来どおり 1 進める
     socket.on("finish_question", (payload) => {
         if (!payload || !ROUNDS.includes(payload.round)) return;
         const scope = scopeOf(payload);
@@ -137,7 +140,7 @@ module.exports = function QuestionHandler(io, socket) {
             serial: payload.serial,
             shown: true,
             seq: questionDisplay.seq + 1,
-            cursors: { ...questionDisplay.cursors, [payload.round]: payload.serial + 1 }
+            cursors: { ...questionDisplay.cursors, [payload.round]: nextSerial(payload.serial, payload.bounds) }
         };
         broadcast();
     });

@@ -2,9 +2,10 @@
 //   左（大きく・黄色の枠）: Main に表示中の問題
 //   右（小さく・水色の枠）: 次に読む問題（◀前・次▶ で通し番号を動かす）
 // 採点（正解・誤答・スルー）すると、右の問題が Main に出て次の問題に進む（server/QuestionHandler.js）。
+// 2026-11-11: 取り込んだ問題の上限の次は最初に戻る。◀前・次▶ も折り返し、上限のときは「この次は No.○ に戻ります」と出す
 import type { Socket } from "socket.io-client";
 import type { QuestionDisplayState, QuestionRound } from "@/lib/types";
-import { useQuestion } from "../AdminQuestionPanel";
+import { cursorMoves, usePoolBounds, useQuestion } from "../AdminQuestionPanel";
 import styles from "./console.module.css";
 
 export function QuestionStrip({ socket, round, state }: { socket: Socket | null; round: QuestionRound; state: QuestionDisplayState }) {
@@ -13,7 +14,9 @@ export function QuestionStrip({ socket, round, state }: { socket: Socket | null;
     const shownHere = state.round === round ? state.serial : null;
     const onAir = state.shown && shownHere !== null;
     const shown = useQuestion(onAir ? shownHere : null);
-    const setCursor = (serial: number) => { if (socket && serial >= 1) socket.emit('set_question_cursor', { round, serial }); };
+    const setCursor = (serial: number | null) => { if (socket && serial !== null && serial >= 1) socket.emit('set_question_cursor', { round, serial }); };
+    const bounds = usePoolBounds();
+    const moves = cursorMoves(cursor, bounds);
 
     return (
         <div className={styles.qstrip}>
@@ -38,8 +41,8 @@ export function QuestionStrip({ socket, round, state }: { socket: Socket | null;
                 <div className={styles.qLabel}>
                     次に読む問題 {cursor !== null && <b>No.{cursor}</b>}
                     <span className={styles.qNav}>
-                        <button type="button" className={styles.btn} onClick={() => cursor !== null && setCursor(cursor - 1)} disabled={cursor === null || cursor <= 1}>◀ 前</button>
-                        <button type="button" className={styles.btn} onClick={() => cursor !== null && setCursor(cursor + 1)} disabled={cursor === null}>次 ▶</button>
+                        <button type="button" className={styles.btn} onClick={() => setCursor(moves.prev)} disabled={moves.prev === null}>◀ 前</button>
+                        <button type="button" className={styles.btn} onClick={() => setCursor(moves.next)} disabled={moves.next === null}>次 ▶</button>
                     </span>
                 </div>
                 {cursor === null ? (
@@ -54,6 +57,7 @@ export function QuestionStrip({ socket, round, state }: { socket: Socket | null;
                         <div className={styles.qAnsSm}><small>A.</small>{next.question.answer}
                             {next.question.altAnswer && <span className={styles.qAlt}>別解・判定: {next.question.altAnswer}</span>}
                         </div>
+                        {moves.wrapsNext && bounds && <div className={styles.qWrap}>最後の問題です。この次は No.{bounds.min} に戻ります</div>}
                     </>
                 )}
             </div>

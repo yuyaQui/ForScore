@@ -10,10 +10,37 @@ import { useCallback, useEffect, useState } from "react";
 import type { QuestionDisplayState, QuestionRound } from "@/lib/types";
 import { DEFAULT_QUESTION_DISPLAY } from "@/lib/types";
 import type { PoolQuestion } from "@/lib/questionPool";
+import { nextSerial, prevSerial } from "@/lib/questionWrap.js";
 import { MANUAL_LABEL_STYLE, STAT_LABEL_STYLE, manualBtnStyle, manualBtnTextStyle, neutralBtnStyle, NEUTRAL_BTN_TEXT } from "./adminCyberStyles";
 
 const JP = '"Noto Sans JP",sans-serif';
 const ORB = 'Orbitron, sans-serif';
+
+/** 取り込んだ問題の最初と上限の通し番号（2026-11-11）。読めない・未登録なら null */
+export type PoolBounds = { min: number; max: number };
+
+/**
+ * 取り込んだ問題の最初と上限の通し番号を読む（GET /api/questionPool の登録状況）。
+ * 上限の問題の次は最初に戻す（lib/questionWrap.js）ために使う。画面を開くたびに読み直す
+ */
+export function usePoolBounds(): PoolBounds | null {
+    const [bounds, setBounds] = useState<PoolBounds | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/questionPool').then(res => res.json()).then(data => {
+            const s = data?.summary;
+            if (!cancelled && data?.success && s && Number.isInteger(s.min) && Number.isInteger(s.max)) setBounds({ min: s.min, max: s.max });
+        }).catch(() => { /* 読めないときは折り返さない（従来どおり） */ });
+        return () => { cancelled = true; };
+    }, []);
+    return bounds;
+}
+
+/** ◀前・次▶ の行き先（上限の次は最初、最初の前は上限。2026-11-11） */
+export function cursorMoves(cursor: number | null, bounds: PoolBounds | null): { prev: number | null; next: number | null; wrapsNext: boolean } {
+    if (cursor === null) return { prev: null, next: null, wrapsNext: false };
+    return { prev: prevSerial(cursor, bounds), next: nextSerial(cursor, bounds), wrapsNext: bounds !== null && cursor >= bounds.max };
+}
 
 /** 問題表示の状態を受け取り、1問が終わったことをサーバに伝える関数を返す */
 export function useQuestionDisplay(socket: Socket | null, round: QuestionRound) {
@@ -31,10 +58,12 @@ export function useQuestionDisplay(socket: Socket | null, round: QuestionRound) 
     // その問題を Main に表示して番号を1つ進める（開始番号が未設定なら何もしない）。
     // 2026-10-29: scope（どの組・コースの操作か）と scored（得点の Undo 履歴を積んだか）も送り、
     // サーバが操作の記録に積む（Undo で問題も戻すため）
+    // 2026-11-11: 取り込んだ問題の最初と上限も送り、上限の問題が終わったら最初に戻す（サーバが判断する）
     const cursor = state.cursors[round];
+    const bounds = usePoolBounds();
     const finishQuestion = useCallback((scope: string, scored: boolean) => {
-        if (socket) socket.emit('finish_question', { round, serial: cursor, scope, scored });
-    }, [socket, round, cursor]);
+        if (socket) socket.emit('finish_question', { round, serial: cursor, scope, scored, bounds });
+    }, [socket, round, cursor, bounds]);
 
     // 問題と関係しない得点の操作（3rd Round のコース終了、Final の次のセットへ）を記録する（2026-10-29）
     const recordEvent = useCallback((scope: string) => {

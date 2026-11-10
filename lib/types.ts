@@ -138,7 +138,8 @@ export type SemifinalView = 'standby' | 'intro' | 'lineup' | 'quiz' | 'review' |
  */
 export type SemifinalIntroStep = 'nickname' | 'profile';
 
-export type SemifinalReviewRange = { from: number; to: number };
+/** 振り返り範囲。from > to は上限で折り返す範囲で、そのときの最初と上限（min・max）も持つ（2026-11-11。lib/questionWrap.js） */
+export type SemifinalReviewRange = { from: number; to: number; min?: number; max?: number };
 
 export type SemifinalState = {
     /** 現在のセット 1〜3 */

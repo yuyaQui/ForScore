@@ -254,7 +254,7 @@
 .pointInput:focus { outline: 2px solid var(--cue); outline-offset: 0; }
 .pointInput:disabled { opacity: .5; }
 .pointInputBad { composes: pointInput; border-color: var(--ng); }
-.rangeBox { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--air); background: rgba(244, 178, 62, .07); border-radius: 8px; }
+.rangeBox { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--air); background: rgba(244, 178, 62, .07); border-radius: 8px; }
 .rangeLabel { font: 700 13px var(--ui); color: var(--air); }
 .rangeInput { width: 96px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line2); background: var(--ink); color: var(--text); font: 700 18px var(--num); text-align: right; }
 .revList { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -355,3 +355,9 @@
 .logoMockLabel { font: 600 12px var(--ui); color: var(--sub); }
 .logoMock { position: relative; height: 40px; background: #000; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .logoMockInner { position: absolute; left: 50%; top: 50%; width: 1200px; height: 90px; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%) scale(.22); }
+
+/* 問題欄: 上限の次は最初に戻る案内（2026-11-11） */
+.qWrap { margin-top: 4px; font: 700 12px var(--ui); color: var(--air); }
+/* Semi-Final 振り返り範囲の中身・使えない理由（2026-11-11） */
+.rangeNote { font: 700 13px var(--ui); color: var(--text); }
+.rangeNoteNg { font: 700 13px var(--ui); color: var(--ng); }

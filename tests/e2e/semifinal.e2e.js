@@ -38,11 +38,16 @@ function makeFakeApi() {
         await page.route('**/api/tournamentState', r => r.fulfill({ json: { success: true, state: { extraRoundNoRevival: false, tournamentName: 'テスト大会' } } }));
         await page.route('**/api/thirdRound/courses', r => r.fulfill({ json: { success: true, courses } }));
         await page.route('**/api/semifinal/profiles', r => r.fulfill({ json: { success: true, profiles: players.map(p => ({ playerId: p.id, nickname: '', photoVersion: null })) } }));
+        // 取り込んだ問題は No.1〜No.100（2026-11-11。上限の次は最初に戻る）
+        await page.route('**/api/questionPool', r => r.fulfill({ json: { success: true, summary: { count: 100, min: 1, max: 100, missing: [] } } }));
         await page.route(/\/api\/questions\?/, r => {
             const u = new URL(r.request().url());
             const from = Number(u.searchParams.get('from')), to = Number(u.searchParams.get('to'));
+            // 番号を並べた指定（?serials=99,100,1。2026-11-11）にも答える
+            const list = u.searchParams.get('serials') ? u.searchParams.get('serials').split(',').map(Number) : null;
+            const serials = list || Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => from + i);
             const qs = [];
-            for (let s = from; s <= to; s++) qs.push({ serial: s, text: `問題 ${s} の本文です。`, answer: `答え${s}`, altAnswer: s % 2 ? `別解${s}` : '' });
+            for (const s of serials) qs.push({ serial: s, text: `問題 ${s} の本文です。`, answer: `答え${s}`, altAnswer: s % 2 ? `別解${s}` : '' });
             r.fulfill({ json: { success: true, questions: qs } });
         });
         await page.route('**/api/semifinal/updateScore', async r => {
@@ -286,10 +291,20 @@ async function fillTally(admin, byId) {
     console.log('S6 第2セット: 同点でサドンデス');
     sc.emit('change_semifinal_timer', { action: 'edit', seconds: 0 });
     await sleep(800);
-    await admin.locator('main input[aria-label="開始の通し番号"]').fill('7');
-    await admin.locator('main input[aria-label="終了の通し番号"]').fill('9');
+    check('第2セットの開始の初期値は前のセットの続き(7)', (await admin.locator('main input[aria-label="開始の通し番号"]').inputValue()) === '7');
+    // 上限(100)で折り返す範囲（2026-11-11）
+    await admin.locator('main input[aria-label="開始の通し番号"]').fill('99');
+    await admin.locator('main input[aria-label="終了の通し番号"]').fill('2');
+    await sleep(300);
+    check('折り返す範囲の中身が出る', /No\.99〜No\.100、No\.1〜No\.2（4問）/.test(await text(admin, 'main')), await text(admin, 'main'));
     await next(admin, /問題振り返りへ/);
-    await sleep(1000);
+    await sleep(1200);
+    check('振り返り1ページ目は 99・100・1', /問題 99 の本文[\s\S]*問題 100 の本文[\s\S]*問題 1 の本文/.test(await text(admin, 'main')), (await text(admin, 'main')).slice(0, 200));
+    check('会場にも 99・100・1', await waitText(main, 'body', /問題 99 の本文[\s\S]*問題 100 の本文[\s\S]*問題 1 の本文/), (await text(main)).slice(0, 200));
+    check('メタに折り返す範囲', /No\.99〜No\.100、No\.1〜No\.2（4問）/.test(await header(admin)) || /No\.99〜No\.100、No\.1〜No\.2/.test(await text(admin)), '');
+    await next(admin, /次の3問/);
+    await sleep(900);
+    check('2ページ目は 2 だけ', /問題 2 の本文/.test(await text(admin, 'main')) && !/問題 99 の本文/.test(await text(admin, 'main')));
     await next(admin, /得点集計へ/);
     await sleep(900);
     check('入力欄は勝ち抜け・敗退済みを除く6名', (await admin.locator('input[aria-label$="の得点"]').count()) === 6);

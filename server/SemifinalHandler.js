@@ -11,7 +11,8 @@ const { isResetTarget, fromOf } = require("./roundOrder");
 //
 //   set           … 現在のセット 1〜3
 //   view          … Main の表示 "standby" | "intro" | "lineup" | "quiz" | "review" | "tally"（得点集計）| "results" | "playoff"
-//   reviewRanges  … セットごとの振り返り範囲（通し番号）{ [set]: { from, to } }
+//   reviewRanges  … セットごとの振り返り範囲（通し番号）{ [set]: { from, to } }。
+//                   from > to は上限で折り返す範囲で、そのときの最初と上限 { min, max } も持つ（2026-11-11）
 //   reviewPage    … 振り返りのページ（0始まり、1ページ3問）
 //   pointsEntered … このセットの得点を入力済みか
 //   announceSeq   … 点数発表の回数。Admin の announce_semifinal_results でだけ増える
@@ -40,7 +41,7 @@ let semifinalState = {
 const VIEWS = ["standby", "intro", "lineup", "quiz", "review", "tally", "results", "playoff"];
 const INTRO_STEPS = ["nickname", "profile"];
 const INTRO_INDEX_MAX = 8;        // 紹介するのは敗者復活者＋3rd Round 通過の8名（0〜8。2026-10-31 項目13）
-const REVIEW_RANGE_MAX = 300;   // lib/questionPool.ts の QUESTION_RANGE_MAX と同じ
+const { rangeSerials } = require("../lib/questionWrap.js");
 const REVIEW_PAGE_MAX = 100;
 const PLAYOFF_ACTIONS_MAX = 100;
 
@@ -90,11 +91,12 @@ function applyUpdate(prev, update) {
     }
     if (own(update, "reviewRange")) {
         const r = update.reviewRange;
-        if (r && typeof r === "object" && isInt(r.from, 1, Number.MAX_SAFE_INTEGER) && isInt(r.to, 1, Number.MAX_SAFE_INTEGER)
-            && r.from <= r.to && r.to - r.from < REVIEW_RANGE_MAX) {
+        // 範囲の検証は lib/questionWrap.js（折り返す範囲は最初・上限が必要。300問まで）
+        if (r && typeof r === "object" && rangeSerials(r).ok) {
             const old = next.reviewRanges[next.set];
-            next.reviewRanges = { ...next.reviewRanges, [next.set]: { from: r.from, to: r.to } };
-            if (!old || old.from !== r.from || old.to !== r.to) next.reviewPage = 0;
+            const range = r.from <= r.to ? { from: r.from, to: r.to } : { from: r.from, to: r.to, min: r.min, max: r.max };
+            next.reviewRanges = { ...next.reviewRanges, [next.set]: range };
+            if (!old || old.from !== range.from || old.to !== range.to || old.min !== range.min || old.max !== range.max) next.reviewPage = 0;
         }
     }
     if (own(update, "reviewPage") && isInt(update.reviewPage, 0, REVIEW_PAGE_MAX)) {

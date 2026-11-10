@@ -73,8 +73,10 @@ export function StandingsRow({ entrants, points, showSet }: {
 // 振り返る問題の通し番号の入力（タイムアップ後。2026-10-17 の流れ）
 // ---------------------------------------------------------------------------
 
-export function RangeForm({ from, to, onFrom, onTo }: {
+export function RangeForm({ from, to, onFrom, onTo, note, noteOk }: {
     from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void;
+    /** 範囲の中身（例「No.98〜No.100、No.1〜No.3（6問）」）か、使えない理由。2026-11-11 */
+    note?: string | null; noteOk?: boolean;
 }) {
     return (
         <div className={styles.rangeBox}>
@@ -82,6 +84,7 @@ export function RangeForm({ from, to, onFrom, onTo }: {
             <input type="text" inputMode="numeric" value={from} onChange={e => onFrom(e.target.value)} className={styles.rangeInput} aria-label="開始の通し番号" />
             <span className={styles.rangeLabel}>〜</span>
             <input type="text" inputMode="numeric" value={to} onChange={e => onTo(e.target.value)} className={styles.rangeInput} aria-label="終了の通し番号" />
+            {note && <span className={noteOk ? styles.rangeNote : styles.rangeNoteNg} role="status">{note}</span>}
         </div>
     );
 }

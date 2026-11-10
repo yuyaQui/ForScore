@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { selectQuestionRange } from '@/lib/questionPool';
+import { QUESTION_RANGE_MAX, selectQuestionRange } from '@/lib/questionPool';
 import { QUESTION_POOL_NOT_READY, isQuestionPoolClientReady, isTableMissingError } from '@/lib/questionPoolDb';
 
 // 大会共通の問題群から、通し番号の範囲で問題を返す。
 //   GET /api/questions?from=1&to=30          … Admin 用（別解・正誤判定基準を含む）
 //   GET /api/questions?from=1&to=30&public=1 … Main 用（問題文と解答だけ）
+//   GET /api/questions?serials=99,100,1      … 番号を並べて指定（その順に返す。Semi-Final の折り返す振り返り。2026-11-11）
 //
 // 2026-10-22: 読み込み元を検証用 test_questions.csv から DB（QuestionPoolItem）に差し替えた。
 // 問題データは Admin の待機画面の「問題データ」で取り込む（POST /api/questionPool）。
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
         // 問題データの表がまだ使えない（migrate 前）ときは、やることを書いたメッセージで返す
         if (!isQuestionPoolClientReady()) return NextResponse.json({ error: QUESTION_POOL_NOT_READY }, { status: 503 });
         const params = new URL(request.url).searchParams;
+        const listParam = params.get('serials');
+        if (listParam !== null) return await bySerials(listParam, params.get('public') === '1');
         const from = Number(params.get('from'));
         const to = Number(params.get('to'));
 
@@ -42,4 +45,27 @@ export async function GET(request: Request) {
         console.error('Questions load error:', error);
         return NextResponse.json({ error: '問題データを読み込めません' }, { status: 500 });
     }
+}
+
+/** 番号を並べて指定したとき（?serials=99,100,1）。並べた順に返す。1つでも登録が無ければエラー */
+async function bySerials(listParam: string, isPublic: boolean) {
+    const serials = listParam.split(',').map(v => Number(v.trim()));
+    if (serials.length === 0 || serials.length > QUESTION_RANGE_MAX || serials.some(s => !Number.isInteger(s) || s < 1)) {
+        return NextResponse.json({ error: `通し番号の指定が不正です（1以上の整数を${QUESTION_RANGE_MAX}個まで）` }, { status: 400 });
+    }
+    const rows = await prisma.questionPoolItem.findMany({ where: { serial: { in: serials } } });
+    if (rows.length === 0 && (await prisma.questionPoolItem.count()) === 0) {
+        return NextResponse.json({ error: '問題データが登録されていません（待機画面の Admin で取り込んでください）' }, { status: 400 });
+    }
+    const bySerial = new Map(rows.map(r => [r.serial, r]));
+    const missing = serials.filter(s => !bySerial.has(s));
+    if (missing.length > 0) {
+        const shown = missing.slice(0, 5).join(', ') + (missing.length > 5 ? ' ほか' : '');
+        return NextResponse.json({ error: `登録されていない通し番号があります（${shown}）` }, { status: 400 });
+    }
+    const questions = serials.map(s => bySerial.get(s)!);
+    return NextResponse.json({
+        success: true,
+        questions: isPublic ? questions.map(({ serial, text, answer }) => ({ serial, text, answer })) : questions,
+    });
 }

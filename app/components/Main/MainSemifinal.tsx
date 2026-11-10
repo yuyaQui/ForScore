@@ -12,6 +12,7 @@ import type { PublicPoolQuestion } from "@/lib/questionPool";
 import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
 import { StandbyStage, BlankScreen } from "./StandbyScreen";
+import { rangeSerials } from "@/lib/questionWrap.js";
 import { useReadyGate } from "../useReadyGate";
 import FixedStage from "@/app/components/FixedStage";
 import { WINNER_BAR_COLOR } from "./PlayerCardFrame";
@@ -127,23 +128,23 @@ export default function MainSemifinal(props: Props) {
         contendersRef.current = seats.map(s => s.player).filter(p => p.semifinalRank === 0);
     });
 
-    // 振り返りの問題（Main 用：別解なし）
+    // 振り返りの問題（Main 用：別解なし）。2026-11-11: 上限で折り返す範囲（例 98〜3）もあるので、通し番号を並べて取る
     const range = current.reviewRanges[current.set] ?? null;
-    const pageCount = range ? Math.ceil((range.to - range.from + 1) / REVIEW_PAGE_SIZE) : 0;
+    const rangeList = range ? rangeSerials(range) : null;
+    const serialsInRange = rangeList && rangeList.ok ? rangeList.serials : [];
+    const pageCount = Math.ceil(serialsInRange.length / REVIEW_PAGE_SIZE);
     const page = Math.min(current.reviewPage, Math.max(0, pageCount - 1));
-    const pageFrom = range ? range.from + page * REVIEW_PAGE_SIZE : 0;
-    const pageTo = range ? Math.min(range.to, pageFrom + REVIEW_PAGE_SIZE - 1) : 0;
+    const pageKey = serialsInRange.slice(page * REVIEW_PAGE_SIZE, page * REVIEW_PAGE_SIZE + REVIEW_PAGE_SIZE).join(',');
     const [questions, setQuestions] = useState<{ key: string; items: PublicPoolQuestion[] } | null>(null);
     const isReview = current.view === 'review' && range !== null;
     useEffect(() => {
-        if (!isReview) return;
-        const key = `${pageFrom}-${pageTo}`;
+        if (!isReview || pageKey === '') return;
         let cancelled = false;
-        fetch(`/api/questions?from=${pageFrom}&to=${pageTo}&public=1`).then(res => res.json()).then(data => {
-            if (!cancelled && data.success) setQuestions({ key, items: data.questions });
+        fetch(`/api/questions?serials=${pageKey}&public=1`).then(res => res.json()).then(data => {
+            if (!cancelled && data.success) setQuestions({ key: pageKey, items: data.questions });
         }).catch(err => console.error('Failed to load questions', err));
         return () => { cancelled = true; };
-    }, [isReview, pageFrom, pageTo]);
+    }, [isReview, pageKey]);
 
     const remaining = timer.remainings[current.set] ?? SET_TIME_LIMIT_SECONDS;
 
@@ -157,7 +158,7 @@ export default function MainSemifinal(props: Props) {
             ? <IntroView key={`${current.introIndex}-${current.introStep}`} player={player} index={current.introIndex} step={current.introStep} profile={profileOf(player.id)} />
             : <StandbyView />;
     } else if (current.view === 'review' && range) {
-        const loaded = questions && questions.key === `${pageFrom}-${pageTo}` ? questions.items : [];
+        const loaded = questions && questions.key === pageKey ? questions.items : [];
         body = <ReviewView set={current.set} questions={loaded} />;
     } else if (current.view === 'playoff' && current.playoff) {
         body = <PlayoffView socket={socket} seats={seats} state={current} profileOf={profileOf} />;
