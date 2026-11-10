@@ -13,6 +13,7 @@
 import { Socket } from "socket.io-client";
 import { useState, useEffect } from "react";
 import type { Player, ThirdRoundTimer } from "@/lib/types";
+import { TIMER_URGENT_SECONDS } from "@/lib/thirdRoundCourses";
 import {
     COURSE_TIME_LIMIT_SECONDS,
     THIRD_ROUND_COURSES,
@@ -973,7 +974,7 @@ export default function AdminThirdRound(props: Props) {
             onAirDetail={cover.kind !== 'none' ? describeCover(cover) : onAirDetail}
             barExtra={<>
                 {showTimer && (
-                    <TimerChip remaining={remaining} isRunning={isTimerRunning} urgentAt={120} onStart={() => changeTimer('start')} onStop={() => changeTimer('stop')} />
+                    <TimerChip remaining={remaining} isRunning={isTimerRunning} urgentAt={TIMER_URGENT_SECONDS} onStart={() => changeTimer('start')} onStop={() => changeTimer('stop')} />
                 )}
                 <CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />
             </>}

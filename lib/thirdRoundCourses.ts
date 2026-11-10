@@ -45,6 +45,11 @@ export const ENTRY_TIME_SECONDS = 10;
  */
 export { THIRD_ROUND_TIME_LIMIT as COURSE_TIME_LIMIT_SECONDS } from '../constants.js';
 
+/** 残り時間がこの秒数以下になったら、タイマーを赤（警告色）にする（2026-11-11 ユーザー指示で 2分 → 5分。Main と Admin で同じ値） */
+export const TIMER_URGENT_SECONDS = 300;
+/** 残り時間がこの秒数以下になったら、Main のタイマーを点滅させる（点滅は従来どおり残り2分から） */
+export const TIMER_PULSE_SECONDS = 120;
+
 /**
  * 準決勝の座席割り当て
  *

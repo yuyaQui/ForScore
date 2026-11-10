@@ -5,6 +5,8 @@ import type { Player, ThirdRoundTimer } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
 import {
     COURSE_TIME_LIMIT_SECONDS,
+    TIMER_URGENT_SECONDS,
+    TIMER_PULSE_SECONDS,
     THIRD_ROUND_COURSE_NAMES,
     THIRD_ROUND_COURSES,
     WINNERS_PER_COURSE,
@@ -499,8 +501,8 @@ function QuizHeader({ courseName, players }: { courseName: string; players: Play
 /**
  * 残り時間のリング表示。Cowork Design の ThirdRound10UpDown.dc.html / Freeze10 / Swedish10 /
  * 10by10(2026-10-03更新版、4コースとも同一仕様)にある大きなリングゲージをそのまま移植した。
- * 半径200pxの円を残り秒数の割合で塗り分け、中央にmm:ss表示を重ねる。残り2分以下で
- * 警告色(#FF3B5C)に変わり点滅する(アーティファクトのtimerUrgent/timerPulseと同じ基準)。
+ * 半径200pxの円を残り秒数の割合で塗り分け、中央にmm:ss表示を重ねる。残り5分以下で
+ * 警告色(#FF3B5C)に変わり（2026-11-11 ユーザー指示。以前は残り2分）、残り2分以下で点滅する。
  *
  * 開始アニメーション(0 → その時点の残り秒数まで850msでカウントアップし、ゲージも連動して
  * 充填される)もアーティファクトのanimateTimerFill()と同じイージング(1-(1-t)^3)・時間で
@@ -566,14 +568,15 @@ function TimerPanel({ remaining, playFillIntro }: { remaining: number; playFillI
     const filled = frac * C;
     // 警告判定は演出中の値ではなく本来の残り時間で行う(充填序盤にゲージがほぼ空の
     // 状態で誤って赤く点滅しないようにする。アーティファクトのtimerUrgentと同じ考え方)。
-    const urgent = remaining <= 120;
+    const urgent = remaining <= TIMER_URGENT_SECONDS;
+    const pulse = remaining <= TIMER_PULSE_SECONDS;
     const ringColor = urgent ? '#FF3B5C' : '#4FD8FF';
     const glow = urgent ? 'rgba(255,59,92,.65)' : 'rgba(79,216,255,.55)';
 
     return (
         <div style={{ width: 520, flexShrink: 0, height: 660, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
             {/* 全ルールでタイマーを約1.4倍に（2026-11-04 ユーザー指示。右の空いた場所に収まる大きさ） */}
-            <div className={urgent ? 'animate-pulse' : undefined} style={{ position: 'relative', width: 460, height: 460, transform: 'scale(1.38)' }}>
+            <div className={pulse ? 'animate-pulse' : undefined} style={{ position: 'relative', width: 460, height: 460, transform: 'scale(1.38)' }}>
                 <svg width={460} height={460} viewBox="0 0 460 460" style={{ transform: 'rotate(-90deg)' }}>
                     <circle cx={230} cy={230} r={R} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth={24} />
                     <circle
