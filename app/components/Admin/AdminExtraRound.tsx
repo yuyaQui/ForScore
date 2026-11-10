@@ -21,8 +21,9 @@ import {
     clampCursor,
     getFirstStepItem,
     getFirstStepItemLabel,
-    getNextPhaseCursor,
-    isPhaseEndAnswer,
+    getContinueCursor,
+    getContinueLabel,
+    isDecisionAnswer,
     normalizeExtraRoundState,
 } from "@/lib/extraRound";
 import AdminExtraRoundUpload from "./AdminExtraRoundUpload";
@@ -287,19 +288,20 @@ export default function AdminExtraRound(props: Props) {
     if (state.stage === 'setup') {
         primaryLabel = '問題CSVを取り込んでください';
     } else if (state.stage === 'firstStep') {
-        const atDecision = isPhaseEndAnswer(state.cursor);
+        const atDecision = isDecisionAnswer(state.cursor);
         if (!state.revealed) {
             // 中身（問題文 / 解答）をまだ Main に出していない。出すまでは先に進めない
             primaryLabel = getFirstStepItem(state.cursor).view === 'question' ? '問題を表示 ▶' : '解答を表示 ▶';
             primaryAction = revealStep;
             if (!atDecision) waitingNextLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}）`;
         } else if (atDecision) {
-            // フェーズ最後の解答発表。進出者を決める（途中で1st Stepを終える場合もここ）か、次のフェーズへ
+            // 進出者を確認する解答発表（フェーズ最後の解答、Survival は毎問の解答。2026-11-11）。
+            // 進出者を決める（途中で First Step を終える場合もここ）か、次のフェーズ／次の問題へ
             primaryLabel = 'Second Step 進出者決定 ▶';
             primaryAction = () => changeState({ stage: 'entrantSelect' });
-            const nextCursor = getNextPhaseCursor(state.cursor);
+            const nextCursor = getContinueCursor(state.cursor);
             if (nextCursor !== null) {
-                secondaryLabel = '次のフェーズへ ▶';
+                secondaryLabel = `${getContinueLabel(state.cursor)} ▶`;
                 secondaryAction = () => changeState({ cursor: nextCursor, revealed: false });
             }
         } else {
@@ -380,7 +382,7 @@ export default function AdminExtraRound(props: Props) {
                 <select className={styles.input} style={{ width: 260, textAlign: 'left' }} aria-label="First Step の位置" value={state.cursor}
                     onChange={e => changeState({ cursor: clampCursor(Number(e.target.value)), revealed: false })}>
                     {FIRST_STEP_SEQUENCE.map((_, i) => (
-                        <option key={i} value={i}>{i + 1}. {getFirstStepItemLabel(i)}{isPhaseEndAnswer(i) ? '（進出者決定）' : ''}</option>
+                        <option key={i} value={i}>{i + 1}. {getFirstStepItemLabel(i)}{isDecisionAnswer(i) ? '（進出者決定）' : ''}</option>
                     ))}
                 </select>
                 <button type="button" className={styles.btn} onClick={() => changeState({ cursor: 0, revealed: false })}>最初（問題 1）へ</button>

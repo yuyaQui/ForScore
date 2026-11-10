@@ -10,7 +10,7 @@ import {
     getExtraRoundPhaseLabel,
     getExtraRoundPhaseRange,
     getFirstStepItem,
-    isPhaseEndAnswer,
+    isDecisionAnswer,
 } from "@/lib/extraRound";
 import { WorkHead, MetaItem } from "./console/ConsoleFrame";
 import styles from "./console/console.module.css";
@@ -29,7 +29,8 @@ export default function AdminExtraRoundFirstStep({ cursor, revealed, questions, 
     const isAnswer = item.view === 'answer';
     const question = questions.find(q => q.number === item.number);
     const [phaseStart, phaseEnd] = getExtraRoundPhaseRange(item.number);
-    const atDecision = isPhaseEndAnswer(cursor);
+    const atDecision = isDecisionAnswer(cursor);
+    const inSurvival = getExtraRoundPhaseLabel(item.number) === 'Survival';
     const missing = questions.length < EXTRA_ROUND_QUESTION_COUNT;
 
     return (
@@ -41,18 +42,18 @@ export default function AdminExtraRoundFirstStep({ cursor, revealed, questions, 
                 </>}
                 tools={tools} />
 
-            {/* 進行バー: 40ステップを並べ、いまの位置を示す。金色の枠はフェーズ最後の解答（進出者を決める地点） */}
+            {/* 進行バー: 40ステップを並べ、いまの位置を示す。金色の枠は進出者を決める地点（Phase 1・2 は最後の解答、Survival は毎問の解答。2026-11-11） */}
             <div className={styles.stepBarBox}>
                 <div className={styles.stepBar}>
                     {FIRST_STEP_SEQUENCE.map((s, i) => {
                         const cls = i === cursor ? (s.view === 'answer' ? styles.stepNowAns : styles.stepNowQ)
                             : i < cursor ? (s.view === 'answer' ? styles.stepPastAns : styles.stepPastQ) : styles.stepFuture;
-                        return <span key={i} className={`${cls} ${isPhaseEndAnswer(i) ? styles.stepDecision : ''}`} title={`${s.view === 'answer' ? '解答' : '問題'} ${s.number}`} />;
+                        return <span key={i} className={`${cls} ${isDecisionAnswer(i) ? styles.stepDecision : ''}`} title={`${s.view === 'answer' ? '解答' : '問題'} ${s.number}`} />;
                     })}
                 </div>
                 <div className={styles.stepLegend}>
                     <span>青: 問題 / 金茶: 解答 / 金枠: 進出者決定</span>
-                    <span>Phase 1（1〜10）→ Phase 2（11〜15）→ Survival（16〜20）</span>
+                    <span>Phase 1（1〜10）→ Phase 2（11〜15）→ Survival（16〜20・1問ずつ解答発表）</span>
                 </div>
             </div>
 
@@ -70,7 +71,9 @@ export default function AdminExtraRoundFirstStep({ cursor, revealed, questions, 
                 <div className={styles.bannerFinish}>
                     {cursor === FIRST_STEP_SEQUENCE.length - 1
                         ? 'First Step 終了。進出者を決めます'
-                        : `${getExtraRoundPhaseLabel(item.number)} 終了。進出者を決めるか、次のフェーズへ進めます`}
+                        : inSurvival
+                            ? `問題 ${item.number} の解答発表。起立している人数を確かめて、進出者を決めるか、次の問題へ進みます`
+                            : `${getExtraRoundPhaseLabel(item.number)} 終了。進出者を決めるか、次のフェーズへ進めます`}
                 </div>
             )}
 

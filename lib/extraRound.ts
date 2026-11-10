@@ -8,7 +8,11 @@
  * 進行順（ルールと運用の取り決め）:
  *   問題1 → … → 問題10 → 解答1 → … → 解答10          （Phase 1）
  *   問題11 → … → 問題15 → 解答11 → … → 解答15        （Phase 2）
- *   問題16 → … → 問題20 → 解答16 → … → 解答20        （Survival）
+ *   問題16 → 解答16 → 問題17 → 解答17 → … → 問題20 → 解答20（Survival。1問ずつ、出題の直後に解答発表）
+ *
+ * 2026-11-11 ユーザー指示: Survival は1問ごとに「問題表示 → 解答発表」で進み、解答発表のたびに
+ * 進出者の確認を行う（ルール「16問目以降を1問ずつ出題し、シンキングタイムの終了後すぐに正解を発表する」）。
+ * 以前は Phase 1・2 と同じく、5問を続けて出題してからまとめて解答を発表していた。
  */
 
 import type { ExtraRoundState } from './types';
@@ -55,9 +59,15 @@ export type FirstStepItem = {
 /** First Step の全ステップ（長さ40）。cursor はこの配列の添字 */
 export const FIRST_STEP_SEQUENCE: FirstStepItem[] = (() => {
     const items: FirstStepItem[] = [];
-    for (const [start, end] of [[1, 10], [11, 15], [16, 20]] as const) {
+    // Phase 1・2: まとめて出題 → まとめて解答発表
+    for (const [start, end] of [[1, 10], [11, 15]] as const) {
         for (let n = start; n <= end; n++) items.push({ number: n, view: 'question' });
         for (let n = start; n <= end; n++) items.push({ number: n, view: 'answer' });
+    }
+    // Survival: 1問ずつ、出題 → すぐに解答発表
+    for (let n = 16; n <= 20; n++) {
+        items.push({ number: n, view: 'question' });
+        items.push({ number: n, view: 'answer' });
     }
     return items;
 })();
@@ -76,24 +86,31 @@ export function getFirstStepItem(cursor: number): FirstStepItem {
 }
 
 /**
- * cursor が「フェーズ最後の解答発表」（解答10 / 解答15 / 解答20）か。
- * このタイミングでだけ、Admin に「2nd Step 進出者決定」ボタン（と、次のフェーズがあれば
- * 「次のフェーズに進む」ボタン）を出す。ここで1st Stepを打ち切ることもできる。
+ * cursor が「進出者を確認する解答発表」か。
+ *   Phase 1・2 … フェーズ最後の解答（解答10 / 解答15）
+ *   Survival   … すべての解答（解答16〜20。1問ごとに確認する。2026-11-11）
+ * このタイミングでだけ、Admin に「Second Step 進出者決定」ボタン（と、続きがあれば
+ * 「次のフェーズへ」／「次の問題へ」ボタン）を出す。ここで First Step を打ち切ることもできる。
  */
-export function isPhaseEndAnswer(cursor: number): boolean {
+export function isDecisionAnswer(cursor: number): boolean {
     const item = getFirstStepItem(cursor);
     if (item.view !== 'answer') return false;
+    if (getExtraRoundPhase(item.number) === 'survival') return true;
     return getExtraRoundPhaseRange(item.number)[1] === item.number;
 }
 
-/** 「次のフェーズに進む」ボタンを出すか。解答20の後には問題がないので出さない */
-export function hasNextPhase(cursor: number): boolean {
-    return isPhaseEndAnswer(cursor) && cursor < FIRST_STEP_LAST_CURSOR;
+/** 進出者を確認したあと、続ける先の cursor（次のフェーズの最初の問題／Survival の次の問題）。解答20の後は null */
+export function getContinueCursor(cursor: number): number | null {
+    return isDecisionAnswer(cursor) && clampCursor(cursor) < FIRST_STEP_LAST_CURSOR ? clampCursor(cursor) + 1 : null;
 }
 
-/** 「次のフェーズに進む」の遷移先 cursor（次のフェーズの最初の問題）。次が無ければ null */
-export function getNextPhaseCursor(cursor: number): number | null {
-    return hasNextPhase(cursor) ? clampCursor(cursor) + 1 : null;
+/** 続けるボタンの文言。Phase 1・2 の終わりは「次のフェーズへ」、Survival は「次の問題へ（問題 17）」 */
+export function getContinueLabel(cursor: number): string | null {
+    const next = getContinueCursor(cursor);
+    if (next === null) return null;
+    return getExtraRoundPhase(getFirstStepItem(cursor).number) === 'survival'
+        ? `次の問題へ（${getFirstStepItemLabel(next)}）`
+        : '次のフェーズへ';
 }
 
 /** 表示用ラベル。例: 「問題 3」「解答 3」 */
