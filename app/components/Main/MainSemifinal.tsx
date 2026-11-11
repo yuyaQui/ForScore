@@ -537,11 +537,11 @@ function PlayoffView({ socket, seats, state, profileOf }: {
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: PLAYOFF_GAP }}>
                     {candidates.map(p => {
                         const outcome = progress.outcomes[p.id];
-                        // 勝ち抜けサドンデス: 勝者 WIN・誤答は × ／ 失格サドンデス: 失格 LOST・正解は ○
+                        // 勝ち抜けサドンデス: 勝者 WIN・誤答は × ／ 失格サドンデス: 失格 LOST・正解は SAFE（2026-11-11 ユーザー指示。以前は ○）
                         let below: React.ReactNode = '';
                         let color = '#EAF6FF';
                         if (outcome === 'win') {
-                            below = isAdvance ? toOrdinal(state.set) : '○'; color = isAdvance ? GOLD_SOFT : '#EAF6FF';
+                            below = isAdvance ? toOrdinal(state.set) : 'SAFE'; color = isAdvance ? GOLD_SOFT : '#EAF6FF';
                         } else if (outcome === 'lose') {
                             below = isAdvance ? '×' : 'LOST'; color = '#8A93A3';
                         }
