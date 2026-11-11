@@ -236,8 +236,9 @@ const REEL_FRAME_COLOR = '#FFC93C'; // 選手カードの黄色(13〜24位帯)�
 const REEL_LAPS = 16;
 // reelSpin(app/globals.css)のanimation-durationと必ず一致させる
 const REEL_SPIN_MS = 15000;
-// 止まった瞬間の演出（2026-11-11 ユーザー承認・B案）の長さ。app/globals.css の reelLand* の一番長いもの（光の輪 2枚目: 遅れ 0.18s ＋ 1s）より長く
-const REEL_LAND_FX_MS = 1400;
+// 止まった瞬間の演出（2026-11-11 ユーザー承認・B案）の長さ。下の REEL_LAND_KEYFRAMES を使う動きの一番長いもの
+// （光の輪 2枚目: 遅れ 0.45s ＋ 2.2s）より長く。観客が確実に気づけるよう、同日に約1.4秒から約2.8秒へ延ばした（ユーザー指示）
+const REEL_LAND_FX_MS = 2800;
 // 光の輪の線の太さ
 const REEL_RING_W = 6;
 // 止まった瞬間の演出の動き。app/globals.css ではなくこの画面と一緒に配る（2026-11-11）。
@@ -365,23 +366,23 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
               {/* 光の輪は枠の外へ広がるので、枠（clip-path で切り抜いている）の外に重ねる */}
               <div style={{ position: 'relative', width: REEL_VIEW_W, height: REEL_VIEW_H }}>
                 <style>{REEL_LAND_KEYFRAMES}</style>
-                {landFx && [0, 0.18].map(delay => (
-                    <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 1s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
+                {landFx && [0, 0.45].map(delay => (
+                    <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 2.2s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
                 ))}
-                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)', animation: landFx ? 'reelLandGlow 1.1s ease-out 1' : 'none' }}>
+                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)', animation: landFx ? 'reelLandGlow 2.4s ease-out 1' : 'none' }}>
                     <div style={trackStyle}>
                         {reelTrackItems.map((name, i) => (
-                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle, animation: landFx && i === 0 ? 'reelLandPop .7s cubic-bezier(.2,1.6,.4,1) 1' : 'none' }}>
+                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle, animation: landFx && i === 0 ? 'reelLandPop 1.4s cubic-bezier(.2,1.6,.4,1) 1' : 'none' }}>
                                 {name}
                             </span>
                         ))}
                     </div>
                     {/* 止まった瞬間に枠の中が一度白く光る */}
-                    {landFx && <div aria-hidden style={{ position: 'absolute', inset: 0, background: '#FFF6D6', mixBlendMode: 'screen', opacity: 0, pointerEvents: 'none', animation: 'reelLandFlash .5s ease-out 1' }} />}
+                    {landFx && <div aria-hidden style={{ position: 'absolute', inset: 0, background: '#FFF6D6', mixBlendMode: 'screen', opacity: 0, pointerEvents: 'none', animation: 'reelLandFlash 1s ease-out 1' }} />}
                     <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 56, background: `linear-gradient(180deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
                     <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(0deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowL .7s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
-                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowR .7s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
+                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowL 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
+                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowR 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
                 </div>
               </div>
             </div>

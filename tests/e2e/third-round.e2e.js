@@ -191,8 +191,8 @@ const fitsAll = (f) => f.pageW && f.pageH && f.barW && f.workH && f.workW;
             const lit = await main.evaluate(() => [...document.querySelectorAll('[data-reel-land-ring]')].some(e => Number(getComputedStyle(e).opacity) > 0.3));
             check('光の輪が実際に光っている(透明のままではない)', lit);
             if (process.env.SHOT_DIR) { await sleep(120); await main.screenshot({ path: `${process.env.SHOT_DIR}/third-reel-landed.png` }); }
-            const gone = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 0, null, { timeout: 3000 }).then(() => true, () => false);
-            check('演出は約1.4秒で消える', gone);
+            const gone = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 0, null, { timeout: 4500 }).then(() => true, () => false);
+            check('演出は約2.8秒で消える', gone);
         }
         await click(admin, /エントリー締切/);
         await sleep(700);
