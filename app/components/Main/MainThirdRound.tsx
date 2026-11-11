@@ -240,6 +240,21 @@ const REEL_SPIN_MS = 15000;
 const REEL_LAND_FX_MS = 1400;
 // 光の輪の線の太さ
 const REEL_RING_W = 6;
+// 止まった瞬間の演出の動き。app/globals.css ではなくこの画面と一緒に配る（2026-11-11）。
+// globals.css に置いたところ、開きっぱなしの会場の画面が古い globals.css のまま（回転の reelSpin はあるが
+// こちらは無い）になり、部品は出るのに動かず透明のままで、光の演出が見えなかったため。
+// 枠の中が一度白く光る → コース名が一回り大きくなって戻る → 金枠の形の光の輪が2重に外へ広がって消える → 左右の矢印が内へ突き出す
+const REEL_LAND_KEYFRAMES = `
+@keyframes reelLandFlash { 0% { opacity: .9; } 100% { opacity: 0; } }
+@keyframes reelLandPop { 0% { transform: scale(1); } 35% { transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes reelLandGlow {
+  0%   { border-color: #FFF1B8; box-shadow: 0 0 90px 18px rgba(255,201,60,.95), inset 0 0 60px rgba(255,201,60,.45); }
+  100% { border-color: #FFC93C; box-shadow: 0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6); }
+}
+@keyframes reelLandRing { 0% { opacity: .95; transform: scale(1); } 100% { opacity: 0; transform: scale(1.16, 1.42); } }
+@keyframes reelLandArrowL { 0% { transform: translate(0, -50%) scale(1); } 30% { transform: translate(26px, -50%) scale(1.6); } 100% { transform: translate(0, -50%) scale(1); } }
+@keyframes reelLandArrowR { 0% { transform: translate(0, -50%) scale(1); } 30% { transform: translate(-26px, -50%) scale(1.6); } 100% { transform: translate(0, -50%) scale(1); } }
+`;
 // INNER_BG/HONEYCOMB_BGはlib/cyberpunkCard.tsのものをそのまま使う(上のimport参照)。
 
 // 固定px基準のchamferClip（ルーレットのような実サイズが既知の要素向け）
@@ -349,6 +364,7 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
             <div style={{ marginTop: 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               {/* 光の輪は枠の外へ広がるので、枠（clip-path で切り抜いている）の外に重ねる */}
               <div style={{ position: 'relative', width: REEL_VIEW_W, height: REEL_VIEW_H }}>
+                <style>{REEL_LAND_KEYFRAMES}</style>
                 {landFx && [0, 0.18].map(delay => (
                     <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 1s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
                 ))}

@@ -187,6 +187,9 @@ const fitsAll = (f) => f.pageW && f.pageH && f.barW && f.workH && f.workW;
             check('回っている間は止まった演出が出ない', (await main.locator('[data-reel-land-ring]').count()) === 0);
             const landed = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 2, null, { timeout: 17000, polling: 50 }).then(() => true, () => false);
             check('止まった瞬間に演出(光の輪2枚)が出る', landed);
+            // 部品が出るだけでなく、実際に光っている（動きの定義が届いていて、透明のままではない）
+            const lit = await main.evaluate(() => [...document.querySelectorAll('[data-reel-land-ring]')].some(e => Number(getComputedStyle(e).opacity) > 0.3));
+            check('光の輪が実際に光っている(透明のままではない)', lit);
             if (process.env.SHOT_DIR) { await sleep(120); await main.screenshot({ path: `${process.env.SHOT_DIR}/third-reel-landed.png` }); }
             const gone = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 0, null, { timeout: 3000 }).then(() => true, () => false);
             check('演出は約1.4秒で消える', gone);
