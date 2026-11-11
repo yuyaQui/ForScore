@@ -236,6 +236,10 @@ const REEL_FRAME_COLOR = '#FFC93C'; // 選手カードの黄色(13〜24位帯)�
 const REEL_LAPS = 16;
 // reelSpin(app/globals.css)のanimation-durationと必ず一致させる
 const REEL_SPIN_MS = 15000;
+// 最後のコース（残りが1つで、抽選する前から決まっている）の回転（2026-11-11 ユーザー指示）。
+// 時間を短くし、周回数も減らして流れる速さを通常に近くする（1コース×12周＋止まる1つ＝13個を3秒）
+const REEL_SPIN_LAST_MS = 3000;
+const REEL_LAPS_LAST = 12;
 // 止まった瞬間の演出（2026-11-11 ユーザー承認・B案）の長さ。下の REEL_LAND_KEYFRAMES を使う動きの一番長いもの
 // （光の輪 2枚目: 遅れ 0.45s ＋ 2.2s）より長く。観客が確実に気づけるよう、同日に約1.4秒から約2.8秒へ延ばした（ユーザー指示）
 const REEL_LAND_FX_MS = 2800;
@@ -279,6 +283,11 @@ function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number
     return `polygon(${px(outerX1)} ${py(0)}, ${px(innerX1)} ${py(padPx)}, ${px(innerX1)} ${py(refH - padPx)}, ${px(outerX1)} ${py(refH)}, ${px(outerX2)} ${py(refH)}, ${px(innerX2)} ${py(refH - padPx)}, ${px(innerX2)} ${py(padPx)}, ${px(outerX2)} ${py(0)})`;
 }
 
+/** 回転の時間。残りが1コース（最後の抽選）なら短く */
+function spinMsFor(pool: string[]): number {
+    return pool.length === 1 ? REEL_SPIN_LAST_MS : REEL_SPIN_MS;
+}
+
 // 金枠と同じ形の輪郭だけを切り抜く clip-path（外周を時計回り、内周を反時計回りに辿って中を抜く）。止まった瞬間の光の輪に使う
 function chamferRingClip(w: number, h: number, c: number, t: number): string {
     const ci = c + t * 0.35;   // 内側の角の切り欠き（外側と線の太さがそろって見える値）
@@ -319,7 +328,7 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
             setReelPool(reelPoolFor(coursesRef.current, name));
             setSpinStage('spinning');
             setLandFx(false);
-            const timer = setTimeout(() => { setSpinStage('landed'); setLandFx(true); }, REEL_SPIN_MS);
+            const timer = setTimeout(() => { setSpinStage('landed'); setLandFx(true); }, spinMsFor(reelPoolFor(coursesRef.current, name)));
             return () => clearTimeout(timer);
         }
         // currentCourseが無い(まだ1つも抽選されていない)間は何もしない。
@@ -335,7 +344,8 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
     // 揃えてほしい」というユーザー指示による)。
     // 並びは固定の順番のまま、周回の続きで当選コースの位置まで進めて止める（lib/courseReel.ts。2026-10-29 修正。
     // 以前は周回の後ろに当選コースを付け足していたため、同じ名前が2つ続いたり順番が飛んだりした）
-    const reelSequence = buildReelSequence(reelTarget, reelPool.length > 0 ? reelPool : THIRD_ROUND_COURSE_NAMES, REEL_LAPS);
+    const isLastCourse = reelPool.length === 1;
+    const reelSequence = buildReelSequence(reelTarget, reelPool.length > 0 ? reelPool : THIRD_ROUND_COURSE_NAMES, isLastCourse ? REEL_LAPS_LAST : REEL_LAPS);
     // track内では的中アイテムが先頭(最上部)に来るよう、時系列を反転させる
     const reelTrackItems = reelSequence.slice().reverse();
     const reelYLanded = (REEL_VIEW_H - REEL_ITEM_H) / 2;
@@ -347,7 +357,7 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
     const trackStyle: ReelTrackStyle = {
         display: 'flex', flexDirection: 'column', width: '100%',
         transform: `translateY(${reelYLanded}px)`,
-        animation: spinStage === 'spinning' ? `reelSpin ${REEL_SPIN_MS / 1000}s linear 1 forwards` : 'none',
+        animation: spinStage === 'spinning' ? `reelSpin ${spinMsFor(reelPool) / 1000}s linear 1 forwards` : 'none',
         '--reel-from': `${reelYSpinning}px`,
         '--reel-to': `${reelYLanded}px`,
     };
