@@ -182,6 +182,15 @@ const fitsAll = (f) => f.pageW && f.pageH && f.barW && f.workH && f.workW;
         await click(admin, new RegExp(`^${k}番目のコースを抽選`));
         await sleep(900);
         check(`${k}番目: 抽選された(API 1 回ずつ)`, api.calls.draw === k, `draw=${api.calls.draw}`);
+        if (k === 1) {
+            // ルーレットが止まった瞬間の演出（2026-11-11 B案）。回っている間は出ず、止まったら光の輪が2枚出て、少しして消える
+            check('回っている間は止まった演出が出ない', (await main.locator('[data-reel-land-ring]').count()) === 0);
+            const landed = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 2, null, { timeout: 17000, polling: 50 }).then(() => true, () => false);
+            check('止まった瞬間に演出(光の輪2枚)が出る', landed);
+            if (process.env.SHOT_DIR) { await sleep(120); await main.screenshot({ path: `${process.env.SHOT_DIR}/third-reel-landed.png` }); }
+            const gone = await main.waitForFunction(() => document.querySelectorAll('[data-reel-land-ring]').length === 0, null, { timeout: 3000 }).then(() => true, () => false);
+            check('演出は約1.4秒で消える', gone);
+        }
         await click(admin, /エントリー締切/);
         await sleep(700);
         const rows = await admin.locator('button[aria-pressed]').count();

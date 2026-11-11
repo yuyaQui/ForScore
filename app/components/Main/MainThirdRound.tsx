@@ -236,6 +236,10 @@ const REEL_FRAME_COLOR = '#FFC93C'; // 選手カードの黄色(13〜24位帯)�
 const REEL_LAPS = 16;
 // reelSpin(app/globals.css)のanimation-durationと必ず一致させる
 const REEL_SPIN_MS = 15000;
+// 止まった瞬間の演出（2026-11-11 ユーザー承認・B案）の長さ。app/globals.css の reelLand* の一番長いもの（光の輪 2枚目: 遅れ 0.18s ＋ 1s）より長く
+const REEL_LAND_FX_MS = 1400;
+// 光の輪の線の太さ
+const REEL_RING_W = 6;
 // INNER_BG/HONEYCOMB_BGはlib/cyberpunkCard.tsのものをそのまま使う(上のimport参照)。
 
 // 固定px基準のchamferClip（ルーレットのような実サイズが既知の要素向け）
@@ -259,6 +263,13 @@ function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number
     return `polygon(${px(outerX1)} ${py(0)}, ${px(innerX1)} ${py(padPx)}, ${px(innerX1)} ${py(refH - padPx)}, ${px(outerX1)} ${py(refH)}, ${px(outerX2)} ${py(refH)}, ${px(innerX2)} ${py(refH - padPx)}, ${px(innerX2)} ${py(padPx)}, ${px(outerX2)} ${py(0)})`;
 }
 
+// 金枠と同じ形の輪郭だけを切り抜く clip-path（外周を時計回り、内周を反時計回りに辿って中を抜く）。止まった瞬間の光の輪に使う
+function chamferRingClip(w: number, h: number, c: number, t: number): string {
+    const ci = c + t * 0.35;   // 内側の角の切り欠き（外側と線の太さがそろって見える値）
+    return `polygon(${c}px 0, ${w - c}px 0, ${w}px ${c}px, ${w}px ${h - c}px, ${w - c}px ${h}px, ${c}px ${h}px, 0 ${h - c}px, 0 ${c}px, `
+        + `${t}px ${ci}px, ${t}px ${h - ci}px, ${ci}px ${h - t}px, ${w - ci}px ${h - t}px, ${w - t}px ${h - ci}px, ${w - t}px ${ci}px, ${w - ci}px ${t}px, ${ci}px ${t}px, ${t}px ${ci}px, 0 ${c}px)`;
+}
+
 // CSSカスタムプロパティ(--reel-from/--reel-to)をインラインstyleで渡すための型。
 // reelSpin(app/globals.css)がこの2つを参照する。抽選のたびに値が変わるため、
 // 固定値の@keyframesではなくCSS変数経由でアニメーションの始点・終点を渡している。
@@ -270,6 +281,8 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
     // 演出するだけ。結果はここでは決めない(app/api/thirdRound/draw/route.ts のコメント
     // 「アニメーションは確定した結果を演出するだけで、結果を決めてはいけない」と同じ方針)。
     const [spinStage, setSpinStage] = useState<'landed' | 'spinning'>('landed');
+    // 止まった瞬間の演出（B案: 光・コース名の弾み・光の輪・矢印）。回り終わったときだけ出す（画面を開き直したときは出さない）
+    const [landFx, setLandFx] = useState(false);
     const [reelTarget, setReelTarget] = useState<string | null>(currentCourse?.name ?? null);
     // ルーレットに流すコース（2026-10-29: その抽選の時点で未抽選だったコースだけ）。
     // 回転を始めた時点で固定する（回転中にコースの配信が来ても並びが変わらないように）
@@ -289,11 +302,17 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
             setReelTarget(name);
             setReelPool(reelPoolFor(coursesRef.current, name));
             setSpinStage('spinning');
-            const timer = setTimeout(() => setSpinStage('landed'), REEL_SPIN_MS);
+            setLandFx(false);
+            const timer = setTimeout(() => { setSpinStage('landed'); setLandFx(true); }, REEL_SPIN_MS);
             return () => clearTimeout(timer);
         }
         // currentCourseが無い(まだ1つも抽選されていない)間は何もしない。
     }, [currentCourse]);
+    useEffect(() => {
+        if (!landFx) return;
+        const timer = setTimeout(() => setLandFx(false), REEL_LAND_FX_MS);
+        return () => clearTimeout(timer);
+    }, [landFx]);
 
     // 回転中に流れる全アイテムを的中アイテムと同じスタイル(白文字+縁取り)で揃える
     // (アーティファクトのコメント：「選択されない部分のスタイルも選択される部分に
@@ -328,19 +347,27 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
 
             {/* 抽選ルーレット。決定後もそのまま残り、着地した表示が「現在選択中のコース」を兼ねる */}
             <div style={{ marginTop: 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)' }}>
+              {/* 光の輪は枠の外へ広がるので、枠（clip-path で切り抜いている）の外に重ねる */}
+              <div style={{ position: 'relative', width: REEL_VIEW_W, height: REEL_VIEW_H }}>
+                {landFx && [0, 0.18].map(delay => (
+                    <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 1s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
+                ))}
+                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)', animation: landFx ? 'reelLandGlow 1.1s ease-out 1' : 'none' }}>
                     <div style={trackStyle}>
                         {reelTrackItems.map((name, i) => (
-                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle }}>
+                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle, animation: landFx && i === 0 ? 'reelLandPop .7s cubic-bezier(.2,1.6,.4,1) 1' : 'none' }}>
                                 {name}
                             </span>
                         ))}
                     </div>
+                    {/* 止まった瞬間に枠の中が一度白く光る */}
+                    {landFx && <div aria-hidden style={{ position: 'absolute', inset: 0, background: '#FFF6D6', mixBlendMode: 'screen', opacity: 0, pointerEvents: 'none', animation: 'reelLandFlash .5s ease-out 1' }} />}
                     <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 56, background: `linear-gradient(180deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
                     <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(0deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowL .7s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
+                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowR .7s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
                 </div>
+              </div>
             </div>
 
             {/* 参加者20名。4行×5列、優先順位(2nd Round順位→ペーパー順位)順に並ぶ
