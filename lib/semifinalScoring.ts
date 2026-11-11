@@ -192,10 +192,22 @@ export function applyAdvance(players: Player[], set: number, winnerIds: number[]
     return players.map(p => (ids.has(p.id) && p.semifinalRank === 0 ? { ...p, semifinalRank: set } : p));
 }
 
-/** 失格を確定する（semifinalRank = -1） */
-export function applyElimination(players: Player[], loserIds: number[]): Player[] {
+/** 失格を確定する（semifinalRank = -1、semifinalLostSet = 敗退したセット番号） */
+export function applyElimination(players: Player[], set: number, loserIds: number[]): Player[] {
     const ids = new Set(loserIds);
-    return players.map(p => (ids.has(p.id) && p.semifinalRank === 0 ? { ...p, semifinalRank: -1 } : p));
+    return players.map(p => (ids.has(p.id) && p.semifinalRank === 0 ? { ...p, semifinalRank: -1, semifinalLostSet: set } : p));
+}
+
+/**
+ * 前のセットまでに決着した（勝ち抜け・敗退した）選手か（2026-11-11 ユーザー承認）。
+ * Main ではこの選手を、そのセットの画面から消す（場所は空けたまま）。
+ * 敗退したセットが記録されていない（semifinalLostSet = 0。列を足す前の敗退）ときは決着前として扱い、従来どおり出す
+ */
+export function isDecidedBeforeSet(p: Pick<Player, 'semifinalRank' | 'semifinalLostSet'>, set: number): boolean {
+    if (p.semifinalRank > 0) return p.semifinalRank < set;
+    if (p.semifinalRank !== -1) return false;
+    const lostSet = p.semifinalLostSet ?? 0;
+    return lostSet > 0 && lostSet < set;
 }
 
 const STALE_PLAYOFF_MESSAGE = 'プレーオフの結果が判定と一致しません。画面を再読み込みしてください';
@@ -257,7 +269,7 @@ export function planSemifinalJudgement(
         steps.push({ action: purpose === 'advance' ? 'judgeAdvance' : 'judgeEliminate', chosenIds, playerIds: resolved.playerIds });
         current = purpose === 'advance'
             ? applyAdvance(current, set, resolved.playerIds)
-            : applyElimination(current, resolved.playerIds);
+            : applyElimination(current, set, resolved.playerIds);
     }
     if (playoffResult && !resultUsed) {
         return { steps: [], playoff: null, error: STALE_PLAYOFF_MESSAGE };

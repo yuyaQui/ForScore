@@ -4,6 +4,7 @@ import type { Player, ThirdRoundCourse, SemifinalState, SemifinalTimer } from "@
 import { DEFAULT_SEMIFINAL_STATE } from "@/lib/types";
 import { getSemifinalSeats, SET_TIME_LIMIT_SECONDS, type SemifinalSeatAssignment } from "@/lib/semifinal";
 import { getPlayoffProgress } from "@/lib/semifinalPlayoff";
+import { isDecidedBeforeSet } from "@/lib/semifinalScoring";
 import {
     buildAnnouncePlan, getAnnounceFrame, pointToPct, ANNOUNCE_START_DELAY_MS, type AnnouncePlan,
 } from "@/lib/semifinalAnnounce";
@@ -387,6 +388,8 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: ROW_GAP }}>
                     {seats.map(({ player: p }) => {
                         const k = lineupOrder.findIndex(x => x.id === p.id);
+                        // 前のセットまでに勝ち抜け・敗退した選手は、このセットでは出さない（場所は空けたまま。2026-11-11）
+                        const retired = mode !== 'lineup' && isDecidedBeforeSet(p, set);
                         const won = p.semifinalRank > 0;
                         const wonEarlier = won && p.semifinalRank < set;
                         const lost = p.semifinalRank === -1;
@@ -419,7 +422,7 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                         }
                         // カード表示の演出: 紹介順に1枚ずつ。最後（敗者復活者）の前は少し間を空ける
                         const lineupDelay = lineupAnim !== null && k >= 0 ? lineupDelayMs(k, lineupOrder.length) : null;
-                        return (
+                        const card = (
                             <StageCard
                                 key={`${p.id}-${lineupAnim ?? 0}`}
                                 player={p} photo={photoUrl(profileOf(p.id))}
@@ -433,6 +436,10 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                                 below={<BelowText text={below} color={color} />}
                             />
                         );
+                        // 場所は詰めない: 同じカードを見えなくして置く
+                        return retired
+                            ? <div key={`${p.id}-retired`} data-sf-retired={p.id} aria-hidden style={{ visibility: 'hidden' }}>{card}</div>
+                            : card;
                     })}
                     {seats.length === 0 && (
                         <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 28, color: '#5C7EA6' }}>

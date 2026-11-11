@@ -84,7 +84,7 @@ export async function POST(request: Request) {
             if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
             updated = isAdvance
                 ? applyAdvance(semifinalPlayers, body.set, resolved.playerIds)
-                : applyElimination(semifinalPlayers, resolved.playerIds);
+                : applyElimination(semifinalPlayers, body.set, resolved.playerIds);
         }
 
         // 変化した選手だけを書き戻す。id で突き合わせる（並び順に頼らない）
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
                 ...changed.map(p =>
                     prisma.player.update({
                         where: { id: p.id },
-                        data: { semifinalPoint: p.semifinalPoint, semifinalRank: p.semifinalRank }
+                        data: { semifinalPoint: p.semifinalPoint, semifinalRank: p.semifinalRank, semifinalLostSet: p.semifinalLostSet }
                     })
                 )
             ]);

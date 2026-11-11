@@ -25,7 +25,7 @@ function makeFakeApi() {
         secondRoundGroupNumber: 1, secondRoundPoint: 0, secondRoundWrongCount: 0, secondRoundDoubleChance: false, secondRoundRank: id,
         thirdRoundCourseName: null, thirdRoundCorrectCount: 0, thirdRoundWrongCount: 0, thirdRoundUpDownPoint: 0, thirdRoundSwedishCross: 0,
         thirdRoundFreezeRest: 0, thirdRoundRank: 0, extraRoundSecondStep: false, extraRoundCorrectCount: 0, extraRoundRank: 0,
-        semifinalPoint: 0, semifinalRank: 0, finalCorrectCount: 0, finalWrongCount: 0, finalSetsWon: 0, finalRank: 0, nickname: '', ...extra,
+        semifinalPoint: 0, semifinalRank: 0, semifinalLostSet: 0, finalCorrectCount: 0, finalWrongCount: 0, finalSetsWon: 0, finalRank: 0, nickname: '', ...extra,
     });
     const names = ['10 up-down', 'Freeze 10', 'Swedish 10', '10 by 10'];
     const players = [];
@@ -61,7 +61,7 @@ function makeFakeApi() {
             } else if (b.action === 'judgeAdvance') {
                 b.chosenIds.forEach(id => { const p = players.find(x => x.id === id); if (p.semifinalRank === 0) p.semifinalRank = b.set; });
             } else if (b.action === 'judgeEliminate') {
-                b.chosenIds.forEach(id => { const p = players.find(x => x.id === id); if (p.semifinalRank === 0) p.semifinalRank = -1; });
+                b.chosenIds.forEach(id => { const p = players.find(x => x.id === id); if (p.semifinalRank === 0) { p.semifinalRank = -1; p.semifinalLostSet = b.set; } });
             }
             r.fulfill({ json: { success: true, allPlayers: players } });
         });
@@ -75,7 +75,7 @@ function makeFakeApi() {
         await page.route('**/api/semifinal/reset', async r => {
             api.calls.reset++;
             api.history.length = 0;
-            players.forEach(p => { p.semifinalPoint = 0; p.semifinalRank = 0; });
+            players.forEach(p => { p.semifinalPoint = 0; p.semifinalRank = 0; p.semifinalLostSet = 0; });
             r.fulfill({ json: { success: true, allPlayers: players } });
         });
     };
@@ -284,9 +284,21 @@ async function fillTally(admin, byId) {
     check('最下位2名(選手8・9)が敗退', api.players[7].semifinalRank === -1 && api.players[8].semifinalRank === -1);
     check('LOST と WIN が出る', /LOST/.test(await text(admin, 'main')) && /WIN/.test(await text(admin, 'main')));
     check('「第2セット クイズ画面へ ▶」', /第2セット クイズ画面へ ▶/.test(await header(admin)));
+    check('敗退したセット(1)が記録される', api.players[7].semifinalLostSet === 1 && api.players[8].semifinalLostSet === 1);
+    // 決着したセットのあいだは、会場にも出したまま（2026-11-11）
+    check('第1セットのうちは決着した選手も会場に出る', (await main.locator('[data-sf-retired]').count()) === 0);
     await next(admin, /第2セット クイズ画面へ/);
     await sleep(1200);
     check('第2セットのクイズ画面', /第2セット/.test(await header(admin)) && /5:00/.test(await header(admin)));
+    // 前のセットまでに決着した選手は会場から消す。場所は詰めない（2026-11-11）
+    {
+        const ok = await main.waitForFunction(() => document.querySelectorAll('[data-sf-retired]').length === 3, null, { timeout: 6000 }).then(() => true, () => false);
+        const ids = await main.locator('[data-sf-retired]').evaluateAll(els => els.map(e => Number(e.getAttribute('data-sf-retired'))).sort((a, b) => a - b));
+        check('第2セット: 選手1(勝ち抜け)・8・9(敗退)が会場から消える', ok && ids.join(',') === '1,8,9', ids.join(','));
+        const boxes = await main.locator('[data-sf-retired]').evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return [r.width, getComputedStyle(e).visibility]; }));
+        check('消した選手の場所は空けたまま(幅あり・見えない)', boxes.every(([w, v]) => w > 50 && v === 'hidden'), JSON.stringify(boxes));
+        check('Admin では消さずに LOST が出たまま', /LOST/.test(await text(admin, 'main')));
+    }
 
     console.log('S6 第2セット: 同点でサドンデス');
     sc.emit('change_semifinal_timer', { action: 'edit', seconds: 0 });

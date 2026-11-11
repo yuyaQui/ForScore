@@ -10,8 +10,8 @@ import type { Player } from '@/lib/types';
  * SemifinalHistory はコースや組のような区分を持たない単一グループ（Extra Round と
  * 同じ形）なので、絞り込みなしで最新1件を取ればよい。
  *
- * 復元するのは semifinalPoint / semifinalRank の2項目だけ。この2つ以外は
- * 準決勝の操作で変わらない。
+ * 復元するのは semifinalPoint / semifinalRank / semifinalLostSet の3項目だけ。この3つ以外は
+ * 準決勝の操作で変わらない。semifinalLostSet を持たない古い履歴（2026-11-11 より前）は 0 に戻す。
  */
 export async function POST() {
     try {
@@ -43,7 +43,8 @@ export async function POST() {
                     where: { id: p.id },
                     data: {
                         semifinalPoint: p.semifinalPoint,
-                        semifinalRank: p.semifinalRank
+                        semifinalRank: p.semifinalRank,
+                        semifinalLostSet: p.semifinalLostSet ?? 0
                     }
                 })
             ),

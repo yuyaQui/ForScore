@@ -44,7 +44,7 @@ async function resetExtraRound(tx: Tx) {
 
 /** Semi-Final 全体: ポイント・勝ち抜け／敗退、Undo 履歴 */
 async function resetSemifinal(tx: Tx) {
-    await tx.player.updateMany({ data: { semifinalPoint: 0, semifinalRank: 0 } });
+    await tx.player.updateMany({ data: { semifinalPoint: 0, semifinalRank: 0, semifinalLostSet: 0 } });
     await tx.semifinalHistory.deleteMany({});
 }
 

@@ -6,7 +6,7 @@ import { resetRoundsFrom } from '@/lib/roundReset';
  * POST: 準決勝の結果を全選手ぶんリセットする（2026-10-17 ユーザー承認済み）
  *
  * 2nd / 3rd / Extra Round のリセットと同じ位置づけ。
- * - semifinalPoint（累計ポイント）と semifinalRank（勝ち抜けたセット・敗退）を 0 に戻す。
+ * - semifinalPoint（累計ポイント）と semifinalRank（勝ち抜けたセット・敗退）、semifinalLostSet（敗退したセット）を 0 に戻す。
  *   準決勝の出場者以外は常に 0 なので、絞り込まずに全選手を対象にする。
  * - SemifinalHistory（Undo 用の履歴）も一緒に削除する。残すと、リセット後の Undo で
  *   古い途中経過が戻ってしまうため（他のラウンドと同じ）。
