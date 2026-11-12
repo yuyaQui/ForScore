@@ -158,7 +158,7 @@ export function AdminQuestionPanel({ socket, round, state }: { socket: Socket | 
             </div>
             {cursor === null && (
                 <div style={{ fontFamily: JP, fontWeight: 700, fontSize: 13, color: '#FFC93C' }}>
-                    開始番号（このラウンドで最初に読む問題の通し番号）を入力してください。未設定のままだと Main に問題は出ません。
+                    次に読む問題の通し番号がまだ決まっていません。開始番号を入力してください（番号は大会全体で共有し、以後はどのラウンドでも続きから進みます）。未設定のままだと Main に問題は出ません。
                 </div>
             )}
             <div className="flex flex-wrap gap-[10px]">

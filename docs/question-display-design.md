@@ -86,14 +86,15 @@ questionDisplay = {
   stage: "hidden" | "shown", // Main に出しているか
   seq: number              // 表示を切り替えた回数（Main のアニメーション用。増えた瞬間だけ演出）
 }
-cursors = { secondRound: 15, thirdRound: 42, ... } // ラウンドごとの「次に読む通し番号」
+cursor = 42   // 「次に読む通し番号」。2026-11-12 から大会全体で1つ（ラウンド・ルール・セット・サドンデスで共有）
+cursors = { secondRound: 42, thirdRound: 42, ... } // 配信用。全ラウンド同じ番号（以前はラウンドごと）
 ```
 
 **イベント**
 
 | 方向 | イベント | 内容 |
 |---|---|---|
-| Admin → サーバ | `set_question_cursor` `{ round, serial }` | ラウンドの開始番号（次に読む番号）を設定・修正する |
+| Admin → サーバ | `set_question_cursor` `{ round, serial }` | 次に読む番号（大会全体で1つ）を設定・修正する。round は操作した画面。Semi-Final は振り返りの範囲を確定したときに「最後に読んだ問題の次」を送る |
 | Admin → サーバ | `finish_question` `{ round, serial }` | 採点（正解・誤答・スルー）が成功した。`serial` がそのラウンドの次に読む番号と一致するときだけ受け付け、表示対象を `serial` にして番号を1つ進める（古い画面・二重送信で2問進まないように） |
 | Admin → サーバ | `change_question_display` `{ stage }` | 表示する／隠す（手動） |
 | Admin → サーバ | `request_question_sync` | 開いた画面に現在の状態を返す（他ラウンドと同じ） |
@@ -212,3 +213,13 @@ cursors = { secondRound: 15, thirdRound: 42, ... } // ラウンドごとの「�
   - `scope` は `set{セット}-{advance|eliminate}`。番号はラウンドで1つなので、セットをまたいでも続きから進む
   - サドンデスの Undo（パネルの Undo・手動の「Undo（サドンデス）」）は 8章の `undoWithQuestion` を使い、問題も1つ戻す。直前がこのサドンデスのスルーなら Undo できる
 - サドンデスの途中経過は従来どおりサーバのメモリだけ（DB は変わらない）。一本道のリセットは Semi-Final 以前からのリセットで記録が消える
+
+## 2026-11-12 追記: 「次に読む問題」を大会全体で共有
+
+- サーバ（server/QuestionHandler.js）は「次に読む問題」を1つだけ持つ。2nd Round の各組・3rd Round の各コース・Extra Second Step・Semi-Final（セットの振り返り・サドンデス）・Final のどこで1問終わっても同じ番号が進む
+- 開始番号の入力・◀▶ は従来どおり各画面に残し、番号を手で直すのに使う（直した番号も全体で共有）
+- Semi-Final: 振り返りの開始の初期値は「次に読む問題」。範囲を確定すると「最後に読んだ問題（終了）の次」が次に読む問題になる（初めて確定するときは必ず。確定し直すときは、番号がその後進んでいなければ）
+- Undo: 問題を戻すのは、その問題の後でほかの場面の番号が進んでいないときだけ（進んでいたら得点だけ戻る）
+- ラウンドのリセットでは番号を変えない（やり直すときは手で直す。ユーザー決定）
+- 古い保存（ラウンドごとの cursors）は、一番大きい番号を引き継ぐ
+- Extra Round First Step は別に取り込む問題なので対象外

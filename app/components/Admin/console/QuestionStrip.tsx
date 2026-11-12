@@ -46,7 +46,7 @@ export function QuestionStrip({ socket, round, state }: { socket: Socket | null;
                     </span>
                 </div>
                 {cursor === null ? (
-                    <div className={styles.qWarn}>開始番号（このラウンドで最初に読む問題の通し番号）を右の列で入れてください。入れるまで Main に問題は出ません。</div>
+                    <div className={styles.qWarn}>次に読む問題の通し番号がまだ決まっていません。右の列で開始番号を入れてください（番号は大会全体で共有し、以後はどのラウンドでも続きから進みます）。入れるまで Main に問題は出ません。</div>
                 ) : !next ? (
                     <div className={styles.qTextSm}>読み込み中…</div>
                 ) : next.error ? (

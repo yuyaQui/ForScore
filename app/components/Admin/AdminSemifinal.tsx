@@ -41,7 +41,7 @@ import { StandingsRow, RangeForm, ReviewList, PlayoffRow, IntroView, LineupView,
 import { useSemifinalProfiles, PrepPanel } from "./AdminSemifinalPrep";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import { useQuestionDisplay, usePoolBounds } from "./AdminQuestionPanel";
-import { rangeSerials, describeRange, continueFrom } from "@/lib/questionWrap.js";
+import { rangeSerials, describeRange, continueFrom, nextSerial } from "@/lib/questionWrap.js";
 import { ConsoleFrame, WorkHead, MetaItem, Drawer, DrawerGroup } from "./console/ConsoleFrame";
 import { QuestionStrip } from "./console/QuestionStrip";
 import { ConsoleSide } from "./console/ConsoleSide";
@@ -203,18 +203,28 @@ export default function AdminSemifinal(props: Props) {
     const set = state.set;
     const range = state.reviewRanges[set] ?? null;
 
+    // 問題の進み（「次に読む問題」は大会全体で1つ。2026-11-12）。振り返りの開始の初期値と、サドンデスで使う
+    const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'semifinal');
     // 取り込んだ問題の最初と上限（2026-11-11。上限を超えたら最初に戻す・折り返す範囲に使う）
     const bounds = usePoolBounds();
 
-    // セットが変わったら入力欄を初期化する（前のセットの続きの番号を初期値にする。上限の次は最初）
+    // セットが変わったら入力欄を初期化する。開始の初期値は「次に読む問題」（大会全体で共有。2026-11-12）。
+    // まだ届いていない・未設定なら、前のセットの続きの番号（上限の次は最初）。手で直すこともできる
     const [formSet, setFormSet] = useState<number | null>(null);
     const prevRange = state.reviewRanges[set - 1];
     const prevBounds = prevRange && prevRange.min !== undefined && prevRange.max !== undefined ? { min: prevRange.min, max: prevRange.max } : bounds;
+    const autoFrom = questionState.cursor !== null ? String(questionState.cursor) : prevRange ? String(continueFrom(prevRange.to, prevBounds)) : "";
+    const [autoFromShown, setAutoFromShown] = useState("");
     if (receivedState && formSet !== set) {
         setFormSet(set);
-        setRangeFrom(range ? String(range.from) : prevRange ? String(continueFrom(prevRange.to, prevBounds)) : "");
+        setRangeFrom(range ? String(range.from) : autoFrom);
+        setAutoFromShown(autoFrom);
         setRangeTo(range ? String(range.to) : "");
         setPointInputs({});
+    } else if (receivedState && !range && autoFrom !== autoFromShown) {
+        // 「次に読む問題」があとから届いた・変わったとき、開始を手で直していなければ合わせる
+        setAutoFromShown(autoFrom);
+        if (rangeFrom === autoFromShown) setRangeFrom(autoFrom);
     }
     // 取り込み状況があとから届いたとき、続きの番号が上限を超えていたら最初に直す
     const [boundsSeen, setBoundsSeen] = useState<typeof bounds>(null);
@@ -292,6 +302,15 @@ export default function AdminSemifinal(props: Props) {
                 notify(data.error || '問題を読み込めません', 'error');
                 return;
             }
+            // 振り返る範囲（このセットで読んだ問題）を確定したら、「次に読む問題」を最後に読んだ問題の次にする
+            // （大会全体で共有。2026-11-12）。このセットで初めて確定するときは必ず動かす。
+            // 確定し直すとき（範囲を直した）は、前に確定した範囲の次のままのときだけ動かす
+            // （その後のサドンデスなどで番号が進んでいたら戻さない）
+            const cur = questionState.cursor;
+            const confirmedNext = range ? nextSerial(range.to, range.min !== undefined && range.max !== undefined ? { min: range.min, max: range.max } : bounds) : null;
+            if (socket && (range === null || cur === null || cur === confirmedNext)) {
+                socket.emit('set_question_cursor', { round: 'semifinal', serial: nextSerial(rangeCandidate.to, bounds) });
+            }
             changeState({ reviewRange: rangeCandidate, view: 'review' });
         } catch (error) {
             notify(errorText(error, '通信に失敗しました。振り返りには進んでいません。'), 'error');
@@ -354,7 +373,6 @@ export default function AdminSemifinal(props: Props) {
     // サドンデスの問題表示（2026-10-30 追加。項目17）。正解・誤答・スルーで、その問題を Main に出して次の問題へ進む。
     // 番号はラウンド（semifinal）で1つなので、セットをまたいでも続きから進む。
     // scope はセットと種類（勝ち抜け／失格）ごと。別のサドンデスの記録では問題を戻さない
-    const { state: questionState, finishQuestion, undoWithQuestion } = useQuestionDisplay(socket, 'semifinal');
     const playoffScope = state.playoff ? `set${state.set}-${state.playoff.purpose}` : '';
     const lastQuestionEvent = questionState.lastEvents?.semifinal;
     const lastIsThrough = !!lastQuestionEvent && lastQuestionEvent.scope === playoffScope && lastQuestionEvent.kind === 'through';

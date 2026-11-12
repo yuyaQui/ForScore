@@ -407,7 +407,9 @@ test("再起動: 形式は合っていても中身が不正な保存は、項目
     const t = a.last("update_third_round_timer");
     assert.deepEqual([t.remainings[2], t.remainings[3], t.remainings[4], t.remainings[1]], [0, 900, 600, undefined]);
     const q = a.last("update_question_display");
-    assert.deepEqual([q.round, q.serial, q.shown, q.cursors], [null, null, false, { secondRound: 5 }]);
+    // 2026-11-12 から「次に読む問題」は大会全体で1つ。古い保存（ラウンドごと）は正しい番号を引き継ぎ、全ラウンドに同じ番号を配る
+    assert.deepEqual([q.round, q.serial, q.shown, q.cursor], [null, null, false, 5]);
+    assert.deepEqual(q.cursors, { secondRound: 5, thirdRound: 5, extraSecondStep: 5, semifinal: 5, final: 5 });
     assert.deepEqual(q.lastEvents, { secondRound: { kind: "scored", scope: "g1" } });
     assert.equal(server.crashed, null);
     a.close();

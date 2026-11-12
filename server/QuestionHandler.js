@@ -9,15 +9,18 @@
 //   serial  … 表示中の問題の通し番号
 //   shown   … Main に出しているか（Admin の「隠す」で false）
 //   seq     … 表示する問題が変わった回数。Main はこれが増えた瞬間だけ演出する
-//   cursors … ラウンドごとの「次に読む問題」の通し番号（Admin が開始番号を決める）
+//   cursor  … 「次に読む問題」の通し番号。大会全体で1つ（2026-11-12 ユーザー決定。以前はラウンドごと）。
+//             2nd Round の各組・3rd Round の各コース・Extra Second Step・Semi-Final（セットの振り返りとサドンデス）・
+//             Final で共有し、どの場面で1問終わっても同じ番号が進む。Admin の番号の入力・◀▶ はこの1つを直す
+//   配信では、これまでの画面がそのまま使えるよう cursors（ラウンドごと）にも同じ番号を入れる
 //
-// 他の進行状態と同じく、サーバを再起動すると初期値に戻る（Admin で番号を合わせ直す）。
+// 進行状態は stateStore に保存し、再起動の後も戻る（2026-11-04）。
 let questionDisplay = {
     round: null,
     serial: null,
     shown: false,
     seq: 0,
-    cursors: {}
+    cursor: null
 };
 
 const { isResetTarget, fromOf } = require("./roundOrder");
@@ -75,9 +78,12 @@ store.register(
         if (!saved || typeof saved !== "object") return;
         const q = saved.questionDisplay;
         if (q && typeof q === "object") {
-            const cursors = {};
-            for (const [round, serial] of Object.entries(q.cursors && typeof q.cursors === "object" ? q.cursors : {})) {
-                if (ROUNDS.includes(round) && isSerial(serial)) cursors[round] = serial;
+            // 2026-11-12 より前の保存（ラウンドごとの cursors）は、一番先に進んでいる番号を引き継ぐ
+            let cursor = isSerial(q.cursor) ? q.cursor : null;
+            if (cursor === null && q.cursors && typeof q.cursors === "object") {
+                for (const [round, serial] of Object.entries(q.cursors)) {
+                    if (ROUNDS.includes(round) && isSerial(serial) && (cursor === null || serial > cursor)) cursor = serial;
+                }
             }
             const roundOk = q.round === null || ROUNDS.includes(q.round);
             const serialOk = q.serial === null || isSerial(q.serial);
@@ -86,7 +92,7 @@ store.register(
                 serial: roundOk && serialOk ? q.serial : null,
                 shown: q.shown === true && roundOk && serialOk && q.serial !== null,
                 seq: Number.isInteger(q.seq) && q.seq >= 0 ? q.seq : 0,
-                cursors,
+                cursor,
             };
         }
         const restored = {};
@@ -101,16 +107,24 @@ store.register(
     }
 );
 
+/** 配信用: ラウンドごとの「次に読む問題」（全ラウンド同じ番号。未設定なら空） */
+function cursorsOf() {
+    const out = {};
+    if (questionDisplay.cursor !== null) for (const round of ROUNDS) out[round] = questionDisplay.cursor;
+    return out;
+}
+
 module.exports = function QuestionHandler(io, socket) {
-    const snapshot = () => ({ ...questionDisplay, lastEvents: lastEventsOf() });
+    const snapshot = () => ({ ...questionDisplay, cursors: cursorsOf(), lastEvents: lastEventsOf() });
     const broadcast = () => io.emit("update_question_display", snapshot());
 
-    // ラウンドの「次に読む問題」を設定・修正する（開始番号の入力、◀ 前の問題 / 次の問題 ▶）
+    // 「次に読む問題」を設定・修正する（開始番号の入力、◀ 前の問題 / 次の問題 ▶、Semi-Final の振り返りの確定）。
+    // round はどの画面からの操作か（番号は大会全体で1つ。2026-11-12）
     socket.on("set_question_cursor", (payload) => {
         if (!payload || !ROUNDS.includes(payload.round) || !isSerial(payload.serial)) return;
-        questionDisplay = { ...questionDisplay, cursors: { ...questionDisplay.cursors, [payload.round]: payload.serial } };
-        // 番号を手で動かしたら、そのラウンドの記録は Undo と合わなくなるので消す（2026-10-29）
-        logs = { ...logs, [payload.round]: [] };
+        questionDisplay = { ...questionDisplay, cursor: payload.serial };
+        // 番号を手で動かしたら、問題の記録は Undo と合わなくなるので消す（2026-10-29。番号の共有に合わせて全ラウンド）
+        logs = {};
         broadcast();
     });
 
@@ -127,12 +141,13 @@ module.exports = function QuestionHandler(io, socket) {
         if (!payload || !ROUNDS.includes(payload.round)) return;
         const scope = scopeOf(payload);
         const scored = payload.scored !== false;
-        if (!isSerial(payload.serial) || questionDisplay.cursors[payload.round] !== payload.serial) {
+        if (!isSerial(payload.serial) || questionDisplay.cursor !== payload.serial) {
             if (scored) { pushLog(payload.round, { kind: "other", scope }); broadcast(); }
             return;
         }
+        const next = nextSerial(payload.serial, payload.bounds);
         pushLog(payload.round, {
-            kind: scored ? "scored" : "through", scope, serial: payload.serial,
+            kind: scored ? "scored" : "through", scope, serial: payload.serial, next,
             prev: { round: questionDisplay.round, serial: questionDisplay.serial, shown: questionDisplay.shown }
         });
         questionDisplay = {
@@ -140,7 +155,7 @@ module.exports = function QuestionHandler(io, socket) {
             serial: payload.serial,
             shown: true,
             seq: questionDisplay.seq + 1,
-            cursors: { ...questionDisplay.cursors, [payload.round]: nextSerial(payload.serial, payload.bounds) }
+            cursor: next
         };
         broadcast();
     });
@@ -161,13 +176,16 @@ module.exports = function QuestionHandler(io, socket) {
         const last = list[list.length - 1];
         if (!last || last.kind !== payload.kind || last.scope !== scopeOf(payload)) return;
         logs = { ...logs, [payload.round]: list.slice(0, -1) };
-        if (last.kind !== "other") {
+        // 番号は大会全体で1つなので、その問題の後にほかの場面で番号が進んでいたら戻さない（得点だけ戻る）。
+        // next が無い記録（2026-11-12 より前）は従来どおり戻す
+        const untouched = last.next === undefined || questionDisplay.cursor === last.next;
+        if (last.kind !== "other" && untouched) {
             questionDisplay = {
                 round: last.prev.round,
                 serial: last.prev.serial,
                 shown: last.prev.shown,
                 seq: questionDisplay.seq + 1,
-                cursors: { ...questionDisplay.cursors, [payload.round]: last.serial }
+                cursor: last.serial
             };
         }
         broadcast();
@@ -181,15 +199,11 @@ module.exports = function QuestionHandler(io, socket) {
         broadcast();
     });
 
-    // 進行状態のリセット（2026-10-22）。from 以降のラウンドの「次に読む問題」を未設定に戻し、
-    // 表示中の問題がそのラウンドのものなら消す（Admin が開始番号を入れ直す）
+    // 進行状態のリセット（2026-10-22）。表示中の問題がそのラウンドのものなら消す。
+    // 「次に読む問題」は大会全体で1つなので、リセットしても変えない（やり直すときは Admin で手で直す。2026-11-12 ユーザー決定）
     socket.on("reset_round_progress", (payload) => {
         const from = fromOf(payload);
         if (!from) return;
-        const cursors = {};
-        for (const [round, serial] of Object.entries(questionDisplay.cursors)) {
-            if (!isResetTarget(from, ROUND_OF[round])) cursors[round] = serial;
-        }
         const clearShown = questionDisplay.round !== null && isResetTarget(from, ROUND_OF[questionDisplay.round]);
         // そのラウンド以降の操作の記録も消す（2026-10-29）
         const keptLogs = {};
@@ -197,9 +211,7 @@ module.exports = function QuestionHandler(io, socket) {
             if (!isResetTarget(from, ROUND_OF[round])) keptLogs[round] = list;
         }
         logs = keptLogs;
-        questionDisplay = clearShown
-            ? { ...questionDisplay, round: null, serial: null, shown: false, cursors }
-            : { ...questionDisplay, cursors };
+        if (clearShown) questionDisplay = { ...questionDisplay, round: null, serial: null, shown: false };
         broadcast();
     });
 

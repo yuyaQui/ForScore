@@ -216,8 +216,13 @@ async function fillTally(admin, byId) {
     await sleep(600);
     check('止めると「タイマー再開 ▶」', /タイマー再開 ▶/.test(await header(admin)), (await header(admin)).slice(0, 140));
     const sc = await socketClient();
+    // 「次に読む問題」は大会全体で1つ（2026-11-12）。前のラウンドで No.1 まで来ていたことにする（ほかの画面から設定）
+    let lastQ = null;
+    sc.on('update_question_display', q => { lastQ = q; });
+    sc.emit('set_question_cursor', { round: 'secondRound', serial: 1 });
     sc.emit('change_semifinal_timer', { action: 'edit', seconds: 0 });
     await sleep(900);
+    check('第1セットの開始の初期値は「次に読む問題」(1)', (await admin.locator('main input[aria-label="開始の通し番号"]').inputValue()) === '1', await admin.locator('main input[aria-label="開始の通し番号"]').inputValue());
     check('タイムアップで範囲の入力欄が出る', (await admin.locator('main input[aria-label="開始の通し番号"]').count()) === 1);
     check('範囲が空のあいだ「問題振り返りへ ▶」は押せない', (await admin.locator('header button', { hasText: /問題振り返りへ/ }).count()) === 0 && /問題振り返りへ ▶/.test(await header(admin)));
     check('画面が収まる(範囲の入力)', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
@@ -226,6 +231,7 @@ async function fillTally(admin, byId) {
     await sleep(300);
     await next(admin, /問題振り返りへ/);
     await sleep(1200);
+    check('振り返りを確定すると「次に読む問題」は最後に読んだ問題(6)の次(7)', lastQ && lastQ.cursor === 7, JSON.stringify(lastQ && lastQ.cursor));
     check('振り返り: 問題 1〜3 が別解つきで出る', /問題 1 の本文/.test(await text(admin, 'main')) && /別解1/.test(await text(admin, 'main')) && !/問題 4 の本文/.test(await text(admin, 'main')));
     check('画面が収まる(振り返り)', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
     await admin.screenshot({ path: path.join(ROOT, 'pw', 'semi-review.png') });
@@ -315,6 +321,7 @@ async function fillTally(admin, byId) {
     check('折り返す範囲の中身が出る', /No\.99〜No\.100、No\.1〜No\.2（4問）/.test(await text(admin, 'main')), await text(admin, 'main'));
     await next(admin, /問題振り返りへ/);
     await sleep(1200);
+    check('折り返す範囲を確定すると「次に読む問題」は 3', lastQ && lastQ.cursor === 3, JSON.stringify(lastQ && lastQ.cursor));
     check('振り返り1ページ目は 99・100・1', /問題 99 の本文[\s\S]*問題 100 の本文[\s\S]*問題 1 の本文/.test(await text(admin, 'main')), (await text(admin, 'main')).slice(0, 200));
     check('会場にも 99・100・1', await waitText(main, 'body', /問題 99 の本文[\s\S]*問題 100 の本文[\s\S]*問題 1 の本文/), (await text(main)).slice(0, 200));
     check('メタに折り返す範囲', /No\.99〜No\.100、No\.1〜No\.2（4問）/.test(await header(admin)) || /No\.99〜No\.100、No\.1〜No\.2/.test(await text(admin)), '');

@@ -251,7 +251,9 @@ export type QuestionDisplayState = {
     shown: boolean;
     /** 表示する問題が変わった回数。Main はこれが増えた瞬間だけ現れる演出をする */
     seq: number;
-    /** ラウンドごとの「次に読む問題」の通し番号。開始番号を決めていないラウンドは無い */
+    /** 「次に読む問題」の通し番号。大会全体で1つ（2026-11-12）。まだ決めていなければ null */
+    cursor: number | null;
+    /** 画面ごとの「次に読む問題」。2026-11-12 から全ラウンド同じ番号（cursor と同じ。未設定なら空） */
     cursors: Partial<Record<QuestionRound, number>>;
     /**
      * ラウンドごとの「操作の記録」の最後（2026-10-29 追加。Undo で問題も戻すため）。
@@ -265,4 +267,4 @@ export type QuestionDisplayState = {
 export type QuestionEventKind = 'scored' | 'through' | 'other';
 export type QuestionEvent = { kind: QuestionEventKind; scope: string };
 
-export const DEFAULT_QUESTION_DISPLAY: QuestionDisplayState = { round: null, serial: null, shown: false, seq: 0, cursors: {} };
+export const DEFAULT_QUESTION_DISPLAY: QuestionDisplayState = { round: null, serial: null, shown: false, seq: 0, cursor: null, cursors: {} };
