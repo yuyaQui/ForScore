@@ -130,7 +130,18 @@ type TurnOverViewProps = {
      * （ペーパー上位100名の発表の全17画面。2026-11-04 ユーザー指示：2nd Round のターンオーバーと完全に同一に）
      */
     bands?: { label: string; slice: Player[] }[];
+    /**
+     * 名前を公開した後のカードの作り（2026-11-13 ユーザー指示）。
+     *   'turnOver'（既定）… 2nd Round のターンオーバー: 上に学校名・学年、中央に名前
+     *   'courseSelect'   … 3rd Round のコース選択のカードと同じ作り: 上の行に順位の札＋学校名・学年、その下に名前
+     *                       （大会終了後の上位100名発表で使う）
+     */
+    expandedStyle?: 'turnOver' | 'courseSelect';
 };
+
+/** 'courseSelect' のときの、上の行の順位の札の大きさ（3rd Round のコース選択の札を、カードの高さに合わせて拡大） */
+const CS_CHIP_FONT = 34;
+const CS_CHIP_W_EST = 150;   // 学校名・学年に使える幅を見積もるための札の幅（「100th」で約 140px）
 
 const CHAMFER = 16; // 角の斜めカット幅(px)。縦横比が変わっても常に45°の切り欠きになるよう両軸共通
 const STAGE_W = 1740;
@@ -140,7 +151,8 @@ const GAP = 20;
 const ROW_GAP = 20;
 
 // ペーパー上位100名の発表（MainPaperTop.tsx）でも同じ帯を使うので export する（2026-10-31 項目19）
-export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false, bands }: TurnOverViewProps) {
+export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOverPhase, turnOverFinalRevealed, singleBand = false, bands, expandedStyle = 'turnOver' }: TurnOverViewProps) {
+    const csLayout = expandedStyle === 'courseSelect';
     // マウント時に一度だけ、カード全体がフェード＋ポップインする
     // （Design アーティファクトの componentDidMount と同じ手順。以降、発表ステップの
     // 切り替えはこのフラグに関係なく「帯(layer)ごとの不透明度フェード」だけで表現する）
@@ -288,7 +300,10 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                         // 同様に文字数から求めるが、上限はカード幅から決まる従来の値のまま。
                         const metaFontSizeMax = Math.round(Math.max(20, Math.min(26, Math.floor(w / 20))) * 1.65);
                         const nameFontSize = fitFontSizeToWidth(p.name, nameAvailW - 8, 1, 40, 80);
-                        const metaFontSize = fitFontSizeToWidth((p.school || '未登録') + ' ' + (p.grade || '-'), metaAvailW - 8, 0, 18, metaFontSizeMax);
+                        const metaFontSize = csLayout
+                            // コース選択と同じく、順位の札の右に学校名・学年（札の分だけ幅が減る）
+                            ? fitFontSizeToWidth((p.school || '未登録') + ' ' + (p.grade || '-'), metaAvailW - 8 - CS_CHIP_W_EST - 14, 0, 18, 30)
+                            : fitFontSizeToWidth((p.school || '未登録') + ' ' + (p.grade || '-'), metaAvailW - 8, 0, 18, metaFontSizeMax);
                         const metaSizeDur = expanded0 ? '.45s' : '0s';
 
                         const styleMetaBar: CSSProperties = {
@@ -297,10 +312,23 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                             overflow: 'hidden', opacity: revealOpacity,
                             transition: `opacity ${textFadeDur} ease ${textFadeDelay}, height ${metaSizeDur} ease ${shrinkDelay}, padding ${metaSizeDur} ease ${shrinkDelay}`,
                         };
-                        const styleMetaLine: CSSProperties = {
-                            fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1.25, color: '#FFFFFF',
-                            textShadow: outlineShadow(textOutlineColor, 1.1), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                            maxWidth: Math.max(20, metaAvailW - 6),
+                        const styleMetaLine: CSSProperties = csLayout
+                            // 3rd Round のコース選択のカード（CourseSelectCard）と同じ: 札＋学校名・学年を1行に、文字は少し控えめな色
+                            ? {
+                                display: 'flex', alignItems: 'center', gap: 14, minWidth: 0,
+                                fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: metaFontSize, lineHeight: 1.25, color: '#DFEBFA',
+                                textShadow: outlineShadow(textOutlineColor, 0.9), whiteSpace: 'nowrap',
+                                maxWidth: Math.max(20, metaAvailW - 6),
+                            }
+                            : {
+                                fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 800, fontSize: metaFontSize, lineHeight: 1.25, color: '#FFFFFF',
+                                textShadow: outlineShadow(textOutlineColor, 1.1), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                maxWidth: Math.max(20, metaAvailW - 6),
+                            };
+                        const styleCsChip: CSSProperties = {
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, minWidth: 84, padding: '4px 14px',
+                            border: `4px solid ${tier.color}`, clipPath: 'polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px)',
+                            fontFamily: 'Orbitron,"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: CS_CHIP_FONT, lineHeight: 1, color: '#FFFFFF', letterSpacing: 1, boxSizing: 'border-box',
                         };
                         const styleCenterArea: CSSProperties = { position: 'relative', flex: 1, minHeight: 0 };
                         const rankFadeEase = expanded0 ? 'ease' : 'cubic-bezier(.22,1,.36,1)';
@@ -330,7 +358,14 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
                                             <div style={styleLightL} />
                                             <div style={styleLightR} />
                                             <div style={styleMetaBar}>
-                                                <div style={styleMetaLine}>{(p.school || '未登録') + ' ' + (p.grade || '-')}</div>
+                                                {csLayout ? (
+                                                    <div style={styleMetaLine}>
+                                                        <span style={styleCsChip}>{toOrdinal(p.paperRank)}</span>
+                                                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{(p.school || '未登録') + ' ' + (p.grade || '-')}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div style={styleMetaLine}>{(p.school || '未登録') + ' ' + (p.grade || '-')}</div>
+                                                )}
                                             </div>
                                             <div style={styleCenterArea}>
                                                 <div style={styleRankCenter}><span style={styleRankChip}>{toOrdinal(p.paperRank)}</span></div>

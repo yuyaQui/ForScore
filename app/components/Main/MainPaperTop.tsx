@@ -52,6 +52,8 @@ export default function MainPaperTop({ socket }: { socket: Socket | null }) {
                 turnOverStep={state.page}
                 turnOverPhase={state.phase}
                 turnOverFinalRevealed={false}
+                // 名前を公開した後のカードは 3rd Round のコース選択のカードと同じ作り（2026-11-13 ユーザー指示）
+                expandedStyle="courseSelect"
             />
         </FixedStage>
     );
