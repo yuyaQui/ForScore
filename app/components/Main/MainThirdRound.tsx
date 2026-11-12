@@ -283,7 +283,8 @@ function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number
     return `polygon(${px(outerX1)} ${py(0)}, ${px(innerX1)} ${py(padPx)}, ${px(innerX1)} ${py(refH - padPx)}, ${px(outerX1)} ${py(refH)}, ${px(outerX2)} ${py(refH)}, ${px(innerX2)} ${py(refH - padPx)}, ${px(innerX2)} ${py(padPx)}, ${px(outerX2)} ${py(0)})`;
 }
 
-/** コース選択の選手の並びの行数（上から下へ並べるので、1列＝2nd Round の同じ順位の4人） */
+/** コース選択の選手の並びの列数・行数（左から右へ・上から下へ優先順位順） */
+const COURSE_GRID_COLS = 5;
 const COURSE_GRID_ROWS = 4;
 /** 行ごとの左右のずれ（px）。上の行ほど左・下の行ほど右。4行の中央を基準にずらすので、
  *  一番上と一番下は ±1.5 倍（24px なら ±36px。画面の左右の余白 72px に収まる大きさまで） */
@@ -407,12 +408,12 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
             </div>
 
             {/* 参加者20名。4行×5列、優先順位(2nd Round順位→ペーパー順位)順に並ぶ
-                (gridItemsは親コンポーネント側ですでにその順に並べてある)。
-                2026-11-12 ユーザー指示: 上から下へ・左から右へ並べる（列が 2nd Round の同じ順位の4人になり、
-                左の列ほど・上の段ほど優先）。行ごとに左右を少しずらし、上の行ほど左・下の行ほど右に寄せる */}
-            <div style={{ marginTop: 26, flex: 1, minHeight: 0, maxHeight: 520, display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gridTemplateRows: `repeat(${COURSE_GRID_ROWS},minmax(0,1fr))`, gridAutoFlow: 'column', gap: 8 }}>
+                (gridItemsは親コンポーネント側ですでにその順に並べてある)。左から右へ・上から下へ並べる
+                （2026-11-12 に上から下への並びを試したが、同日ユーザー指示で戻した）。
+                行ごとに左右を少しずらし、上の行ほど左・下の行ほど右に寄せる（2026-11-12 ユーザー指示） */}
+            <div style={{ marginTop: 26, flex: 1, minHeight: 0, maxHeight: 520, display: 'grid', gridTemplateColumns: `repeat(${COURSE_GRID_COLS},minmax(0,1fr))`, gridTemplateRows: `repeat(${COURSE_GRID_ROWS},minmax(0,1fr))`, gap: 8 }}>
                 {gridItems.map((p, index) => (
-                    <div key={p ? p.id : `empty-${index}`} style={{ minWidth: 0, height: '100%', transform: `translateX(${courseGridRowShift(index % COURSE_GRID_ROWS)}px)` }}>
+                    <div key={p ? p.id : `empty-${index}`} style={{ minWidth: 0, height: '100%', transform: `translateX(${courseGridRowShift(Math.floor(index / COURSE_GRID_COLS))}px)` }}>
                         {p
                             ? <CourseSelectCard
                                 player={p}
