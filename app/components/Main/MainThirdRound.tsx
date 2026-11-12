@@ -233,13 +233,13 @@ type CourseSelectViewProps = {
 // ルーレット表示の寸法・色・周回数。Design アーティファクトの値をそのまま使う。
 const REEL_ITEM_H = 235, REEL_VIEW_W = 1150, REEL_VIEW_H = 295, CHAM_REEL = 20;
 const REEL_FRAME_COLOR = '#FFC93C'; // 選手カードの黄色(13〜24位帯)と同じ色に揃えている
-const REEL_LAPS = 16;
+const REEL_LAPS = 12;
 // reelSpin(app/globals.css)のanimation-durationと必ず一致させる
-const REEL_SPIN_MS = 15000;
+const REEL_SPIN_MS = 10000;
 // 最後のコース（残りが1つで、抽選する前から決まっている）の回転（2026-11-11 ユーザー指示）。
 // 時間を短くし、周回数も減らして流れる速さを通常に近くする（1コース×12周＋止まる1つ＝13個を3秒）
-const REEL_SPIN_LAST_MS = 3000;
-const REEL_LAPS_LAST = 12;
+const REEL_SPIN_LAST_MS = 1000;
+const REEL_LAPS_LAST = 1;
 // 止まった瞬間の演出（2026-11-11 ユーザー承認・B案）の長さ。下の REEL_LAND_KEYFRAMES を使う動きの一番長いもの
 // （光の輪 2枚目: 遅れ 0.45s ＋ 2.2s）より長く。観客が確実に気づけるよう、同日に約1.4秒から約2.8秒へ延ばした（ユーザー指示）
 const REEL_LAND_FX_MS = 2800;
@@ -281,6 +281,15 @@ function cutClipPct(refW: number, refH: number, chamferPx: number, padPx: number
     const px = (x: number) => (x / refW * 100).toFixed(2) + '%';
     const py = (y: number) => (y / refH * 100).toFixed(2) + '%';
     return `polygon(${px(outerX1)} ${py(0)}, ${px(innerX1)} ${py(padPx)}, ${px(innerX1)} ${py(refH - padPx)}, ${px(outerX1)} ${py(refH)}, ${px(outerX2)} ${py(refH)}, ${px(innerX2)} ${py(refH - padPx)}, ${px(innerX2)} ${py(padPx)}, ${px(outerX2)} ${py(0)})`;
+}
+
+/** コース選択の選手の並びの行数（上から下へ並べるので、1列＝2nd Round の同じ順位の4人） */
+const COURSE_GRID_ROWS = 4;
+/** 行ごとの左右のずれ（px）。上の行ほど左・下の行ほど右。4行の中央を基準にずらすので、
+ *  一番上と一番下は ±1.5 倍（24px なら ±36px。画面の左右の余白 72px に収まる大きさまで） */
+const COURSE_GRID_ROW_STEP = 24;
+function courseGridRowShift(row: number): number {
+    return (row - (COURSE_GRID_ROWS - 1) / 2) * COURSE_GRID_ROW_STEP;
 }
 
 /** 回転の時間。残りが1コース（最後の抽選）なら短く */
@@ -373,42 +382,45 @@ function CourseSelectView({ gridItems, currentCourse, courses }: CourseSelectVie
 
             {/* 抽選ルーレット。決定後もそのまま残り、着地した表示が「現在選択中のコース」を兼ねる */}
             <div style={{ marginTop: 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              {/* 光の輪は枠の外へ広がるので、枠（clip-path で切り抜いている）の外に重ねる */}
-              <div style={{ position: 'relative', width: REEL_VIEW_W, height: REEL_VIEW_H }}>
-                <style>{REEL_LAND_KEYFRAMES}</style>
-                {landFx && [0, 0.45].map(delay => (
-                    <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 2.2s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
-                ))}
-                <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)', animation: landFx ? 'reelLandGlow 2.4s ease-out 1' : 'none' }}>
-                    <div style={trackStyle}>
-                        {reelTrackItems.map((name, i) => (
-                            <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle, animation: landFx && i === 0 ? 'reelLandPop 1.4s cubic-bezier(.2,1.6,.4,1) 1' : 'none' }}>
-                                {name}
-                            </span>
-                        ))}
+                {/* 光の輪は枠の外へ広がるので、枠（clip-path で切り抜いている）の外に重ねる */}
+                <div style={{ position: 'relative', width: REEL_VIEW_W, height: REEL_VIEW_H }}>
+                    <style>{REEL_LAND_KEYFRAMES}</style>
+                    {landFx && [0, 0.45].map(delay => (
+                        <div key={delay} data-reel-land-ring aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0, background: REEL_FRAME_COLOR, clipPath: chamferRingClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL, REEL_RING_W), filter: `drop-shadow(0 0 14px ${REEL_FRAME_COLOR})`, animation: `reelLandRing 2.2s cubic-bezier(.15,.7,.3,1) ${delay}s 1` }} />
+                    ))}
+                    <div style={{ position: 'relative', boxSizing: 'border-box', width: REEL_VIEW_W, height: REEL_VIEW_H, overflow: 'hidden', clipPath: chamferClip(REEL_VIEW_W, REEL_VIEW_H, CHAM_REEL), background: INNER_BG, border: `4px solid ${REEL_FRAME_COLOR}`, boxShadow: '0 0 28px rgba(255,201,60,.35), inset 0 0 32px rgba(0,0,0,.6)', animation: landFx ? 'reelLandGlow 2.4s ease-out 1' : 'none' }}>
+                        <div style={trackStyle}>
+                            {reelTrackItems.map((name, i) => (
+                                <span key={i} style={{ flexShrink: 0, width: '100%', height: REEL_ITEM_H, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,.08)', fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 900, fontSize: 170, ...reelItemTextStyle, animation: landFx && i === 0 ? 'reelLandPop 1.4s cubic-bezier(.2,1.6,.4,1) 1' : 'none' }}>
+                                    {name}
+                                </span>
+                            ))}
+                        </div>
+                        {/* 止まった瞬間に枠の中が一度白く光る */}
+                        {landFx && <div aria-hidden style={{ position: 'absolute', inset: 0, background: '#FFF6D6', mixBlendMode: 'screen', opacity: 0, pointerEvents: 'none', animation: 'reelLandFlash 1s ease-out 1' }} />}
+                        <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 56, background: `linear-gradient(180deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(0deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowL 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
+                        <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowR 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
                     </div>
-                    {/* 止まった瞬間に枠の中が一度白く光る */}
-                    {landFx && <div aria-hidden style={{ position: 'absolute', inset: 0, background: '#FFF6D6', mixBlendMode: 'screen', opacity: 0, pointerEvents: 'none', animation: 'reelLandFlash 1s ease-out 1' }} />}
-                    <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 56, background: `linear-gradient(180deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56, background: `linear-gradient(0deg, ${INNER_BG}, transparent)`, pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowL 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
-                    <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderRight: `20px solid ${REEL_FRAME_COLOR}`, filter: `drop-shadow(0 0 10px ${REEL_FRAME_COLOR})`, pointerEvents: 'none', animation: landFx ? 'reelLandArrowR 1.4s cubic-bezier(.3,1.5,.5,1) 1' : 'none' }} />
                 </div>
-              </div>
             </div>
 
             {/* 参加者20名。4行×5列、優先順位(2nd Round順位→ペーパー順位)順に並ぶ
-                (gridItemsは親コンポーネント側ですでにその順に並べてある) */}
-            <div style={{ marginTop: 26, flex: 1, minHeight: 0, maxHeight: 520, display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gridTemplateRows: 'repeat(4,minmax(0,1fr))', gap: 8 }}>
+                (gridItemsは親コンポーネント側ですでにその順に並べてある)。
+                2026-11-12 ユーザー指示: 上から下へ・左から右へ並べる（列が 2nd Round の同じ順位の4人になり、
+                左の列ほど・上の段ほど優先）。行ごとに左右を少しずらし、上の行ほど左・下の行ほど右に寄せる */}
+            <div style={{ marginTop: 26, flex: 1, minHeight: 0, maxHeight: 520, display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gridTemplateRows: `repeat(${COURSE_GRID_ROWS},minmax(0,1fr))`, gridAutoFlow: 'column', gap: 8 }}>
                 {gridItems.map((p, index) => (
-                    p
-                        ? <CourseSelectCard
-                            key={p.id}
-                            player={p}
-                            isElsewhere={!!p.thirdRoundCourseName && p.thirdRoundCourseName !== currentCourse?.name}
-                            isCurrent={!!currentCourse && p.thirdRoundCourseName === currentCourse.name}
-                        />
-                        : <EmptyCourseSelectSlot key={`empty-${index}`} />
+                    <div key={p ? p.id : `empty-${index}`} style={{ minWidth: 0, height: '100%', transform: `translateX(${courseGridRowShift(index % COURSE_GRID_ROWS)}px)` }}>
+                        {p
+                            ? <CourseSelectCard
+                                player={p}
+                                isElsewhere={!!p.thirdRoundCourseName && p.thirdRoundCourseName !== currentCourse?.name}
+                                isCurrent={!!currentCourse && p.thirdRoundCourseName === currentCourse.name}
+                            />
+                            : <EmptyCourseSelectSlot />}
+                    </div>
                 ))}
             </div>
         </div>
@@ -854,40 +866,40 @@ function PlayoffView({ quizCourse, quizPlayers, playoffIds, socket }: PlayoffVie
             </div>
 
         }>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, justifyContent: 'center' }}>
-                    {shown.map(p => {
-                        // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0。
-                        // LOST はコースのルールで失格した選手だけ（2026-10-29 ユーザー指示。2nd Round と同じ）。
-                        // サドンデスで勝ち抜けられなかった選手は LOST にしない
-                        const eliminated = p.thirdRoundRank < 0 && !!quizCourse && isEliminatedByCourseRule(quizCourse.name as ThirdRoundCourseName, p);
-                        const winner = p.thirdRoundRank > 0;
-                        const belowContent = winner
-                            ? <BelowNumber text={toOrdinal(p.thirdRoundRank)} color="#FFE28A" />
-                            : eliminated
-                                ? <BelowNumber text="LOST" color="#8A93A3" />
-                                : null;
-                        // プレーオフは進捗バーの概念が無いコースなので pct は常に0(=非表示)にする
-                        return (
-                            <PlayerCardFrame
-                                key={p.id}
-                                phase={phase}
-                                paperRank={p.paperRank}
-                                eliminated={eliminated}
-                                winner={winner}
-                                name={p.name}
-                                school={p.school}
-                                grade={p.grade}
-                                pct={0}
-                                belowContent={belowContent}
-                            />
-                        );
-                    })}
-                    {shown.length === 0 && (
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 24, color: '#5C7EA6' }}>
-                            サドンデスの対象者がいません。
-                        </span>
-                    )}
-                </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 56, justifyContent: 'center' }}>
+                {shown.map(p => {
+                    // 勝ち抜け → 正の数、敗退 → −1、プレーオフ対象 → 0。
+                    // LOST はコースのルールで失格した選手だけ（2026-10-29 ユーザー指示。2nd Round と同じ）。
+                    // サドンデスで勝ち抜けられなかった選手は LOST にしない
+                    const eliminated = p.thirdRoundRank < 0 && !!quizCourse && isEliminatedByCourseRule(quizCourse.name as ThirdRoundCourseName, p);
+                    const winner = p.thirdRoundRank > 0;
+                    const belowContent = winner
+                        ? <BelowNumber text={toOrdinal(p.thirdRoundRank)} color="#FFE28A" />
+                        : eliminated
+                            ? <BelowNumber text="LOST" color="#8A93A3" />
+                            : null;
+                    // プレーオフは進捗バーの概念が無いコースなので pct は常に0(=非表示)にする
+                    return (
+                        <PlayerCardFrame
+                            key={p.id}
+                            phase={phase}
+                            paperRank={p.paperRank}
+                            eliminated={eliminated}
+                            winner={winner}
+                            name={p.name}
+                            school={p.school}
+                            grade={p.grade}
+                            pct={0}
+                            belowContent={belowContent}
+                        />
+                    );
+                })}
+                {shown.length === 0 && (
+                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 24, color: '#5C7EA6' }}>
+                        サドンデスの対象者がいません。
+                    </span>
+                )}
+            </div>
         </RoundStage>
     );
 }
