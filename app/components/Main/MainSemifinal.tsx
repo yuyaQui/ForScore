@@ -12,7 +12,7 @@ import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, displayNickname
 import type { PublicPoolQuestion } from "@/lib/questionPool";
 import { ACCENT, tierOf, shade, outlineShadow } from "@/lib/cyberpunkCard";
 import { toOrdinal } from "@/lib/ordinal";
-import { StandbyStage, BlankScreen } from "./StandbyScreen";
+import { BlankScreen } from "./StandbyScreen";
 import { rangeSerials } from "@/lib/questionWrap.js";
 import { useReadyGate } from "../useReadyGate";
 import FixedStage from "@/app/components/FixedStage";
@@ -34,7 +34,7 @@ type Animation = { seq: number; startAt: number; plan: AnnouncePlan };
 
 // 準決勝（Nine Hundred）の Main 画面（設計メモ 6章・7章）。
 //
-//   standby … 準備中（Admin で写真・二つ名を登録している間）
+//   standby … 準備中（Admin で写真・二つ名を登録している間）。会場には何も出さない（黒い画面）
 //   intro   … 進出者紹介。1人ずつ「二つ名」→「写真・学校名・学年・名前」
 //   lineup  … 選手カード表示。紹介順 → 最後に敗者復活者の順に1枚ずつ現れる
 //   quiz    … クイズ中。カードは写真だけを囲む小さい枠になり、下に5分タイマー
@@ -230,8 +230,9 @@ function BelowText({ text, color }: { text: React.ReactNode; color: string }) {
 // ============================================================================
 
 function StandbyView() {
-    // 共有の待機画面 NEXT Semi-Final（2026-11-04 ユーザー指示。今までの「準備中 / STANDBY」を置き換え）
-    return <StandbyStage title="Semi-Final" />;
+    // 何も出さない（黒い画面。2026-11-12 ユーザー指示）。
+    // 以前は共有の待機画面 NEXT Semi-Final を出していたが、「Semi-Final を始める」の前に同じ待機画面を出して消しているので重ねない
+    return <div style={{ width: 1920, height: 1080, background: '#000000' }} />;
 }
 
 // ============================================================================

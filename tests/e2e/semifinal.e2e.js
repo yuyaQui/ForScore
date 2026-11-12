@@ -180,6 +180,7 @@ async function fillTally(admin, byId) {
     check('進行ボタンは「…を始める ▶」', /を始める ▶|を表示する ▶/.test(await header(admin)), await header(admin));
     await next(admin, /を始める|を表示する/);
     await sleep(1200);
+    check('準備中の会場は何も出ない(NEXT Semi-Final も出ない)', (await text(main)) === '', await text(main));
     check('準備: 進出者9名の登録欄が出る', /進出者\s*9名/.test(await text(admin)) && (await admin.getByRole('button', { name: /写真を選択/ }).count()) === 9);
     check('進行ボタンは「1人目へ ▶」', /(^|[^0-9])1人目へ ▶/.test(await header(admin)), await header(admin));
     check('バーにタイマーは出ない(準備)', (await admin.getByRole('button', { name: 'START', exact: true }).count()) === 0);
