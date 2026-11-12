@@ -6,7 +6,7 @@ import { getSemifinalSeats, SET_TIME_LIMIT_SECONDS, type SemifinalSeatAssignment
 import { getPlayoffProgress } from "@/lib/semifinalPlayoff";
 import { isDecidedBeforeSet } from "@/lib/semifinalScoring";
 import {
-    buildAnnouncePlan, getAnnounceFrame, pointToPct, ANNOUNCE_START_DELAY_MS, type AnnouncePlan,
+    buildAnnouncePlan, getAnnounceFrame, planPct, ANNOUNCE_START_DELAY_MS, type AnnouncePlan,
 } from "@/lib/semifinalAnnounce";
 import { getIntroOrder, getLineupOrder, photoUrl, lineupDelayMs, displayNickname, type SemifinalProfile } from "@/lib/semifinalProfile";
 import type { PublicPoolQuestion } from "@/lib/questionPool";
@@ -356,12 +356,14 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
     const players = seats.map(s => s.player);
     const compact = mode === 'quiz';
 
-    // このセットで争っている選手（未決着＋このセットの勝ち抜け者）。高さの基準はこの中の最高得点
-    const contenders = players.filter(p => p.semifinalRank === 0 || p.semifinalRank === set);
-    const scale = Math.max(1, ...contenders.map(p => p.semifinalPoint));
+    // このセットで争っている選手（未決着＋このセットで勝ち抜け・敗退した選手）。高さの基準（最低点 10%・2位 75%）は
+    // この中で決める。判定の後も発表のときと同じ顔ぶれで計算し、判定でバーの高さが変わらないようにする
+    const contenders = players.filter(p => p.semifinalRank === 0 || p.semifinalRank === set
+        || (p.semifinalRank === -1 && p.semifinalLostSet === set));
+    const staticPlan = buildAnnouncePlan(contenders);
     // 演出後の最終状態で 100% になる選手。判定済みならこのセットの勝ち抜け者、
     // 判定前なら単独の最高得点者（同点なら誰もいない）
-    const staticTopId = players.find(p => p.semifinalRank === set)?.id ?? buildAnnouncePlan(contenders).topId;
+    const staticTopId = players.find(p => p.semifinalRank === set)?.id ?? staticPlan.topId;
 
     const now = useAnimationClock(animation);
     // now は最初のフレームまで 0。そのあいだは開始待ちとして扱う
@@ -397,6 +399,7 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                         let pct = 0;
                         let below: React.ReactNode = '';
                         let color = '#EAF6FF';
+                        let flash = false;
 
                         if (mode === 'tally') {
                             // 得点集計中: 決着済みの選手だけ WIN / LOST、他は空欄（得点はまだ出さない）
@@ -415,9 +418,11 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                                 // 開始待ち（カードの開扉中）は 0 から。getAnnounceFrame は負の経過時間を 0 として扱う
                                 const frame = getAnnounceFrame(animation.plan, p.id, elapsed);
                                 pct = frame.pct;
-                                below = elapsed < 0 ? 0 : frame.shownPoint;
+                                flash = frame.flash;
+                                // 開始待ちのあいだは最低点（バーの一番下に当たる点数）を出す
+                                below = elapsed < 0 ? animation.plan.low : frame.shownPoint;
                             } else {
-                                pct = p.id === staticTopId ? 100 : pointToPct(p.semifinalPoint, scale);
+                                pct = p.id === staticTopId ? 100 : planPct(staticPlan, p.semifinalPoint);
                                 below = p.semifinalPoint;
                             }
                         }
@@ -432,7 +437,7 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                                 eliminated={lost}
                                 winner={won && (wonEarlier || mode !== 'lineup')}
                                 pct={pct}
-                                barColor={pct >= 100 ? WINNER_BAR_COLOR : undefined}
+                                barColor={pct >= 100 ? WINNER_BAR_COLOR : flash ? TIE_FLASH_BAR_COLOR : undefined}
                                 statusLabel={won ? toOrdinal(p.semifinalRank) : lost ? 'LOST' : null}
                                 below={<BelowText text={below} color={color} />}
                             />
@@ -459,6 +464,9 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
         </div>
     );
 }
+
+/** 点数発表で1位が同点のとき、止まった後の1秒に同点の選手のバーを光らせる色（2026-11-12） */
+const TIE_FLASH_BAR_COLOR = 'rgba(225,246,255,.95)';
 
 function StageCard({ player, photo, introDelay, compact, eliminated, winner, pct, barColor, statusLabel, below }: {
     player: Player; photo: string | null; introDelay: number | null; compact: boolean; eliminated: boolean; winner: boolean;
