@@ -274,7 +274,10 @@ async function fillTally(admin, byId) {
     await next(admin, /点数発表へ/);
     await sleep(900);
     check('発表中は押せない', /発表中\.\.\./.test(await header(admin)), (await header(admin)).slice(0, 120));
+    // 得点は確定するまで出さず「?」を明滅させる（2026-11-12）。発表の初めは全員「?」、終わると「?」は残らない
+    check('発表の初めは全員の得点の代わりに「?」', (await main.locator('[data-sf-score-wait]').count()) >= 2, String(await main.locator('[data-sf-score-wait]').count()));
     check('発表が終わると「勝ち抜け判定 ▶」', await waitText(admin, 'header', /勝ち抜け判定 ▶/, 45000), (await header(admin)).slice(0, 120));
+    check('発表が終わると「?」は残らない', (await main.locator('[data-sf-score-wait]').count()) === 0);
     check('画面が収まる(点数発表)', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
     await next(admin, /勝ち抜け判定/);
     await sleep(1200);

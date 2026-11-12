@@ -217,10 +217,27 @@ function SetLabel({ set }: { set: number }) {
     return <span style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 40, letterSpacing: 3, color: '#FFFFFF' }}>SET {set}</span>; // 白（2026-11-04 ユーザー指示）
 }
 
-function BelowText({ text, color }: { text: React.ReactNode; color: string }) {
+/**
+ * 点数発表の演出中のカードの下（2026-11-12 ユーザー承認・案C）。
+ *   wait … 得点が確定するまで「?」をゆっくり明滅させる
+ *   pop  … 確定した瞬間に得点を一回り大きく光らせてから元の大きさに戻す（出た瞬間に1回だけ）
+ */
+type BelowEffect = 'wait' | 'pop';
+const SCORE_WAIT_COLOR = '#33C6FF';
+// 動きの定義は画面と一緒に配る（globals.css に置くと、開きっぱなしの画面が古いスタイルのままになり動かないことがあるため）
+const BELOW_EFFECT_CSS = `
+@keyframes sfScoreWait { 0%, 100% { opacity: .35; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.02); } }
+@keyframes sfScorePop { 0% { transform: scale(1.45); text-shadow: 0 0 40px #FFFFFF; } 100% { transform: scale(1); text-shadow: none; } }
+`;
+
+function BelowText({ text, color, effect }: { text: React.ReactNode; color: string; effect?: BelowEffect }) {
     return (
         <div style={{ marginTop: 16, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: typeof text === 'string' || typeof text === 'number' ? belowFontSize(text) : BELOW_NUMBER_FONT, fontWeight: 800, letterSpacing: 1, color, height: BELOW_H - 16, lineHeight: `${BELOW_H - 16}px`, fontVariantNumeric: 'tabular-nums' }}>
-            {text}
+            {effect === 'wait' ? (
+                <span key="wait" data-sf-score-wait style={{ display: 'inline-block', fontSize: Math.round(BELOW_NUMBER_FONT * 0.9), color: SCORE_WAIT_COLOR, textShadow: `0 0 18px ${SCORE_WAIT_COLOR}99`, animation: 'sfScoreWait 1.2s ease-in-out infinite' }}>?</span>
+            ) : effect === 'pop' ? (
+                <span key="pop" style={{ display: 'inline-block', animation: 'sfScorePop .45s cubic-bezier(.2,1.6,.4,1) 1' }}>{text}</span>
+            ) : text}
         </div>
     );
 }
@@ -383,6 +400,7 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
 
     return (
         <div style={STAGE_STYLE}>
+            <style>{BELOW_EFFECT_CSS}</style>
             <Header subtitle="Nine Hundred" right={mode === 'lineup' ? undefined : <SetLabel set={set} />} />
             {/* 仕切り線は Semi-Final の間ずっと青（2026-10-29 ユーザー指示。以前は判定後に金色へ変わっていた） */}
             <Rule color={ACCENT} />
@@ -400,6 +418,8 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                         let below: React.ReactNode = '';
                         let color = '#EAF6FF';
                         let flash = false;
+                        // 点数発表の演出中、得点が確定するまでは「?」を出し、確定したら得点をポンと出す（2026-11-12）
+                        let belowEffect: BelowEffect | undefined;
 
                         if (mode === 'tally') {
                             // 得点集計中: 決着済みの選手だけ WIN / LOST、他は空欄（得点はまだ出さない）
@@ -419,8 +439,9 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                                 const frame = getAnnounceFrame(animation.plan, p.id, elapsed);
                                 pct = frame.pct;
                                 flash = frame.flash;
-                                // 開始待ちのあいだは最低点（バーの一番下に当たる点数）を出す
-                                below = elapsed < 0 ? animation.plan.low : frame.shownPoint;
+                                const decided = elapsed >= 0 && frame.decided;
+                                below = decided ? p.semifinalPoint : '?';
+                                belowEffect = decided ? 'pop' : 'wait';
                             } else {
                                 pct = p.id === staticTopId ? 100 : planPct(staticPlan, p.semifinalPoint);
                                 below = p.semifinalPoint;
@@ -439,7 +460,7 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                                 pct={pct}
                                 barColor={pct >= 100 ? WINNER_BAR_COLOR : flash ? TIE_FLASH_BAR_COLOR : undefined}
                                 statusLabel={won ? toOrdinal(p.semifinalRank) : lost ? 'LOST' : null}
-                                below={<BelowText text={below} color={color} />}
+                                below={<BelowText text={below} color={color} effect={belowEffect} />}
                             />
                         );
                         // 場所は詰めない: 同じカードを見えなくして置く

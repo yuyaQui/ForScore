@@ -24,20 +24,20 @@
  * 2026-10-17: 発表の前に「得点集計」でカードを出しておくようにしたので、開扉演出（約2秒）を
  * 待つ必要がなくなった。切り替わったことが分かる程度の短い間だけ置く。
  */
-export const ANNOUNCE_START_DELAY_MS = 800;
+export const ANNOUNCE_START_DELAY_MS = 500;
 
 /** 2位（同点の1位）のバーの高さ（%）。単独の1位だけが最後に 100% まで伸びる */
-export const ANNOUNCE_SECOND_PCT = 75;
+export const ANNOUNCE_SECOND_PCT = 70;
 /** 最低点の選手のバーの高さ（%） */
-export const ANNOUNCE_LOWEST_PCT = 10;
+export const ANNOUNCE_LOWEST_PCT = 20;
 /** 全員が上がって2位が止まるまでの時間（点数に関係なく一定） */
-const RISE_MS = 10000;
+const RISE_MS = 8000;
 /** その後、単独の1位が 100% に達するまで（同点のときは同点の選手のバーが点滅する時間） */
-const FINISH_MS = 1000;
+const FINISH_MS = 500;
 /** 同点のときの点滅の切り替え間隔（1 秒で3回光る） */
 const TIE_FLASH_STEP_MS = 1000 / 6;
 /** 動き終わってから「判定」を押せるようになるまでの余白 */
-const HOLD_MS = 400;
+const HOLD_MS = 500;
 
 export type AnnounceContender = { id: number; semifinalPoint: number };
 
@@ -89,8 +89,11 @@ function pctToPoint(plan: Pick<AnnouncePlan, 'low' | 'second'>, pct: number): nu
     return plan.low + ((pct - ANNOUNCE_LOWEST_PCT) / (ANNOUNCE_SECOND_PCT - ANNOUNCE_LOWEST_PCT)) * (plan.second - plan.low);
 }
 
-/** flash: 同点の選手のバーを光らせるフレーム */
-export type AnnounceFrame = { pct: number; shownPoint: number; flash: boolean };
+/**
+ * flash: 同点の選手のバーを光らせるフレーム
+ * decided: その選手のバーが止まり、得点が確定した（Main はそれまで得点の代わりに「?」を出す。2026-11-12）
+ */
+export type AnnounceFrame = { pct: number; shownPoint: number; flash: boolean; decided: boolean };
 
 /**
  * 演出開始から elapsedMs 経ったときの、その選手のバーの高さと表示する点数。
@@ -111,11 +114,14 @@ export function getAnnounceFrame(plan: AnnouncePlan, id: number, elapsedMs: numb
             pct: from + (100 - from) * eased,
             shownPoint: a >= 1 ? point : Math.floor(plan.second + (point - plan.second) * eased),
             flash: false,
+            decided: a >= 1,
         };
     }
     const pct = Math.min(level, own);
     const stopped = level >= own;
     const inFinish = t >= plan.riseMs && t < plan.riseMs + plan.finishMs;
     const flash = inFinish && plan.tiedIds.includes(id) && Math.floor((t - plan.riseMs) / TIE_FLASH_STEP_MS) % 2 === 0;
-    return { pct, shownPoint: stopped ? point : Math.floor(pctToPoint(plan, pct)), flash };
+    // 単独1位は 2位と同じ高さで一度止まって見えるが、まだ確定ではない（この後 100% まで伸びる）
+    const decided = stopped && id !== plan.topId;
+    return { pct, shownPoint: stopped ? point : Math.floor(pctToPoint(plan, pct)), flash, decided };
 }
