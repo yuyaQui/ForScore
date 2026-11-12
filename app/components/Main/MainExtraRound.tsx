@@ -143,11 +143,6 @@ function Header({ step, subtitle, right }: { step?: string; subtitle?: string; r
     );
 }
 
-// 見出し下の横線。Extra Round は 49位以下の順位帯と同じ紫にする（解答・敗者復活決定のときも同じ。2026-10-11 ユーザー指示）
-function Rule({ color }: { color: string }) {
-    return <div style={{ height: 2, marginTop: 26, background: color, boxShadow: `0 0 12px ${color}73`, flexShrink: 0 }} />;
-}
-
 // ============================================================================
 // 準備中（setup / entrantSelect）
 // ============================================================================
@@ -202,9 +197,8 @@ function FirstStepView({ number, view, question, revealed }: {
 
     return (
         <div style={STAGE_STYLE}>
-            {/* 右上のフェーズ名（Phase 1 / Phase 2 / Survival）は 2026-10-11 のユーザー指示で削除した */}
-            <Header step="First Step" />
-            <Rule color={TIER_PURPLE} />
+            {/* 見出し「Extra Round - First Step」と下の紫の線は 2026-11-12 のユーザー指示で削除した
+                （右上のフェーズ名 Phase 1 / Phase 2 / Survival は 2026-10-11 に削除済み）。問題番号と問題文の枠は舞台の上下中央 */}
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 32, minHeight: 0 }}>
                 {/* 問題番号と、フェーズ内の位置 */}
