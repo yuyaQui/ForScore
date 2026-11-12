@@ -296,13 +296,19 @@ export default function AdminExtraRound(props: Props) {
             if (!atDecision) waitingNextLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}）`;
         } else if (atDecision) {
             // 進出者を確認する解答発表（フェーズ最後の解答、Survival は毎問の解答。2026-11-11）。
-            // 進出者を決める（途中で First Step を終える場合もここ）か、次のフェーズ／次の問題へ
-            primaryLabel = 'Second Step 進出者決定 ▶';
-            primaryAction = () => changeState({ stage: 'entrantSelect' });
+            // 進出者を決める（途中で First Step を終える場合もここ）か、次のフェーズ／次の問題へ。
+            // 続きがあるときは「次のフェーズへ／次の問題へ」を主ボタン（右端・水色）、進出者決定を脇のボタンにする
+            // （2026-11-12 ユーザー指示で入れ替え）。続きが無い（解答 20）ときは進出者決定だけを主ボタンに
             const nextCursor = getContinueCursor(state.cursor);
+            const decide = () => changeState({ stage: 'entrantSelect' });
             if (nextCursor !== null) {
-                secondaryLabel = `${getContinueLabel(state.cursor)} ▶`;
-                secondaryAction = () => changeState({ cursor: nextCursor, revealed: false });
+                primaryLabel = `${getContinueLabel(state.cursor)} ▶`;
+                primaryAction = () => changeState({ cursor: nextCursor, revealed: false });
+                secondaryLabel = 'Second Step 進出者決定 ▶';
+                secondaryAction = decide;
+            } else {
+                primaryLabel = 'Second Step 進出者決定 ▶';
+                primaryAction = decide;
             }
         } else {
             primaryLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}） ▶`;
