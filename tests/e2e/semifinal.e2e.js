@@ -181,13 +181,13 @@ async function fillTally(admin, byId) {
     await next(admin, /を始める|を表示する/);
     await sleep(1200);
     check('準備: 進出者9名の登録欄が出る', /進出者\s*9名/.test(await text(admin)) && (await admin.getByRole('button', { name: /写真を選択/ }).count()) === 9);
-    check('進行ボタンは「進出者紹介へ ▶」', /進出者紹介へ ▶/.test(await header(admin)), await header(admin));
+    check('進行ボタンは「1人目へ ▶」', /(^|[^0-9])1人目へ ▶/.test(await header(admin)), await header(admin));
     check('バーにタイマーは出ない(準備)', (await admin.getByRole('button', { name: 'START', exact: true }).count()) === 0);
     check('画面が 1440×900 に収まる(準備)', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
     await admin.screenshot({ path: path.join(ROOT, 'pw', 'semi-prep.png') });
 
     console.log('S2 進出者紹介 → 選手カード表示 → 第1セット');
-    await next(admin, /進出者紹介へ/);
+    await next(admin, /^1人目へ/);
     await sleep(900);
     check('紹介 1 / 9', /紹介\s*1 \/ 9/.test(await text(admin)), (await header(admin)).slice(0, 120));
     check('「戻る」がバーに出る', (await admin.getByRole('button', { name: /◀ 戻る/ }).count()) === 1);

@@ -534,7 +534,7 @@ export default function AdminSemifinal(props: Props) {
     if (entrants.length === 0) {
         primaryLabel = '出場者が未確定です';
     } else if (state.view === 'standby') {
-        primaryLabel = '進出者紹介へ ▶';
+        primaryLabel = '1人目へ ▶';   // 紹介中の「2人目へ ▶」…とそろえる（2026-11-12。以前は「進出者紹介へ ▶」）
         if (introOrder.length > 0) primaryAction = () => changeState({ view: 'intro', introIndex: 0, introStep: firstStepOf(0) });
     } else if (state.view === 'intro') {
         const i = state.introIndex;
