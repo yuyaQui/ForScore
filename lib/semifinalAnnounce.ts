@@ -31,13 +31,13 @@ export const ANNOUNCE_SECOND_PCT = 70;
 /** 最低点の選手のバーの高さ（%） */
 export const ANNOUNCE_LOWEST_PCT = 20;
 /** 全員が上がって2位が止まるまでの時間（点数に関係なく一定） */
-const RISE_MS = 8000;
+const RISE_MS = 10000;
 /** その後、単独の1位が 100% に達するまで（同点のときは同点の選手のバーが点滅する時間） */
-const FINISH_MS = 500;
+const FINISH_MS = 800;
 /** 同点のときの点滅の切り替え間隔（1 秒で3回光る） */
 const TIE_FLASH_STEP_MS = 1000 / 6;
 /** 動き終わってから「判定」を押せるようになるまでの余白 */
-const HOLD_MS = 500;
+const HOLD_MS = 1000;
 
 export type AnnounceContender = { id: number; semifinalPoint: number };
 
