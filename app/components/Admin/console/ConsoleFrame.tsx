@@ -20,6 +20,8 @@ export type ConsoleNext = {
     label: string;
     /** 押せないときは null（label に理由を書く。例「進行中（残り 10名）」） */
     onClick: (() => void) | null;
+    /** 'answer': 解答と同じ黄色にする（Extra Round の「Second Step 進出者決定」。2026-11-12） */
+    tone?: 'answer';
 };
 
 export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, children }: {
@@ -61,7 +63,7 @@ export function ConsoleFrame({ onAir, onAirDetail, undo, next, barExtra, side, c
                     </button>
                 )}
                 {next.onClick
-                    ? <button type="button" className={styles.next} disabled={cooling} onClick={() => { startCooling(); next.onClick?.(); }}>{next.label}</button>
+                    ? <button type="button" className={next.tone === 'answer' ? styles.nextAnswer : styles.next} disabled={cooling} onClick={() => { startCooling(); next.onClick?.(); }}>{next.label}</button>
                     : <span className={styles.nextWait} role="status">{next.label}</span>}
             </header>
             {/* Main の表示の準備に問題があるときだけ出る（原因と対処。2026-11-06） */}

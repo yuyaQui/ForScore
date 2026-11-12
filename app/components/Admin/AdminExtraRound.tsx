@@ -282,6 +282,9 @@ export default function AdminExtraRound(props: Props) {
     let primaryAction: (() => void) | null = null;
     let secondaryLabel: string | null = null;
     let secondaryAction: (() => void) | null = null;
+    // 「Second Step 進出者決定」は、主ボタン・脇のボタンのどちらで出すときも解答と同じ黄色にする（2026-11-12 ユーザー指示）
+    let primaryTone: 'answer' | undefined;
+    let secondaryTone: 'answer' | undefined;
     // 表示前に出す、押せない「次へ」。押す順番（表示 → 次へ）を見せるためのもの
     let waitingNextLabel: string | null = null;
 
@@ -306,9 +309,11 @@ export default function AdminExtraRound(props: Props) {
                 primaryAction = () => changeState({ cursor: nextCursor, revealed: false });
                 secondaryLabel = 'Second Step 進出者決定 ▶';
                 secondaryAction = decide;
+                secondaryTone = 'answer';
             } else {
                 primaryLabel = 'Second Step 進出者決定 ▶';
                 primaryAction = decide;
+                primaryTone = 'answer';
             }
         } else {
             primaryLabel = `次へ（${getFirstStepItemLabel(state.cursor + 1)}） ▶`;
@@ -349,6 +354,7 @@ export default function AdminExtraRound(props: Props) {
     if (coverStart) {
         primaryLabel = coverStart.label;
         primaryAction = coverStart.action;
+        primaryTone = undefined;
         secondaryLabel = null;
         secondaryAction = null;
         waitingNextLabel = null;
@@ -483,7 +489,7 @@ export default function AdminExtraRound(props: Props) {
                     <button type="button" className={styles.btn} onClick={() => runGuarded(() => changeState({ cursor: clampCursor(state.cursor - 1), revealed: true }))}>◀ 戻る</button>
                 )}
                 {secondaryLabel && (
-                    <button type="button" className={styles.btn} onClick={() => runGuarded(secondaryAction)} disabled={!secondaryAction || flight.pending}>{secondaryLabel}</button>
+                    <button type="button" className={secondaryTone === 'answer' ? styles.btnAnswer : styles.btn} onClick={() => runGuarded(secondaryAction)} disabled={!secondaryAction || flight.pending}>{secondaryLabel}</button>
                 )}
                 {waitingNextLabel && <span className={styles.waitNote}>→ {waitingNextLabel}</span>}
                 <CoverButtons cover={cover} setCover={setCover} forceRelease={coverControls.forceRelease} className={styles.btn} />
@@ -493,7 +499,7 @@ export default function AdminExtraRound(props: Props) {
                 onClick: () => { void handleUndo(); },
                 disabled: !isSecondStep || flight.pending,
             }}
-            next={{ label: primaryLabel, onClick: flight.pending ? null : guardedPrimary }}
+            next={{ label: primaryLabel, onClick: flight.pending ? null : guardedPrimary, tone: primaryTone }}
             side={side}
         >
             {work}

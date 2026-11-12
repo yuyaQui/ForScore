@@ -18,6 +18,7 @@
     --air: #F4B23E;      /* ON AIR（Main に出ている物）・連答権 */
     --ok: #47D6A8;       /* 正解・勝ち抜け */
     --ng: #F2557A;       /* 誤答・失格・危険 */
+    --answer: #FFE08A;   /* 模範解答の文字（.qaAnswer）と同じ黄色 */
     --ui: var(--font-noto-sans), "Noto Sans JP", "Hiragino Sans", system-ui, sans-serif;
     --num: "Chakra Petch", var(--font-noto-sans), "Noto Sans JP", sans-serif;
     font-family: var(--ui);
@@ -59,6 +60,7 @@
 .undo:disabled { opacity: .4; cursor: default; }
 .next { display: flex; align-items: center; height: 46px; padding: 0 20px; border-radius: 6px; background: var(--cue); color: #04202B; font: 700 16px var(--ui); border: 0; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .next:hover { filter: brightness(1.08); }
+.nextAnswer { composes: next; background: var(--answer); color: #2A1E00; }   /* 解答と同じ黄色（2026-11-12） */
 .nextWait { composes: next; background: transparent; border: 1px dashed var(--line2); color: var(--sub); font-weight: 600; font-size: 14px; cursor: default; }
 .nextWait:hover { filter: none; }
 .undo:focus-visible, .next:focus-visible, .btn:focus-visible, .ok:focus-visible, .ng:focus-visible, .through:focus-visible { outline: 2px solid var(--cue); outline-offset: 2px; }
@@ -74,6 +76,7 @@
 .btn:hover:not(:disabled) { color: var(--text); border-color: var(--sub); }
 .btn:disabled { opacity: .35; cursor: default; }
 .btnOn { composes: btn; color: var(--text); border-color: var(--cue); background: rgba(60, 200, 242, .12); }
+.btnAnswer { composes: btn; color: var(--answer); border-color: var(--answer); background: rgba(255, 224, 138, .1); }   /* 解答と同じ黄色（2026-11-12） */
 .btnDanger { composes: btn; color: #FFD9E2; border-color: var(--ng); background: rgba(242, 85, 122, .1); }
 
 /* 問題欄（Main の問題欄と同じ位置） */
@@ -233,7 +236,7 @@
 .qaLabelOn { composes: qaLabel; color: var(--air); }
 .qaText { margin: 6px 0 0; font: 700 22px/1.7 var(--ui); color: var(--text); white-space: pre-wrap; }
 .qaDivider { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
-.qaAnswer { margin: 6px 0 0; font: 900 26px/1.4 var(--ui); color: #FFE08A; white-space: pre-wrap; }
+.qaAnswer { margin: 6px 0 0; font: 900 26px/1.4 var(--ui); color: var(--answer); white-space: pre-wrap; }
 .qaAlt { margin: 4px 0 0; font: 500 16px/1.7 var(--ui); color: #C9D8EE; white-space: pre-wrap; }
 .qaAltNone { margin: 4px 0 0; font: 500 16px/1.7 var(--ui); color: #4A5E78; }
 
