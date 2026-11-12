@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
-import { getTurnOverStepSlice, getTurnOverSecondaryIndex, getRunnerUps, TURN_OVER_STEP_LABELS, SECOND_ROUND_WINNERS_PER_GROUP } from "@/lib/secondRound";
+import { getTurnOverStepSlice, getTurnOverSecondaryIndex, getTurnOverSteps, getRunnerUps, SECOND_ROUND_WINNERS_PER_GROUP } from "@/lib/secondRound";
 import {
     ACCENT,
     GUNMETAL_DARK,
@@ -191,9 +191,10 @@ export function TurnOverView({ groupPlayers, groupNumber, turnOverStep, turnOver
         ? bands.map((b) => ({ label: b.label, slice: b.slice, secondaryIndex: null as number | null }))
         : singleBand
         ? [{ label: '次点', slice: groupPlayers, secondaryIndex: null as number | null }]
-        : [0, 1, 2, 3].map((step) => ({
-            label: TURN_OVER_STEP_LABELS[step],
-            slice: getTurnOverStepSlice(groupPlayers, step),
+        // 組ごとの段階の並び（1組目は 1位の後に選手のいない「間」がある。2026-11-12）
+        : getTurnOverSteps(groupNumber).map((def, step) => ({
+            label: def.label,
+            slice: getTurnOverStepSlice(groupPlayers, groupNumber, step),
             // 4組目の最終ステップだけ、この帯の中で48位に当たる帯内インデックス（それ以外はnull）
             secondaryIndex: getTurnOverSecondaryIndex(groupNumber, step),
         }));

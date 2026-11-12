@@ -10,7 +10,7 @@ import { useState, useEffect } from "react";
 import type { Player, SecondRoundState } from "@/lib/types";
 import { DEFAULT_SECOND_ROUND_STATE } from "@/lib/types";
 import { toOrdinal } from "@/lib/ordinal";
-import { TURN_OVER_STEP_LABELS, getTurnOverStepSlice, getRunnerUps, RUNNER_UP_RANK } from "@/lib/secondRound";
+import { getTurnOverSteps, getTurnOverStepSlice, getRunnerUps, RUNNER_UP_RANK } from "@/lib/secondRound";
 import { useQuestionDisplay } from "./AdminQuestionPanel";
 import { useRoundProgress, nextRoundPrimary, blockUndoIfLaterStarted, cascadeNotice, broadcastAfterReset } from "./roundProgressContext";
 import { ConsoleFrame, WorkHead, MetaItem, Drawer, DrawerGroup } from "./console/ConsoleFrame";
@@ -228,18 +228,22 @@ export default function AdminSecondRound(props: Props) {
     // 次点の発表へ進む（順位だけの状態から始める）
     const startRunnerUp = () => handleStateChange({ view: 'runnerUp', turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
 
-    // Turn Over の発表ステップは0〜3の4段階で全組共通(TURN_OVER_STEP_LABELS)。
-    // 4組目の最終ステップ(3)だけ、48位を他の5人より後に単独発表する追加の1手が挟まる(turnOverFinalRevealed)。
-    // 最終ステップの収縮アニメーションが終わったら turnOverStep を配列の範囲外(4)まで進め、
+    // Turn Over の発表の段階は組ごとの表（lib/secondRound.ts getTurnOverSteps）。基本は 1位 → 2・3位 → 4・5・6位 → 7〜12位、
+    // 1組目だけ 1位の後に選手のいない「間」がある（2026-11-12）。
+    // 4組目の最終段階だけ、48位を他の5人より後に単独発表する追加の1手が挟まる(turnOverFinalRevealed)。
+    // 最終段階の収縮アニメーションが終わったら turnOverStep を配列の範囲外（段階の数）まで進め、
     // Main側の全ての帯を非表示にしてから「クイズへ」を出す(2026-09-27、ユーザー指示)。
-    const turnOverDone = secondRoundState.turnOverStep > TURN_OVER_STEP_LABELS.length - 1;
-    const isLastTurnOverStep = secondRoundState.turnOverStep === TURN_OVER_STEP_LABELS.length - 1;
+    const turnOverSteps = getTurnOverSteps(secondRoundState.group);
+    const turnOverDone = secondRoundState.turnOverStep > turnOverSteps.length - 1;
+    const isLastTurnOverStep = secondRoundState.turnOverStep === turnOverSteps.length - 1;
+    const currentStepDef = turnOverDone ? null : turnOverSteps[secondRoundState.turnOverStep];
+    const nextStepDef = turnOverSteps[secondRoundState.turnOverStep + 1] ?? null;
     const isGroup4FinalStep = secondRoundState.group === 4 && isLastTurnOverStep;
     const awaitingFinalReveal = isGroup4FinalStep
         && secondRoundState.turnOverPhase === 'expanded'
         && !secondRoundState.turnOverFinalRevealed;
     // いまの発表ステップの名前（4組目の最終ステップは 48位を別に発表するので「7〜11位」）
-    const stepLabel = isGroup4FinalStep ? '7〜11位' : TURN_OVER_STEP_LABELS[secondRoundState.turnOverStep];
+    const stepLabel = isGroup4FinalStep ? '7〜11位' : currentStepDef?.label ?? '';
 
     let primaryLabel: string;
     let primaryAction: (() => void) | null = null;
@@ -267,6 +271,12 @@ export default function AdminSecondRound(props: Props) {
             // 最終ステップの収縮アニメーションが完了し、Main側の帯が全て消えた状態
             primaryLabel = 'クイズへ ▶';
             primaryAction = () => handleStateChange({ view: 'quiz' });
+        } else if (currentStepDef?.pause) {
+            // 選手のいない「間」（1組目の 1位の後）。会場は何も出ない黒い画面のまま止めておき、
+            // 好きなタイミングで次の段階へ（次の帯がいつもどおりフェードインする）。2026-11-12
+            const target = secondRoundState.turnOverStep + 1;
+            primaryLabel = nextStepDef ? `${nextStepDef.label}を表示 ▶` : '次へ ▶';
+            primaryAction = () => handleStateChange({ turnOverStep: target, turnOverPhase: 'collapsed', turnOverFinalRevealed: false });
         } else if (secondRoundState.turnOverPhase === 'collapsed') {
             primaryLabel = `${stepLabel}を発表 ▶`;
             primaryAction = () => handleStateChange({ turnOverPhase: 'expanded', turnOverFinalRevealed: false });
@@ -334,7 +344,9 @@ export default function AdminSecondRound(props: Props) {
             ? `次点の発表（${secondRoundState.turnOverPhase === 'expanded' ? '名前を公開中' : '順位だけ'}）`
             : turnOverDone
                 ? 'ターンオーバー（発表終了）'
-                : `ターンオーバー（${stepLabel}・${secondRoundState.turnOverPhase === 'expanded' ? '名前を公開中' : '順位だけ'}）`;
+                : currentStepDef?.pause
+                    ? `ターンオーバー（${stepLabel}・何も表示していない）`
+                    : `ターンオーバー（${stepLabel}・${secondRoundState.turnOverPhase === 'expanded' ? '名前を公開中' : '順位だけ'}）`;
     const onAir = secondRoundState.view === 'runnerUp' ? '2nd Round' : `2nd Round　${secondRoundState.group}組目`;
     const isQuiz = secondRoundState.view === 'quiz';
 
@@ -361,9 +373,9 @@ export default function AdminSecondRound(props: Props) {
                 <button type="button" className={secondRoundState.view === 'runnerUp' ? styles.btnOn : styles.btn} onClick={startRunnerUp} disabled={runnerUps.length === 0}>次点（{RUNNER_UP_RANK}位）</button>
             </DrawerGroup>
             <DrawerGroup label="ターンオーバーの発表ステップ" disabled={secondRoundState.view !== 'turnOver'}>
-                {TURN_OVER_STEP_LABELS.map((label, step) => (
+                {turnOverSteps.map((def, step) => (
                     <button key={step} type="button" className={secondRoundState.turnOverStep === step ? styles.btnOn : styles.btn}
-                        onClick={() => handleStateChange({ turnOverStep: step, turnOverFinalRevealed: false })}>{label}</button>
+                        onClick={() => handleStateChange({ turnOverStep: step, turnOverFinalRevealed: false })}>{def.label}</button>
                 ))}
                 <button type="button" className={styles.btn}
                     onClick={() => handleStateChange({ turnOverPhase: secondRoundState.turnOverPhase === 'collapsed' ? 'expanded' : 'collapsed', turnOverFinalRevealed: false })}>
@@ -413,9 +425,9 @@ export default function AdminSecondRound(props: Props) {
         );
     } else if (secondRoundState.view === 'turnOver') {
         // ターンオーバー: 組の12名を Main と同じ席順で並べ、いま発表している帯の選手を目立たせる
-        const currentIds = new Set(turnOverDone ? [] : getTurnOverStepSlice(filteredPlayers, secondRoundState.turnOverStep).map(p => p.id));
-        const doneIds = new Set(TURN_OVER_STEP_LABELS.flatMap((_, step) =>
-            step < secondRoundState.turnOverStep ? getTurnOverStepSlice(filteredPlayers, step).map(p => p.id) : []));
+        const currentIds = new Set(turnOverDone ? [] : getTurnOverStepSlice(filteredPlayers, secondRoundState.group, secondRoundState.turnOverStep).map(p => p.id));
+        const doneIds = new Set(turnOverSteps.flatMap((_, step) =>
+            step < secondRoundState.turnOverStep ? getTurnOverStepSlice(filteredPlayers, secondRoundState.group, step).map(p => p.id) : []));
         work = (
             <>
                 <WorkHead title={`${secondRoundState.group}組目　ターンオーバー`}

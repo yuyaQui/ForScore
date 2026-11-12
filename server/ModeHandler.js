@@ -21,6 +21,8 @@ let secondRoundState = { ...INITIAL_SECOND_ROUND_STATE };
 // 2nd Round の表示（view）として受け付ける値（2026-10-30 に次点の発表 runnerUp を追加）
 const SECOND_ROUND_VIEWS = ["turnOver", "quiz", "runnerUp"];
 const TURN_OVER_PHASES = ["collapsed", "expanded"];
+// ターンオーバーの段階の番号の上限（lib/secondRound.ts の TURN_OVER_MAX_STEPS と同じ。1組目の5段階を発表し終えた状態が 5）
+const TURN_OVER_STEP_MAX = 5;
 
 function isInt(v, min, max) {
     return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
@@ -38,8 +40,9 @@ function applySecondRoundUpdate(prev, update) {
     const next = { ...prev };
     if (own(update, "group") && isInt(update.group, 1, 4)) next.group = update.group;
     if (own(update, "view") && SECOND_ROUND_VIEWS.includes(update.view)) next.view = update.view;
-    // ターンオーバーのステップは 0〜3、全部発表し終えた状態が 4（Admin の turnOverDone）
-    if (own(update, "turnOverStep") && isInt(update.turnOverStep, 0, 4)) next.turnOverStep = update.turnOverStep;
+    // ターンオーバーの段階は組ごとの表（lib/secondRound.ts getTurnOverSteps）の番号。
+    // 段階は最大5（1組目は 1位の後に「間」を挟む。2026-11-12）、全部発表し終えた状態が段階の数（Admin の turnOverDone）
+    if (own(update, "turnOverStep") && isInt(update.turnOverStep, 0, TURN_OVER_STEP_MAX)) next.turnOverStep = update.turnOverStep;
     if (own(update, "turnOverPhase") && TURN_OVER_PHASES.includes(update.turnOverPhase)) next.turnOverPhase = update.turnOverPhase;
     if (own(update, "turnOverFinalRevealed") && typeof update.turnOverFinalRevealed === "boolean") {
         next.turnOverFinalRevealed = update.turnOverFinalRevealed;

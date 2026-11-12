@@ -57,36 +57,69 @@ export function getSecondRoundGroup(paperRank: number): number | null {
 }
 
 /**
- * Turn Over（順位発表）画面の段階発表の区切り。
- * 1位のみ → 2・3位 → 4・5・6位 → 7〜12位、の4段階（Design アーティファクトの区切りをそのまま採用）。
- * secondRoundState.turnOverStep（0〜3）が配列のインデックスに対応する。
+ * Turn Over（順位発表）画面の段階発表の並び。組ごとに表で持つ（2026-11-12 ユーザー承認）。
  *
- * ペーパー順位（昇順）でソート済みの組の選手配列に対して使うことを前提にしている
- * （＝配列の0番目が1位、1番目が2位、…）。
+ * 基本は 1位のみ → 2・3位 → 4・5・6位 → 7〜12位 の4段階（Design アーティファクトの区切り）。
+ * 1組目だけ、ペーパー1位の発表の後に「間」（選手のいない段階）を挟む。1位の帯が縮んでフェードアウトした後、
+ * 何も出ない黒い画面で止まり、Admin の「2・3位を表示 ▶」で 2・3位の帯がフェードインする。
+ * 段階の切り替え（前の帯のフェードアウト → 次の帯のフェードイン）の仕組みはどの段階も同じで、
+ * 「間」も選手がいないだけの普通の段階として扱う（1組目かどうかを画面側で場合分けしない）。
+ *
+ * secondRoundState.turnOverStep が配列のインデックス。配列の長さを超えたら全部発表し終えた状態。
+ * from・to は、ペーパー順位（昇順）でソート済みの組の選手配列に対する範囲（to は含まない）。
  */
-export const TURN_OVER_STEP_BOUNDS = [0, 1, 3, 6, 12] as const;
-export const TURN_OVER_STEP_LABELS = ['1位', '2・3位', '4・5・6位', '7〜12位'] as const;
+export type TurnOverStepDef = {
+    /** 段階の名前（Admin のボタン・表示に使う） */
+    label: string;
+    from: number;
+    to: number;
+    /** 選手を出さない「間」の段階 */
+    pause?: boolean;
+};
 
-/** ペーパー順位昇順でソート済みの組の選手配列から、指定ステップ(0〜3)の帯だけを取り出す */
-export function getTurnOverStepSlice<T>(sortedGroupPlayers: T[], step: number): T[] {
-    const start = TURN_OVER_STEP_BOUNDS[step] ?? 0;
-    const end = TURN_OVER_STEP_BOUNDS[step + 1] ?? sortedGroupPlayers.length;
-    return sortedGroupPlayers.slice(start, end);
+const BASE_TURN_OVER_STEPS: TurnOverStepDef[] = [
+    { label: '1位', from: 0, to: 1 },
+    { label: '2・3位', from: 1, to: 3 },
+    { label: '4・5・6位', from: 3, to: 6 },
+    { label: '7〜12位', from: 6, to: 12 },
+];
+
+/** 組ごとの段階の並び。ここだけを書き換えれば、Admin・Main の段階発表がそのとおりに動く */
+const TURN_OVER_STEPS_BY_GROUP: Record<number, TurnOverStepDef[]> = {
+    1: [
+        BASE_TURN_OVER_STEPS[0],
+        { label: '1位の後の間', from: 1, to: 1, pause: true },
+        ...BASE_TURN_OVER_STEPS.slice(1),
+    ],
+};
+
+/** その組の発表の段階の並び（1〜4組目。それ以外は基本の4段階） */
+export function getTurnOverSteps(group: number): TurnOverStepDef[] {
+    return TURN_OVER_STEPS_BY_GROUP[group] ?? BASE_TURN_OVER_STEPS;
+}
+
+/** 段階がいくつあるか（turnOverStep がこの値以上なら全部発表し終えた状態）。どの組でもこの値以下 */
+export const TURN_OVER_MAX_STEPS = Math.max(...[1, 2, 3, 4].map(g => getTurnOverSteps(g).length));
+
+/** ペーパー順位昇順でソート済みの組の選手配列から、その組の指定段階の帯だけを取り出す（間の段階は空） */
+export function getTurnOverStepSlice<T>(sortedGroupPlayers: T[], group: number, step: number): T[] {
+    const def = getTurnOverSteps(group)[step];
+    if (!def) return [];
+    return sortedGroupPlayers.slice(def.from, def.to);
 }
 
 /**
- * 4組目の最終ステップ「7〜12位」だけ、48位（そのステップの帯の中で最後の1人）を
+ * 4組目の最終段階「7〜12位」だけ、48位（その段階の帯の中で最後の1人）を
  * 他の5人（28〜44位）より後に単独発表する。画面（レイヤー）は分けず、同じ帯の中に
  * 6人とも表示したまま、48位のカード1枚だけ collapsed/expanded を個別に切り替える
  * 必要があるため、「その帯の中で個別扱いする1人」の帯内インデックスを返す関数を
- * 用意する。対象外（4組目以外、または最終ステップ以外）は null を返し、
+ * 用意する。対象外（4組目以外、または最終段階以外）は null を返し、
  * 呼び出し側は「全員一律で扱う」通常ロジックのままにする
  * （2026-09-27、ユーザー指示：48位の見た目自体は変えず、発表タイミングだけを分離する）。
  */
 export function getTurnOverSecondaryIndex(group: number, step: number): number | null {
-    const isLastStep = step === TURN_OVER_STEP_BOUNDS.length - 2;
-    if (group !== SECOND_ROUND_GROUP_COUNT || !isLastStep) return null;
-    const start = TURN_OVER_STEP_BOUNDS[step];
-    const end = TURN_OVER_STEP_BOUNDS[step + 1];
-    return end - start - 1;
+    const steps = getTurnOverSteps(group);
+    if (group !== SECOND_ROUND_GROUP_COUNT || step !== steps.length - 1) return null;
+    const def = steps[step];
+    return def.to - def.from - 1;
 }

@@ -135,6 +135,37 @@ function socketClient() {
     check('本編(ターンオーバー)が会場に出る', await waitText(main, 'body', /選手|Turn|位/));
     check('会場に「選手データがありません」が出ない', !/選手データがありません/.test(await text(main)), (await text(main)).slice(0, 200));
 
+    console.log('S1b 1組目: ペーパー1位の発表の後だけ、何も出ない「間」で止まる（2026-11-12）');
+    await sleep(1200);
+    check('1組目の進行ボタンは「1位を発表 ▶」', /1位を発表 ▶/.test(await header(admin)), await header(admin));
+    await click(admin, /1位を発表/);
+    await sleep(1800);
+    await click(admin, /^次へ/);
+    await sleep(3000);   // 縮む 1.3秒 → フェードアウト。普段ならこの間に次の帯が出る
+    // 帯は段階ごとの層を重ねて不透明度で出し分けているので、見えている（不透明度のある）文字だけを見る
+    const visibleText = (page) => page.evaluate(() => {
+        const out = [];
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            if (!n.textContent.trim() || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(n.parentElement?.tagName)) continue;
+            let op = 1;
+            for (let e = n.parentElement; e; e = e.parentElement) {
+                const cs = getComputedStyle(e);
+                if (cs.display === 'none' || cs.visibility === 'hidden') { op = 0; break; }
+                op *= Number(cs.opacity);
+            }
+            if (op > 0.05) out.push(n.textContent.trim());
+        }
+        return out.join(' ');
+    });
+    check('1位の後は会場に何も出ない（2・3位の帯も出ない）', (await visibleText(main)) === '', await visibleText(main));
+    check('進行ボタンは「2・3位を表示 ▶」', /2・3位を表示 ▶/.test(await header(admin)), await header(admin));
+    check('上のバーは「1位の後の間・何も表示していない」', /1位の後の間・何も表示していない/.test(await header(admin)), await header(admin));
+    await click(admin, /2・3位を表示/);
+    await sleep(2200);   // 1秒後からフェードイン
+    check('押すと 2・3位の帯（順位だけ）が出る', /^5th 9th$/.test(await visibleText(main)), await visibleText(main));
+    check('進行ボタンは「2・3位を発表 ▶」', /2・3位を発表 ▶/.test(await header(admin)), await header(admin));
+
     console.log('S2 組を切り替えて会場を再読み込み → 切り替えた組の表示(取り直し)');
     await click(admin, /表示の切り替え/);
     await click(admin, /^3組目$/);
