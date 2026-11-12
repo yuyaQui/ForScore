@@ -285,7 +285,8 @@ export default function AdminSecondRound(props: Props) {
             primaryLabel = '48位を発表 ▶';
             primaryAction = () => handleStateChange({ turnOverFinalRevealed: true });
         } else {
-            primaryLabel = '次へ ▶';
+            // 次が「間」（1組目の 1位の後）なら、帯を消すだけなので「1位の表示を消す」（2026-11-13 ユーザー指示）
+            primaryLabel = nextStepDef?.pause ? `${stepLabel}の表示を消す ▶` : '次へ ▶';
             primaryAction = () => {
                 const step = secondRoundState.turnOverStep;
                 // (1) まず今の帯を collapsed に戻す（Main はその帯の中で収縮アニメーションを再生）

@@ -140,7 +140,8 @@ function socketClient() {
     check('1組目の進行ボタンは「1位を発表 ▶」', /1位を発表 ▶/.test(await header(admin)), await header(admin));
     await click(admin, /1位を発表/);
     await sleep(1800);
-    await click(admin, /^次へ/);
+    check('名前を公開した後のボタンは「1位の表示を消す ▶」', /1位の表示を消す ▶/.test(await header(admin)), await header(admin));
+    await click(admin, /1位の表示を消す/);
     await sleep(3000);   // 縮む 1.3秒 → フェードアウト。普段ならこの間に次の帯が出る
     // 帯は段階ごとの層を重ねて不透明度で出し分けているので、見えている（不透明度のある）文字だけを見る
     const visibleText = (page) => page.evaluate(() => {
