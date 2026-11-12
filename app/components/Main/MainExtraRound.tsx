@@ -164,12 +164,10 @@ function StandbyView({ sub }: { sub?: string | null }) {
 function questionFontSize(text: string, hasAnswer: boolean): number {
     const len = text.length;
     // 解答も同じ画面に出す場合、問題文に使える高さが減るので一段小さくする
-    const shrink = hasAnswer ? 0.78 : 1;
+    const shrink = hasAnswer ? 0.7 : 1;
     let size: number;
-    if (len <= 30) size = 76;
-    else if (len <= 60) size = 62;
-    else if (len <= 100) size = 52;
-    else if (len <= 150) size = 44;
+    if (len <= 100) size = 64;
+    else if (len <= 150) size = 48;
     else if (len <= 220) size = 36;
     else size = 30;
     return Math.floor(size * shrink);
@@ -177,8 +175,8 @@ function questionFontSize(text: string, hasAnswer: boolean): number {
 
 function answerFontSize(text: string): number {
     const len = text.length;
-    if (len <= 12) return 84;
-    if (len <= 24) return 68;
+    if (len <= 16) return 96;
+    if (len <= 24) return 72;
     if (len <= 48) return 54;
     return 42;
 }
@@ -253,7 +251,7 @@ function FirstStepView({ number, view, question, revealed }: {
                                 {isAnswer && question.altAnswer && (
                                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, marginTop: -8 }}>
                                         <span aria-hidden style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, flexShrink: 0, visibility: 'hidden' }}>A.</span>
-                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 32, lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
+                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 64, lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
                                             <RevealWhole text={question.altAnswer} revealed={revealed} />
                                         </span>
                                     </div>
@@ -290,42 +288,42 @@ function SecondStepView({ entrants, socket }: { entrants: Player[]; socket: Sock
         // 2026-10-11 のユーザー指示で、1行目を「Extra Round - Second Step」、2行目をルール（5○1×）にした
         <RoundStage socket={socket} round="extraSecondStep" ruleColor={TIER_PURPLE} contentW={naturalRowW} contentH={EXTRA_SECOND_STEP_CONTENT_H}
             header={<Header step="Second Step" subtitle={`${SECOND_STEP_WIN_CORRECT_COUNT}○1×`} />}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap }}>
-                    {entrants.map(p => {
-                        const isWinner = p.extraRoundRank > 0;
-                        const eliminated = p.extraRoundRank < 0;
-                        const resultColor = eliminated ? '#8A93A3' : isWinner ? GOLD_SOFT : '#EAF6FF';
-                        const filled = Math.min(SECOND_STEP_WIN_CORRECT_COUNT, p.extraRoundCorrectCount);
-                        return (
-                            <PlayerCardFrame
-                                key={p.id}
-                                phase={phase}
-                                paperRank={p.paperRank}
-                                eliminated={eliminated}
-                                winner={isWinner}
-                                name={p.name}
-                                school={p.school}
-                                grade={p.grade}
-                                pct={Math.min(100, (filled / SECOND_STEP_WIN_CORRECT_COUNT) * 100)}
-                                // 勝ち抜けたら 2nd・3rd Round と同じくバーをオレンジにする（2026-10-11、ユーザー指示）
-                                barColor={isWinner ? WINNER_BAR_COLOR : undefined}
-                                belowContent={
-                                    <>
-                                        <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: belowFontSize(eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount), fontWeight: 800, letterSpacing: 1, color: resultColor, whiteSpace: 'nowrap' }}>
-                                            {/* 敗者復活者（1名まで）は順位でなく「Revival」（2026-11-04 ユーザー指示） */}
-                                            {eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount}
-                                        </div>
-                                    </>
-                                }
-                            />
-                        );
-                    })}
-                    {n === 0 && (
-                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 28, color: '#5C7EA6' }}>
-                            出場者が選ばれていません。
-                        </span>
-                    )}
-                </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap }}>
+                {entrants.map(p => {
+                    const isWinner = p.extraRoundRank > 0;
+                    const eliminated = p.extraRoundRank < 0;
+                    const resultColor = eliminated ? '#8A93A3' : isWinner ? GOLD_SOFT : '#EAF6FF';
+                    const filled = Math.min(SECOND_STEP_WIN_CORRECT_COUNT, p.extraRoundCorrectCount);
+                    return (
+                        <PlayerCardFrame
+                            key={p.id}
+                            phase={phase}
+                            paperRank={p.paperRank}
+                            eliminated={eliminated}
+                            winner={isWinner}
+                            name={p.name}
+                            school={p.school}
+                            grade={p.grade}
+                            pct={Math.min(100, (filled / SECOND_STEP_WIN_CORRECT_COUNT) * 100)}
+                            // 勝ち抜けたら 2nd・3rd Round と同じくバーをオレンジにする（2026-10-11、ユーザー指示）
+                            barColor={isWinner ? WINNER_BAR_COLOR : undefined}
+                            belowContent={
+                                <>
+                                    <div style={{ marginTop: 16, height: BELOW_NUMBER_H, lineHeight: `${BELOW_NUMBER_H}px`, fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontSize: belowFontSize(eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount), fontWeight: 800, letterSpacing: 1, color: resultColor, whiteSpace: 'nowrap' }}>
+                                        {/* 敗者復活者（1名まで）は順位でなく「Revival」（2026-11-04 ユーザー指示） */}
+                                        {eliminated ? 'LOST' : isWinner ? 'Revival' : p.extraRoundCorrectCount}
+                                    </div>
+                                </>
+                            }
+                        />
+                    );
+                })}
+                {n === 0 && (
+                    <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 28, color: '#5C7EA6' }}>
+                        出場者が選ばれていません。
+                    </span>
+                )}
+            </div>
         </RoundStage>
     );
 }
