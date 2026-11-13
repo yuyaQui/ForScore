@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { io, Socket } from "socket.io-client";
-import MainText from "../components/Main/MainText";
+import MainWaiting from "../components/Main/MainWaiting";
 import MainFirstRound from "../components/Main/MainFirstRound";
 import MainSecondRound from "../components/Main/MainSecondRound";
 import MainThirdRound from "../components/Main/MainThirdRound";
@@ -90,7 +90,8 @@ export default function MainPage() {
     currentMode === "extraRound" ||
     currentMode === "semifinal" ||
     currentMode === "final" ||
-    currentMode === "paperTop100"
+    currentMode === "paperTop100" ||
+    currentMode === "waiting"
       ? "bg-black"
       : "bg-zinc-50 dark:bg-zinc-900";
 
@@ -111,7 +112,8 @@ export default function MainPage() {
       {currentMode === "final" && <MainFinal socket={socket} />}
       {/* ペーパークイズ上位100名の発表（大会終了後。2026-10-31） */}
       {currentMode === "paperTop100" && <MainPaperTop socket={socket} />}
-      {currentMode === "waiting" && <MainText text={displayText} />}
+      {/* 大会準備のお知らせ（2026-11-14 ラウンドの画面と同じ作りに） */}
+      {currentMode === "waiting" && <MainWaiting text={displayText} />}
       </>)}
     </div>
     </MainReadyContext.Provider>
