@@ -202,8 +202,25 @@ async function fillTally(admin, byId) {
     check('選手カード表示中は「表示中…」で押せない', /表示中…/.test(await header(admin)), (await header(admin)).slice(0, 120));
     check('画面が収まる(選手カード表示)', fitsAll(await fits(admin)), JSON.stringify(await fits(admin)));
     check('演出が終わると「第1セット クイズ画面へ ▶」', await waitText(admin, 'header', /第1セット クイズ画面へ ▶/, 45000), (await header(admin)).slice(0, 120));
+    // 選手カード表示 → クイズ画面は、カードを作り直さずにその場で縮め、縮み終わってからタイマーを出す（2026-11-14）。
+    // カードの名前の要素に印を付けておき、切り替えの後も同じ要素が残っているか（作り直されていないか）を見る
+    await main.evaluate(() => document.querySelectorAll('body *').forEach(e => { if (e.children.length === 0 && /選手/.test(e.textContent || '')) e.dataset.e2eKeep = '1'; }));
+    const keptBefore = await main.locator('[data-e2e-keep]').count();
+    const timerOpacity = () => main.evaluate(() => {
+        const el = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && /^0?5\s*:\s*00$/.test((e.textContent || '').trim()));
+        if (!el) return null;
+        let op = 1;
+        for (let e = el; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
+        return op;
+    });
     await next(admin, /第1セット クイズ画面へ/);
-    await sleep(1000);
+    await sleep(350);
+    const early = await timerOpacity();
+    check('切り替え直後はタイマーがまだ出ていない（カードが縮んでいる間）', early === null || early < 0.1, String(early));
+    check('選手カードは作り直されず、その場で縮む', keptBefore >= 9 && (await main.locator('[data-e2e-keep]').count()) === keptBefore, `${keptBefore} → ${await main.locator('[data-e2e-keep]').count()}`);
+    await sleep(1800);
+    const late = await timerOpacity();
+    check('縮み終わるとタイマーが出る', late !== null && late > 0.9, String(late));
 
     console.log('S3 クイズ: タイマー → タイムアップ → 振り返り範囲 → 振り返り');
     check('バーにタイマー(5:00 と START/STOP)', /5:00/.test(await header(admin)) && (await admin.getByRole('button', { name: 'START', exact: true }).count()) === 1);

@@ -176,7 +176,9 @@ export default function MainSemifinal(props: Props) {
             <CardsStage
                 key="stage"
                 seats={seats} lineupOrder={getLineupOrder(players, courses)} set={current.set} mode={mode}
-                animation={mode === 'results' ? anim : null} lineupAnim={mode === 'lineup' ? lineupAnim : null}
+                // lineupAnim はクイズ画面などに切り替えた後もそのまま渡す（カードの key に使うので、
+                // 切り替えで変わるとカードが作り直され、縮むアニメーションが飛ぶ。2026-11-14）。演出をするかは mode で決める
+                animation={mode === 'results' ? anim : null} lineupAnim={lineupAnim}
                 remaining={remaining} profileOf={profileOf}
             />
         );
@@ -448,7 +450,9 @@ function CardsStage({ seats, lineupOrder, set, mode, animation, lineupAnim, rema
                             }
                         }
                         // カード表示の演出: 紹介順に1枚ずつ。最後（敗者復活者）の前は少し間を空ける
-                        const lineupDelay = lineupAnim !== null && k >= 0 ? lineupDelayMs(k, lineupOrder.length) : null;
+                        // 選手カード表示の演出は lineup のときだけ。key（下）は lineupAnim のまま変えないので、
+                        // 選手カード表示 → クイズ画面でカードは作り直されず、その場で縮む（その後にタイマーが出る）
+                        const lineupDelay = mode === 'lineup' && lineupAnim !== null && k >= 0 ? lineupDelayMs(k, lineupOrder.length) : null;
                         const card = (
                             <StageCard
                                 key={`${p.id}-${lineupAnim ?? 0}`}
