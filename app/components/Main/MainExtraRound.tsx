@@ -175,10 +175,29 @@ function questionFontSize(text: string, hasAnswer: boolean): number {
 
 function answerFontSize(text: string): number {
     const len = text.length;
-    if (len <= 16) return 96;
+    if (len <= 16) return 84;
     if (len <= 24) return 72;
-    if (len <= 48) return 54;
-    return 42;
+    if (len <= 48) return 60;
+    return 48;
+}
+
+/** 別解の1行に使える幅（px）。枠の内側 1642px から、見えない「A.」と間（約88px）を引いた幅 */
+const ALT_LINE_W = 1554;
+const ALT_FONT = 64;
+/** 別解が3行以上になるときの大きさ（問題100字・解答24字・別解3行で上下の余白の内側に収まる。2026-11-13 ユーザー承認） */
+const ALT_FONT_LONG = 46;
+
+/**
+ * 別解の文字の大きさ。64px で3行以上になるとき（改行・折り返しを含む）だけ 46px にする（2026-11-13）。
+ * 例: 「読み：マーラータン／○：（簡）麻辣烫、（繁） 麻辣燙、（拼音） málàtàng／×：「火鍋」、「麻辣」のみ」（改行で3行）
+ * 行数は、全角を1文字＝文字の大きさ、半角をその約0.55倍として見積もる
+ */
+function altFontSize(text: string): number {
+    const visualLines = text.split('\n').reduce((sum, line) => {
+        const w = Array.from(line).reduce((s, ch) => s + ((ch.codePointAt(0) ?? 0) < 0x80 ? 0.55 : 1), 0) * ALT_FONT;
+        return sum + Math.max(1, Math.ceil(w / ALT_LINE_W));
+    }, 0);
+    return visualLines >= 3 ? ALT_FONT_LONG : ALT_FONT;
 }
 
 function FirstStepView({ number, view, question, revealed }: {
@@ -251,7 +270,7 @@ function FirstStepView({ number, view, question, revealed }: {
                                 {isAnswer && question.altAnswer && (
                                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, marginTop: -8 }}>
                                         <span aria-hidden style={{ fontFamily: 'Orbitron, "Noto Sans JP", sans-serif', fontWeight: 800, fontSize: 26, letterSpacing: 4, flexShrink: 0, visibility: 'hidden' }}>A.</span>
-                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: 64, lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
+                                        <span style={{ fontFamily: '"Noto Sans JP",sans-serif', fontWeight: 700, fontSize: altFontSize(question.altAnswer), lineHeight: 1.4, color: '#E9F3FF', whiteSpace: 'pre-wrap' }}>
                                             <RevealWhole text={question.altAnswer} revealed={revealed} />
                                         </span>
                                     </div>
