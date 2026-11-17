@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Props = {
     children: React.ReactNode;
@@ -26,9 +26,21 @@ function initialScale(): number {
     return Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
 }
 
+// ハイドレーション中（サーバで描いた HTML とブラウザの描画を照らし合わせている最初の1回）かどうか（2026-11-17）。
+// useSyncExternalStore は、ハイドレーション中だけ3番目の関数（サーバ側の値）を使い、終わると2番目の値で描き直す。
+// ハイドレーションではなく後から新しく表示されたとき（ラウンドの画面など）は、最初から2番目の値（false）になる
+const noSubscribe = () => () => {};
+function useIsHydrating(): boolean {
+    return useSyncExternalStore(noSubscribe, () => false, () => true);
+}
+
 export default function FixedStage({ children }: Props) {
     const outerRef = useRef<HTMLDivElement>(null);
-    const [scale, setScale] = useState(initialScale);
+    const [measuredScale, setScale] = useState(initialScale);
+    // ハイドレーション中はサーバと同じ倍率 1 で描く（違うと React がハイドレーションの食い違いを報告する。
+    // 最初に描かれる大会準備の画面で起きていた）。照らし合わせが終わったらすぐ実際の倍率で描き直す
+    const hydrating = useIsHydrating();
+    const scale = hydrating ? 1 : measuredScale;
 
     // useLayoutEffect: 最初の描画の前に、実際の大きさで倍率を決め直す（useEffect だと描画のあとになる）
     useLayoutEffect(() => {

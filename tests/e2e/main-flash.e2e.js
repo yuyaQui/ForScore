@@ -182,6 +182,27 @@ async function runCase(browser, api, { mode, label, prep, real }) {
     const browser = await chromium.launch();
     const api = makeFakeApi();
     api.players = Array.from({ length: 3 }, (_, i) => player(i + 1));
+
+    // 最初に開いたとき（サーバで描かれる大会準備の画面）に、ハイドレーションの食い違いが起きない（2026-11-17）
+    console.log('大会準備（サーバで描かれる最初の画面）');
+    {
+        const main = await browser.newPage({ viewport: { width: 800, height: 450 } });
+        const hydrationErrors = [];
+        main.on('console', m => { if (m.type() === 'error' && /hydrat/i.test(m.text())) hydrationErrors.push(m.text().slice(0, 160)); });
+        main.on('pageerror', e => { if (/hydrat/i.test(e.message)) hydrationErrors.push(e.message.slice(0, 160)); });
+        await api.install(main);
+        await main.goto(`${BASE}/main`);
+        await sleep(2500);
+        check('大会準備: ハイドレーションの食い違いが起きない', hydrationErrors.length === 0, JSON.stringify(hydrationErrors));
+        const scale = await main.evaluate(() => {
+            const stage = document.querySelector('div[style*="width: 1920px"][style*="scale("]');
+            const m = stage && /scale\(([0-9.]+)\)/.exec(stage.getAttribute('style') || '');
+            return m ? Number(m[1]) : null;
+        });
+        check(`大会準備: 照らし合わせの後は正しい倍率（${EXPECT_SCALE.toFixed(3)}）`, scale !== null && Math.abs(scale - EXPECT_SCALE) < 0.001, String(scale));
+        await main.close();
+    }
+
     console.log('Semi-Final（状態は quiz）');
     await runCase(browser, api, { mode: 'semifinal', label: 'Semi-Final', prep: ctl => ctl.emit('change_semifinal_state', { view: 'quiz' }), real: /Semifinal|SET/ });
     console.log('3rd Round');
